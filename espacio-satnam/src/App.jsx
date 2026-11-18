@@ -54,6 +54,16 @@ const PLAN_OPTIONS = [
   'Pase Libre Clases'
 ];
 
+const DAYS_OF_WEEK = [
+  { id: 1, label: 'Lunes' },
+  { id: 2, label: 'Martes' },
+  { id: 3, label: 'Miércoles' },
+  { id: 4, label: 'Jueves' },
+  { id: 5, label: 'Viernes' },
+  { id: 6, label: 'Sábado' },
+  { id: 0, label: 'Domingo' }
+];
+
 // Utilidad para formatear fechas de YYYY-MM-DD a DD-MM-YYYY
 const formatDateDDMMYYYY = (dateStr) => {
   if (!dateStr) return '';
@@ -198,17 +208,17 @@ export default function App() {
   const [categoryFilter, setCategoryFilter] = useState('Todas');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Estados de modales (instructor por defecto: Patricia Aleman)
+  // Estados de modales con selección múltiple de días (1 = Lunes, etc.)
   const [showNewClassModal, setShowNewClassModal] = useState(false);
   const [newClass, setNewClass] = useState({
     title: '',
     category: 'Yoga',
     instructor: 'Patricia Aleman',
-    date: new Date().toISOString().split('T')[0],
     time: '10:00',
     duration: 60,
     capacity: 12,
-    isRecurring: false
+    selectedDays: [1, 3, 5], // por defecto L, M, V
+    isRecurring6Months: true
   });
 
   const [showNewStudentModal, setShowNewStudentModal] = useState(false);
@@ -415,20 +425,38 @@ export default function App() {
     }
   };
 
-  // Crear nuevo turno / actividad con inserción por lotes para evitar errores de tamaño
+  // Generación automática de clases por días de la semana seleccionados durante 6 meses (26 semanas)
   const handleAddClass = async (e) => {
     e.preventDefault();
 
-    let datesToCreate = [newClass.date];
+    if (newClass.selectedDays.length === 0) {
+      showToast('Selecciona al menos un día de la semana', 'error');
+      return;
+    }
 
-    // Si se marca como clase fija recurrente, generamos semanalmente durante 52 semanas (1 año)
-    if (newClass.isRecurring) {
-      const baseDate = new Date(newClass.date + 'T00:00:00');
-      for (let i = 1; i <= 52; i++) {
-        const nextDate = new Date(baseDate);
-        nextDate.setDate(baseDate.getDate() + i * 7);
-        datesToCreate.push(nextDate.toISOString().split('T')[0]);
+    let datesToCreate = [];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Si es recurrente por 6 meses (26 semanas)
+    if (newClass.isRecurring6Months) {
+      for (let week = 0; week < 26; week++) {
+        for (let dayOfWeek of newClass.selectedDays) {
+          const d = new Date(today);
+          // Calcular la fecha para cada día de la semana en el rango de las 26 semanas
+          const currentDay = d.getDay();
+          const distance = (dayOfWeek + 7 - currentDay) % 7;
+          d.setDate(d.getDate() + distance + week * 7);
+
+          const dateString = d.toISOString().split('T')[0];
+          if (!datesToCreate.includes(dateString)) {
+            datesToCreate.push(dateString);
+          }
+        }
       }
+    } else {
+      // Si no, solo toma la fecha de hoy por defecto
+      datesToCreate.push(today.toISOString().split('T')[0]);
     }
 
     const payload = datesToCreate.map((d) => ({
@@ -444,7 +472,7 @@ export default function App() {
     }));
 
     try {
-      // Insertar en lotes de 10 registros para no saturar la conexión con Supabase
+      // Insertar en lotes seguros de 10 registros para Supabase
       const batchSize = 10;
       let insertedClasses = [];
 
@@ -461,17 +489,13 @@ export default function App() {
         title: '',
         category: 'Yoga',
         instructor: 'Patricia Aleman',
-        date: selectedDate,
         time: '10:00',
         duration: 60,
         capacity: 12,
-        isRecurring: false
+        selectedDays: [1, 3, 5],
+        isRecurring6Months: true
       });
-      showToast(
-        newClass.isRecurring
-          ? '¡Clases fijas programadas para todo el año con éxito!'
-          : 'Actividad agregada a la agenda'
-      );
+      showToast('¡Clases fijas programadas por 6 meses con éxito!');
     } catch (error) {
       console.error('Error al guardar turnos:', error);
       showToast('Error al guardar el turno en la base de datos', 'error');
@@ -1052,7 +1076,7 @@ export default function App() {
                   <div>
                     <h2 className="text-xl font-semibold">Agenda Espacio Sat-Nam</h2>
                     <p className="text-sm text-stone-500">
-                      Gestiona clases anuales, cancela clases puntuales y revisa asistencia
+                      Gestiona clases semestrales, suspende clases puntuales y revisa asistencia
                     </p>
                   </div>
 
@@ -1064,13 +1088,10 @@ export default function App() {
                       className="text-sm font-medium bg-white px-3 py-2 rounded-xl border border-stone-200/80"
                     />
                     <button
-                      onClick={() => {
-                        setNewClass((prev) => ({ ...prev, date: selectedDate }));
-                        setShowNewClassModal(true);
-                      }}
+                      onClick={() => setShowNewClassModal(true)}
                       className={`flex items-center gap-1.5 ${t.primaryBtn} px-4 py-2 rounded-xl text-sm font-medium transition-all`}
                     >
-                      <Plus className="w-4 h-4" /> Programar Actividad Anual
+                      <Plus className="w-4 h-4" /> Programar Clases Fijas (6 Meses)
                     </button>
                   </div>
                 </div>
@@ -1186,7 +1207,7 @@ export default function App() {
                     <div className="bg-white rounded-3xl p-8 text-center border border-stone-200/70 text-stone-500 text-sm">
                       No hay actividades cargadas para la fecha{' '}
                       <strong>{formatDateDDMMYYYY(selectedDate)}</strong>. Haz clic en{' '}
-                      <strong>+ Programar Actividad Anual</strong>.
+                      <strong>+ Programar Clases Fijas (6 Meses)</strong>.
                     </div>
                   )}
                 </div>
@@ -1429,12 +1450,12 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal: Programación Anual de Clases Fijas */}
+      {/* Modal: Programación Semestral por Días Múltiples */}
       {showNewClassModal && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="font-semibold text-lg">Programar Actividad / Clase Fija</h3>
+              <h3 className="font-semibold text-lg">Programar Clases Fijas (6 Meses)</h3>
               <button onClick={() => setShowNewClassModal(false)}>
                 <XCircle className="w-5 h-5 text-stone-400" />
               </button>
@@ -1496,17 +1517,38 @@ export default function App() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                <div className="col-span-2 sm:col-span-1">
-                  <label className="block text-xs font-medium text-stone-600 mb-1">Fecha Inicial</label>
-                  <input
-                    required
-                    type="date"
-                    value={newClass.date}
-                    onChange={(e) => setNewClass({ ...newClass, date: e.target.value })}
-                    className="w-full border border-stone-200 rounded-xl px-2 py-2 text-xs"
-                  />
+              {/* Selección Múltiple de Días de la Semana */}
+              <div>
+                <label className="block text-xs font-medium text-stone-600 mb-1.5">
+                  Días de la semana en los que se dicta:
+                </label>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {DAYS_OF_WEEK.map((day) => {
+                    const isSelected = newClass.selectedDays.includes(day.id);
+                    return (
+                      <button
+                        type="button"
+                        key={day.id}
+                        onClick={() => {
+                          const updatedDays = isSelected
+                            ? newClass.selectedDays.filter((d) => d !== day.id)
+                            : [...newClass.selectedDays, day.id];
+                          setNewClass({ ...newClass, selectedDays: updatedDays });
+                        }}
+                        className={`py-2 px-2 rounded-xl text-xs font-medium border text-center transition-all ${
+                          isSelected
+                            ? `${t.activePill} border-transparent`
+                            : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
+                        }`}
+                      >
+                        {day.label}
+                      </button>
+                    );
+                  })}
                 </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-stone-600 mb-1">Hora</label>
                   <input
@@ -1514,7 +1556,7 @@ export default function App() {
                     type="time"
                     value={newClass.time}
                     onChange={(e) => setNewClass({ ...newClass, time: e.target.value })}
-                    className="w-full border border-stone-200 rounded-xl px-2 py-2 text-xs"
+                    className="w-full border border-stone-200 rounded-xl px-3 py-2 text-sm"
                   />
                 </div>
                 <div>
@@ -1526,48 +1568,29 @@ export default function App() {
                     max="480"
                     value={newClass.duration}
                     onChange={(e) => setNewClass({ ...newClass, duration: e.target.value })}
-                    className="w-full border border-stone-200 rounded-xl px-2 py-2 text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">Cupo</label>
-                  <input
-                    required
-                    type="number"
-                    min="1"
-                    max="60"
-                    value={newClass.capacity}
-                    onChange={(e) => setNewClass({ ...newClass, capacity: e.target.value })}
-                    className="w-full border border-stone-200 rounded-xl px-2 py-2 text-xs"
+                    className="w-full border border-stone-200 rounded-xl px-3 py-2 text-sm"
                   />
                 </div>
               </div>
 
-              {/* Casilla para generar clases fijas para todo el año */}
-              <div className="pt-1">
-                <label className="flex items-center gap-2.5 cursor-pointer bg-stone-50 p-3 rounded-xl border border-stone-200">
-                  <input
-                    type="checkbox"
-                    checked={newClass.isRecurring}
-                    onChange={(e) => setNewClass({ ...newClass, isRecurring: e.target.checked })}
-                    className="rounded accent-stone-700 w-4 h-4"
-                  />
-                  <div>
-                    <span className="text-xs font-semibold text-stone-800 block">
-                      Programar automáticamente durante 1 año (52 semanas)
-                    </span>
-                    <span className="text-[11px] text-stone-500">
-                      Ideal para dejar fijas las clases de Yoga y Spinning sin mantenimiento.
-                    </span>
-                  </div>
-                </label>
+              <div>
+                <label className="block text-xs font-medium text-stone-600 mb-1">Cupo Máximo</label>
+                <input
+                  required
+                  type="number"
+                  min="1"
+                  max="60"
+                  value={newClass.capacity}
+                  onChange={(e) => setNewClass({ ...newClass, capacity: e.target.value })}
+                  className="w-full border border-stone-200 rounded-xl px-3 py-2 text-sm"
+                />
               </div>
 
               <button
                 type="submit"
                 className={`w-full ${t.primaryBtn} font-medium py-2.5 rounded-xl mt-2`}
               >
-                Guardar en Agenda
+                Generar Agenda por 6 Meses
               </button>
             </form>
           </div>
