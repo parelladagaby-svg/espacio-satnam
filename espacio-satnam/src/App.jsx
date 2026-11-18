@@ -98,8 +98,8 @@ const toISODate = (dateObj) => {
   return `${y}-${m}-${d}`;
 };
 
-// Logo oficial: Flor de Loto
-function SatNamLogo({ className = 'w-13 h-13' }) {
+// Logo oficial: Flor de Loto (tamaño proporcionado anterior)
+function SatNamLogo({ className = 'w-11 h-11' }) {
   return (
     <div
       className={`${className} rounded-2xl bg-[#5C7362] p-1.5 flex items-center justify-center text-white shadow-xs shrink-0`}
@@ -111,31 +111,31 @@ function SatNamLogo({ className = 'w-13 h-13' }) {
         className="w-full h-full"
       >
         <path
-          d="M32 6C25 18 22.5 30 32 45C41.5 30 39 18 32 6Z"
+          d="M32 7C25.5 18.5 23 30 32 44.5C41 30 38.5 18.5 32 7Z"
           fill="white"
           fillOpacity="0.96"
         />
         <path
-          d="M28.5 44C16.5 37 10.5 25 13 13.5C22.5 18.5 27.5 29.5 28.5 44Z"
+          d="M28.5 43.5C17 36.8 11.2 25.2 13.6 14C22.8 18.8 27.6 29.5 28.5 43.5Z"
           fill="white"
           fillOpacity="0.78"
         />
         <path
-          d="M35.5 44C47.5 37 53.5 25 51 13.5C41.5 18.5 36.5 29.5 35.5 44Z"
+          d="M35.5 43.5C47 36.8 52.8 25.2 50.4 14C41.2 18.8 36.4 29.5 35.5 43.5Z"
           fill="white"
           fillOpacity="0.78"
         />
         <path
-          d="M26 46.5C11.5 46.5 3.5 38 2.5 28.5C13 28.5 21.5 35.5 26 46.5Z"
+          d="M26.2 46C12.2 46 4.4 37.8 3.5 28.6C13.6 28.6 21.8 35.4 26.2 46Z"
           fill="white"
           fillOpacity="0.55"
         />
         <path
-          d="M38 46.5C52.5 46.5 60.5 38 61.5 28.5C51 28.5 42.5 35.5 38 46.5Z"
+          d="M37.8 46C51.8 46 59.6 37.8 60.5 28.6C50.4 28.6 42.2 35.4 37.8 46Z"
           fill="white"
           fillOpacity="0.55"
         />
-        <circle cx="32" cy="54" r="3.4" fill="white" fillOpacity="0.92" />
+        <circle cx="32" cy="53.5" r="3.2" fill="white" fillOpacity="0.92" />
       </svg>
     </div>
   );
@@ -170,9 +170,10 @@ export default function App() {
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
   const [profileForm, setProfileForm] = useState({ name: '', phone: '' });
 
-  // Vista Admin: Calendario semanal / mensual
+  // Vista Admin: Calendario semanal / mensual & Dashboard
   const [calendarView, setCalendarView] = useState('week'); // 'week' | 'month'
   const [calendarCursor, setCalendarCursor] = useState(new Date());
+  const [dashboardClassFilter, setDashboardClassFilter] = useState('ALL');
   const [searchTerm, setSearchTerm] = useState('');
 
   // Modal + Servicio (solo agregar)
@@ -426,7 +427,7 @@ export default function App() {
     }
   };
 
-  // Marcar asistencia
+  // Marcar o actualizar asistencia
   const handleToggleAttendance = async (bookingId) => {
     const current = bookings.find((b) => b.id === bookingId);
     if (!current) return;
@@ -441,6 +442,9 @@ export default function App() {
       setBookings((prev) =>
         prev.map((b) => (b.id === bookingId ? { ...b, attended: nextVal } : b))
       );
+      showToast(nextVal ? 'Asistencia registrada' : 'Asistencia desmarcada');
+    } else {
+      showToast('No se pudo actualizar la asistencia', 'error');
     }
   };
 
@@ -772,7 +776,7 @@ export default function App() {
   const getWeekDays = (cursor) => {
     const start = new Date(cursor);
     const day = start.getDay();
-    const diff = start.getDate() - day + (day === 0 ? -6 : 1); // Lunes como primer día
+    const diff = start.getDate() - day + (day === 0 ? -6 : 1);
     start.setDate(diff);
     return Array.from({ length: 7 }, (_, i) => {
       const d = new Date(start);
@@ -786,7 +790,7 @@ export default function App() {
     const month = cursor.getMonth();
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
-    const startOffset = (firstDay.getDay() + 6) % 7; // Lunes = 0
+    const startOffset = (firstDay.getDay() + 6) % 7;
     const days = [];
     for (let i = 0; i < startOffset; i++) days.push(null);
     for (let d = 1; d <= lastDay.getDate(); d++) days.push(new Date(year, month, d));
@@ -815,12 +819,17 @@ export default function App() {
   const attendanceRate =
     totalBookingsCount > 0 ? Math.round((totalAttendedCount / totalBookingsCount) * 100) : 0;
 
+  const dashboardFilteredClasses =
+    dashboardClassFilter === 'ALL'
+      ? dayClassesAdmin
+      : dayClassesAdmin.filter((c) => c.id === dashboardClassFilter);
+
   return (
-    <div className="min-h-screen bg-[#F7F5F0] text-[#2D332F] font-sans pb-28 md:pb-16 flex flex-col">
+    <div className="min-h-screen bg-[#F7F5F0] text-[#2D332F] font-sans pb-24 md:pb-14 flex flex-col">
       {/* Notificación flotante */}
       {notification && (
         <div
-          className={`fixed bottom-24 md:bottom-14 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-2xl shadow-lg text-sm font-medium ${
+          className={`fixed bottom-20 md:bottom-12 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-2xl shadow-lg text-sm font-medium ${
             notification.type === 'error' ? 'bg-rose-700 text-white' : 'bg-[#2D332F] text-white'
           }`}
         >
@@ -829,19 +838,19 @@ export default function App() {
         </div>
       )}
 
-      {/* Encabezado */}
+      {/* Encabezado (tamaño compacto anterior) */}
       <header className="bg-white/90 backdrop-blur-md border-b border-[#E5E0D8] sticky top-0 z-30">
-        <div className="max-w-5xl mx-auto px-4 py-3.5 flex flex-wrap items-center justify-between gap-2.5">
-          <div className="flex items-center gap-3.5">
+        <div className="max-w-5xl mx-auto px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
             <SatNamLogo />
             <div>
               <div className="flex items-baseline gap-2">
-                <h1 className="font-semibold text-xl tracking-tight leading-none">
+                <h1 className="font-semibold text-lg tracking-tight leading-none">
                   Espacio <span className="text-[#5C7362]">Sat-Nam</span>
                 </h1>
-                <span className="text-xs italic text-stone-500">by Patricia Aleman</span>
+                <span className="text-[11px] italic text-stone-500">by Patricia Aleman</span>
               </div>
-              <p className="text-xs text-[#737D76] mt-1">
+              <p className="text-xs text-[#737D76] mt-0.5">
                 Bienestar Integral • Movimiento, Coaching, Constelaciones & Estética
               </p>
             </div>
@@ -1526,13 +1535,13 @@ export default function App() {
               </div>
             )}
 
-            {/* PESTAÑA 2: DASHBOARD DE MÉTRICAS Y ASISTENCIA */}
+            {/* PESTAÑA 2: DASHBOARD DE MÉTRICAS Y ACTUALIZACIÓN DE ASISTENCIA */}
             {adminTab === 'dashboard' && (
               <div className="space-y-6">
                 <div>
                   <h2 className="text-xl font-semibold">Dashboard & Control de Asistencia</h2>
                   <p className="text-sm text-stone-500">
-                    Resumen general del estudio y registro rápido de presentismo
+                    Resumen general del estudio y actualización directa de asistencia
                   </p>
                 </div>
 
@@ -1573,32 +1582,51 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Toma de Asistencia por Fecha */}
+                {/* Actualizar Asistencia por Fecha y Clase */}
                 <div className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-stone-100">
                     <div>
                       <h3 className="font-semibold text-base">
-                        Planilla de Asistencia ({formatDateDDMMYYYY(selectedDate)})
+                        Actualizar Asistencia ({formatDateDDMMYYYY(selectedDate)})
                       </h3>
                       <p className="text-xs text-stone-500">
-                        Haz clic sobre cada alumno para marcar o desmarcar su asistencia
+                        Selecciona la fecha y la clase para marcar o quitar la asistencia de cada alumno
                       </p>
                     </div>
-                    <input
-                      type="date"
-                      value={selectedDate}
-                      onChange={(e) => setSelectedDate(e.target.value)}
-                      className="text-sm font-medium bg-[#F7F5F0] px-3 py-1.5 rounded-xl border border-stone-200"
-                    />
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        type="date"
+                        value={selectedDate}
+                        onChange={(e) => {
+                          setSelectedDate(e.target.value);
+                          setDashboardClassFilter('ALL');
+                        }}
+                        className="text-sm font-medium bg-[#F7F5F0] px-3 py-1.5 rounded-xl border border-stone-200"
+                      />
+
+                      <select
+                        value={dashboardClassFilter}
+                        onChange={(e) => setDashboardClassFilter(e.target.value)}
+                        className="text-sm font-medium bg-[#F7F5F0] px-3 py-1.5 rounded-xl border border-stone-200"
+                      >
+                        <option value="ALL">Todas las clases del día</option>
+                        {dayClassesAdmin.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.time} hs — {c.title}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
 
-                  {dayClassesAdmin.length === 0 ? (
+                  {dashboardFilteredClasses.length === 0 ? (
                     <p className="text-sm text-stone-500 py-4 text-center">
-                      No hay clases registradas en esta fecha.
+                      No hay clases programadas en esta fecha.
                     </p>
                   ) : (
                     <div className="space-y-4">
-                      {dayClassesAdmin.map((cls) => {
+                      {dashboardFilteredClasses.map((cls) => {
                         const clsBookings = bookings.filter((b) => b.classId === cls.id);
                         return (
                           <div
@@ -1612,34 +1640,48 @@ export default function App() {
                                 </span>{' '}
                                 <span className="font-semibold text-sm">• {cls.title}</span>
                               </div>
-                              <span className="text-xs text-stone-500">
+                              <span className="text-xs font-medium text-stone-600">
                                 Presentes: {clsBookings.filter((b) => b.attended).length}/
                                 {clsBookings.length}
                               </span>
                             </div>
 
                             {clsBookings.length === 0 ? (
-                              <p className="text-xs text-stone-400 italic">Sin inscritos</p>
+                              <p className="text-xs text-stone-400 italic">
+                                Sin alumnos inscritos en este turno.
+                              </p>
                             ) : (
-                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                              <div className="space-y-2">
                                 {clsBookings.map((b) => {
                                   const st = students.find((s) => s.id === b.studentId);
                                   if (!st) return null;
                                   return (
-                                    <button
+                                    <div
                                       key={b.id}
-                                      onClick={() => handleToggleAttendance(b.id)}
-                                      className={`p-2.5 rounded-xl border text-left flex items-center justify-between transition-all ${
-                                        b.attended
-                                          ? 'bg-[#5C7362] text-white border-[#5C7362]'
-                                          : 'bg-white text-stone-700 border-stone-200 hover:border-stone-300'
-                                      }`}
+                                      className="bg-white p-3 rounded-xl border border-stone-200/80 flex items-center justify-between gap-2"
                                     >
-                                      <span className="text-xs font-semibold">
-                                        {st.name} ({getStudentQuotaDisplay(st)})
-                                      </span>
-                                      <UserCheck className="w-4 h-4 shrink-0" />
-                                    </button>
+                                      <div>
+                                        <p className="text-sm font-semibold">
+                                          {st.name}{' '}
+                                          <span className="text-[#5C7362]">
+                                            ({getStudentQuotaDisplay(st)})
+                                          </span>
+                                        </p>
+                                        <p className="text-xs text-stone-500">{st.plan}</p>
+                                      </div>
+
+                                      <button
+                                        onClick={() => handleToggleAttendance(b.id)}
+                                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                                          b.attended
+                                            ? 'bg-[#5C7362] text-white hover:bg-[#4B5F50]'
+                                            : 'bg-[#EDF3EE] text-[#4C6352] hover:bg-[#dce8de]'
+                                        }`}
+                                      >
+                                        <UserCheck className="w-3.5 h-3.5" />
+                                        {b.attended ? 'Asistió (Actualizar)' : 'Marcar Asistencia'}
+                                      </button>
+                                    </div>
                                   );
                                 })}
                               </div>
