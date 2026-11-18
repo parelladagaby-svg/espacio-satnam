@@ -25,11 +25,13 @@ import {
   Orbit,
   Ban,
   Edit3,
-  Layers,
-  CalendarDays
+  BarChart3,
+  ChevronLeft,
+  ChevronRight,
+  UserCog
 } from 'lucide-react';
 
-// Conexión a tu base de datos en Supabase
+// Conexión a Supabase
 const supabaseUrl = 'https://miwktvtdygetyzqvccal.supabase.co';
 const supabaseKey = 'sb_publishable_45-FeV94kQsHYfau3pJPjg_DOo7R6yx';
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -37,14 +39,23 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 // PIN de acceso al Modo Estudio
 const ADMIN_PIN = '1008';
 
-const INITIAL_CATEGORIES = [
-  { id: 'Yoga', label: 'Yoga Terapia & Restaurativo', defaultCap: 12 },
-  { id: 'Spinning', label: 'Spinning', defaultCap: 10 },
-  { id: 'Pilates', label: 'Pilates & Circuito', defaultCap: 10 },
-  { id: 'Coaching', label: 'Coaching & PNL', defaultCap: 1 },
-  { id: 'Constelaciones', label: 'Constelaciones', defaultCap: 12 },
-  { id: 'Estetica', label: 'Estética & Cosmiatría', defaultCap: 1 },
-  { id: 'Eventos', label: 'Meditaciones', defaultCap: 20 }
+// 3 Pilares para agrupar servicios en la Vista de Alumno
+const PILLARS = [
+  { id: 'Todas', label: 'Todas' },
+  { id: 'cuerpo', label: 'Cuerpo & Movimiento' },
+  { id: 'mente', label: 'Mente & Procesos' },
+  { id: 'estetica', label: 'Cuidado & Estética' }
+];
+
+const INITIAL_SERVICES = [
+  { id: 'Yoga', label: 'Yoga', pillar: 'cuerpo', defaultCap: 12 },
+  { id: 'Spinning', label: 'Spinning', pillar: 'cuerpo', defaultCap: 10 },
+  { id: 'Pilates', label: 'Pilates', pillar: 'cuerpo', defaultCap: 10 },
+  { id: 'CircuitoSatNam', label: 'Circuito Sat-Nam', pillar: 'cuerpo', defaultCap: 10 },
+  { id: 'Coaching', label: 'Coaching & PNL', pillar: 'mente', defaultCap: 1 },
+  { id: 'Constelaciones', label: 'Constelaciones', pillar: 'mente', defaultCap: 12 },
+  { id: 'Eventos', label: 'Meditaciones', pillar: 'mente', defaultCap: 20 },
+  { id: 'Estetica', label: 'Estética & Cosmiatría', pillar: 'estetica', defaultCap: 1 }
 ];
 
 const PLAN_OPTIONS = [
@@ -58,16 +69,21 @@ const PLAN_OPTIONS = [
 ];
 
 const DAYS_OF_WEEK = [
-  { id: 1, label: 'Lunes' },
-  { id: 2, label: 'Martes' },
-  { id: 3, label: 'Miércoles' },
-  { id: 4, label: 'Jueves' },
-  { id: 5, label: 'Viernes' },
-  { id: 6, label: 'Sábado' },
-  { id: 0, label: 'Domingo' }
+  { id: 1, short: 'Lun', label: 'Lunes' },
+  { id: 2, short: 'Mar', label: 'Martes' },
+  { id: 3, short: 'Mié', label: 'Miércoles' },
+  { id: 4, short: 'Jue', label: 'Jueves' },
+  { id: 5, short: 'Vie', label: 'Viernes' },
+  { id: 6, short: 'Sáb', label: 'Sábado' },
+  { id: 0, short: 'Dom', label: 'Domingo' }
 ];
 
-// Utilidad para formatear fechas de YYYY-MM-DD a DD-MM-YYYY
+const MONTH_NAMES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+];
+
+// Formatear YYYY-MM-DD a DD-MM-YYYY
 const formatDateDDMMYYYY = (dateStr) => {
   if (!dateStr) return '';
   const [year, month, day] = dateStr.split('-');
@@ -75,72 +91,18 @@ const formatDateDDMMYYYY = (dateStr) => {
   return `${day}-${month}-${year}`;
 };
 
-// 3 opciones de paleta
-const THEMES = {
-  sage: {
-    name: 'Salvia & Lino',
-    swatch: '#5C7362',
-    bg: 'bg-[#F7F5F0]',
-    textMain: 'text-[#2D332F]',
-    headerBorder: 'border-[#E5E0D8]',
-    brandAccent: 'text-[#5C7362]',
-    subtitleText: 'text-[#737D76]',
-    logoBg: 'bg-[#5C7362]',
-    cardAccentBar: 'bg-[#5C7362]',
-    primaryBtn: 'bg-[#5C7362] hover:bg-[#4B5F50] text-white shadow-xs',
-    activePill: 'bg-[#5C7362] text-white shadow-xs',
-    softBadge: 'bg-[#EDF3EE] text-[#4C6352]',
-    iconAccent: 'text-[#5C7362]',
-    bookedRing: 'border-[#5C7362] ring-1 ring-[#5C7362]/25',
-    toastBg: 'bg-[#2D332F] text-white',
-    focusBorder: 'focus:border-[#5C7362]',
-    ringSwatch: 'ring-[#5C7362]'
-  },
-  terracotta: {
-    name: 'Arena & Terracota',
-    swatch: '#A85D44',
-    bg: 'bg-[#F8F6F2]',
-    textMain: 'text-[#2C2A29]',
-    headerBorder: 'border-[#EAE4DC]',
-    brandAccent: 'text-[#A85D44]',
-    subtitleText: 'text-[#847B73]',
-    logoBg: 'bg-[#A85D44]',
-    cardAccentBar: 'bg-[#A85D44]',
-    primaryBtn: 'bg-[#A85D44] hover:bg-[#914E38] text-white shadow-xs',
-    activePill: 'bg-[#A85D44] text-white shadow-xs',
-    softBadge: 'bg-[#F3EAE5] text-[#8E4B35]',
-    iconAccent: 'text-[#A85D44]',
-    bookedRing: 'border-[#A85D44] ring-1 ring-[#A85D44]/25',
-    toastBg: 'bg-[#2C2A29] text-white',
-    focusBorder: 'focus:border-[#A85D44]',
-    ringSwatch: 'ring-[#A85D44]'
-  },
-  indigo: {
-    name: 'Piedra & Índigo',
-    swatch: '#475B74',
-    bg: 'bg-[#F6F7F9]',
-    textMain: 'text-[#252B33]',
-    headerBorder: 'border-[#E2E6EC]',
-    brandAccent: 'text-[#475B74]',
-    subtitleText: 'text-[#6E7885]',
-    logoBg: 'bg-[#475B74]',
-    cardAccentBar: 'bg-[#475B74]',
-    primaryBtn: 'bg-[#475B74] hover:bg-[#38495E] text-white shadow-xs',
-    activePill: 'bg-[#475B74] text-white shadow-xs',
-    softBadge: 'bg-[#E9EEF4] text-[#3B4D63]',
-    iconAccent: 'text-[#475B74]',
-    bookedRing: 'border-[#475B74] ring-1 ring-[#475B74]/25',
-    toastBg: 'bg-[#252B33] text-white',
-    focusBorder: 'focus:border-[#475B74]',
-    ringSwatch: 'ring-[#475B74]'
-  }
+const toISODate = (dateObj) => {
+  const y = dateObj.getFullYear();
+  const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const d = String(dateObj.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 };
 
 // Logo oficial: Flor de Loto
-function SatNamLogo({ bgClass, className = 'w-14 h-14' }) {
+function SatNamLogo({ className = 'w-13 h-13' }) {
   return (
     <div
-      className={`${className} rounded-2xl ${bgClass} p-1.5 flex items-center justify-center text-white shadow-xs shrink-0 transition-colors duration-300`}
+      className={`${className} rounded-2xl bg-[#5C7362] p-1.5 flex items-center justify-center text-white shadow-xs shrink-0`}
     >
       <svg
         viewBox="0 0 64 64"
@@ -180,66 +142,69 @@ function SatNamLogo({ bgClass, className = 'w-14 h-14' }) {
 }
 
 export default function App() {
-  const [themeKey, setThemeKey] = useState(
-    () => localStorage.getItem('satnam_theme') || 'sage'
-  );
-
-  const t = THEMES[themeKey] || THEMES.sage;
-
-  const handleSelectTheme = (key) => {
-    setThemeKey(key);
-    localStorage.setItem('satnam_theme', key);
-  };
-
   const [role, setRole] = useState('student');
-  const [adminTab, setAdminTab] = useState('schedule');
+  const [adminTab, setAdminTab] = useState('schedule'); // 'schedule' | 'dashboard' | 'students' | 'payments'
   const [notification, setNotification] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Estados de seguridad PIN
+  // PIN Modo Estudio
   const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
   const [showPinModal, setShowPinModal] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
 
-  const [categories, setCategories] = useState(() => {
-    const saved = localStorage.getItem('satnam_categories');
-    return saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
+  // Servicios disponibles
+  const [services, setServices] = useState(() => {
+    const saved = localStorage.getItem('satnam_services_v2');
+    return saved ? JSON.parse(saved) : INITIAL_SERVICES;
   });
 
   const [students, setStudents] = useState([]);
   const [classes, setClasses] = useState([]);
   const [bookings, setBookings] = useState([]);
 
+  // Vista Alumno
   const [activeStudentId, setActiveStudentId] = useState('');
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [categoryFilter, setCategoryFilter] = useState('Todas');
+  const [selectedDate, setSelectedDate] = useState(toISODate(new Date()));
+  const [pillarFilter, setPillarFilter] = useState('Todas');
+  const [showEditProfileModal, setShowEditProfileModal] = useState(false);
+  const [profileForm, setProfileForm] = useState({ name: '', phone: '' });
+
+  // Vista Admin: Calendario semanal / mensual
+  const [calendarView, setCalendarView] = useState('week'); // 'week' | 'month'
+  const [calendarCursor, setCalendarCursor] = useState(new Date());
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Modales de Servicios y Horarios
-  const [showServiceModal, setShowServiceModal] = useState(false);
-  const [editingService, setEditingService] = useState(null);
-  const [serviceForm, setServiceForm] = useState({ label: '', defaultCap: 12, isPaused: false });
+  // Modal + Servicio (solo agregar)
+  const [showAddServiceModal, setShowAddServiceModal] = useState(false);
+  const [newServiceForm, setNewServiceForm] = useState({
+    label: '',
+    pillar: 'cuerpo',
+    defaultCap: 10
+  });
 
+  // Modal Programar / Editar Clase
   const [showClassModal, setShowClassModal] = useState(false);
   const [editingClassId, setEditingClassId] = useState(null);
   const [classForm, setClassForm] = useState({
     category: 'Yoga',
-    title: '',
+    title: 'Yoga',
     isCustomTitle: false,
     instructor: 'Patricia Aleman',
     time: '10:00',
     duration: 60,
     capacity: 12,
-    selectedDays: [1, 3, 5]
+    selectedDays: [1, 3, 5],
+    weeksCount: 4
   });
 
+  // Modal Nuevo Alumno
   const [showNewStudentModal, setShowNewStudentModal] = useState(false);
   const [newStudent, setNewStudent] = useState({
     name: '',
     phone: '',
     plan: 'Mensual - 2 veces por semana',
-    expiryDate: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
+    expiryDate: toISODate(new Date(Date.now() + 30 * 86400000)),
     credits: 8
   });
 
@@ -273,7 +238,7 @@ export default function App() {
     }
   };
 
-  // Cargar datos iniciales desde Supabase
+  // Cargar datos desde Supabase
   const fetchAllData = async () => {
     setLoading(true);
     try {
@@ -346,7 +311,49 @@ export default function App() {
     return 4;
   };
 
-  // Reservar o Cancelar turno
+  // Formato contador de clase según abono (ej: 1/4)
+  const getStudentQuotaDisplay = (student) => {
+    if (!student) return '';
+    if (isUnlimitedPlan(student.plan)) return 'Pase Libre';
+    const total = getDefaultCreditsForPlan(student.plan);
+    const used = Math.max(0, total - student.credits);
+    const currentNumber = used > 0 ? used : 1;
+    return `${currentNumber}/${total}`;
+  };
+
+  // Editar perfil del alumno
+  const handleOpenEditProfile = () => {
+    if (!activeStudent) return;
+    setProfileForm({ name: activeStudent.name, phone: activeStudent.phone });
+    setShowEditProfileModal(true);
+  };
+
+  const handleSaveProfile = async (e) => {
+    e.preventDefault();
+    if (!activeStudent || !profileForm.name.trim()) return;
+
+    const { error } = await supabase
+      .from('students')
+      .update({ name: profileForm.name.trim(), phone: profileForm.phone.trim() })
+      .eq('id', activeStudent.id);
+
+    if (error) {
+      showToast('No se pudo actualizar tu perfil', 'error');
+      return;
+    }
+
+    setStudents((prev) =>
+      prev.map((s) =>
+        s.id === activeStudent.id
+          ? { ...s, name: profileForm.name.trim(), phone: profileForm.phone.trim() }
+          : s
+      )
+    );
+    setShowEditProfileModal(false);
+    showToast('Perfil actualizado correctamente');
+  };
+
+  // Reservar o Cancelar turno (Alumno)
   const handleToggleBooking = async (classId) => {
     if (!activeStudent) {
       showToast('Primero solicita tu alta en el espacio', 'error');
@@ -377,12 +384,11 @@ export default function App() {
     } else {
       const classObj = classes.find((c) => c.id === classId);
       if (classObj.is_cancelled) {
-        showToast('Esta clase se encuentra cancelada.', 'error');
+        showToast('Esta clase se encuentra pausada/cancelada.', 'error');
         return;
       }
 
       const classBookingsCount = bookings.filter((b) => b.classId === classId).length;
-
       if (classBookingsCount >= classObj.capacity) {
         showToast('Este turno ya alcanzó su cupo máximo.', 'error');
         return;
@@ -438,75 +444,49 @@ export default function App() {
     }
   };
 
-  // Guardar o Editar Servicio
-  const handleSaveService = (e) => {
+  // Agregar nuevo servicio (+ Servicio)
+  const handleAddService = (e) => {
     e.preventDefault();
-    if (!serviceForm.label.trim()) return;
+    if (!newServiceForm.label.trim()) return;
 
-    let updatedCategories;
-    if (editingService) {
-      updatedCategories = categories.map((cat) =>
-        cat.id === editingService.id
-          ? { ...cat, label: serviceForm.label, defaultCap: Number(serviceForm.defaultCap), isPaused: serviceForm.isPaused }
-          : cat
-      );
-      showToast('Servicio actualizado con éxito');
-    } else {
-      const newId = serviceForm.label.toLowerCase().replace(/[^a-z0-9]/g, '_');
-      if (categories.some((c) => c.id === newId)) {
-        showToast('Ya existe un servicio con ese nombre', 'error');
-        return;
-      }
-      updatedCategories = [
-        ...categories,
-        { id: newId, label: serviceForm.label, defaultCap: Number(serviceForm.defaultCap), isPaused: false }
-      ];
-      showToast('Nuevo servicio creado');
-    }
-
-    setCategories(updatedCategories);
-    localStorage.setItem('satnam_categories', JSON.stringify(updatedCategories));
-    setShowServiceModal(false);
-    setEditingService(null);
-    setServiceForm({ label: '', defaultCap: 12, isPaused: false });
-  };
-
-  // Pausar / Activar Servicio
-  const handleTogglePauseService = (catId) => {
-    const updatedCategories = categories.map((cat) =>
-      cat.id === catId ? { ...cat, isPaused: !cat.isPaused } : cat
-    );
-    setCategories(updatedCategories);
-    localStorage.setItem('satnam_categories', JSON.stringify(updatedCategories));
-    showToast('Estado del servicio actualizado');
-  };
-
-  // Eliminar Servicio
-  const handleDeleteService = (catId) => {
-    if (categories.length <= 1) {
-      showToast('Debes mantener al menos un servicio activo', 'error');
+    const newId = newServiceForm.label.trim().replace(/\s+/g, '');
+    if (services.some((s) => s.id.toLowerCase() === newId.toLowerCase())) {
+      showToast('Ya existe un servicio con ese nombre', 'error');
       return;
     }
-    const updatedCategories = categories.filter((cat) => cat.id !== catId);
-    setCategories(updatedCategories);
-    localStorage.setItem('satnam_categories', JSON.stringify(updatedCategories));
-    showToast('Servicio eliminado');
+
+    const updated = [
+      ...services,
+      {
+        id: newId,
+        label: newServiceForm.label.trim(),
+        pillar: newServiceForm.pillar,
+        defaultCap: Number(newServiceForm.defaultCap)
+      }
+    ];
+
+    setServices(updated);
+    localStorage.setItem('satnam_services_v2', JSON.stringify(updated));
+    setShowAddServiceModal(false);
+    setNewServiceForm({ label: '', pillar: 'cuerpo', defaultCap: 10 });
+    showToast('Servicio agregado correctamente');
   };
 
-  // Guardar o Programar Horarios/Clases (por 6 meses / 26 semanas)
+  // Guardar o Programar Clases (1 a 4 semanas)
   const handleSaveClass = async (e) => {
     e.preventDefault();
-    const matchingCat = categories.find((c) => c.id === classForm.category) || categories[0];
-    const finalTitle = classForm.isCustomTitle ? classForm.title : matchingCat.label;
+    const matchingSrv = services.find((s) => s.id === classForm.category) || services[0];
+    const finalTitle = classForm.isCustomTitle && classForm.title.trim()
+      ? classForm.title.trim()
+      : matchingSrv.label;
 
     if (editingClassId) {
-      // Editar clase puntual
       const { data, error } = await supabase
         .from('classes')
         .update({
           title: finalTitle,
           category: classForm.category,
-          instructor: classForm.instructor,
+          instructor: classForm.instructor || 'Patricia Aleman',
           time: classForm.time,
           duration: Number(classForm.duration),
           capacity: Number(classForm.capacity)
@@ -516,35 +496,33 @@ export default function App() {
         .single();
 
       if (error) {
-        showToast('Error al actualizar el horario', 'error');
+        showToast('Error al actualizar la clase', 'error');
         return;
       }
 
       setClasses((prev) => prev.map((c) => (c.id === editingClassId ? data : c)));
       setShowClassModal(false);
       setEditingClassId(null);
-      showToast('Horario actualizado con éxito');
+      showToast('Clase actualizada con éxito');
     } else {
-      // Crear clases recurrentes por 6 meses (26 semanas)
       if (classForm.selectedDays.length === 0) {
         showToast('Selecciona al menos un día de la semana', 'error');
         return;
       }
 
-      let datesToCreate = [];
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const weeks = Math.min(4, Math.max(1, Number(classForm.weeksCount) || 1));
+      const baseDate = new Date(selectedDate + 'T00:00:00');
+      const datesToCreate = [];
 
-      for (let week = 0; week < 26; week++) {
-        for (let dayOfWeek of classForm.selectedDays) {
-          const d = new Date(today);
+      for (let w = 0; w < weeks; w++) {
+        for (const dayOfWeek of classForm.selectedDays) {
+          const d = new Date(baseDate);
           const currentDay = d.getDay();
-          const distance = (dayOfWeek + 7 - currentDay) % 7;
-          d.setDate(d.getDate() + distance + week * 7);
-
-          const dateString = d.toISOString().split('T')[0];
-          if (!datesToCreate.includes(dateString)) {
-            datesToCreate.push(dateString);
+          const diff = (dayOfWeek + 7 - currentDay) % 7;
+          d.setDate(d.getDate() + diff + w * 7);
+          const iso = toISODate(d);
+          if (!datesToCreate.includes(iso)) {
+            datesToCreate.push(iso);
           }
         }
       }
@@ -557,36 +535,32 @@ export default function App() {
         time: classForm.time,
         duration: Number(classForm.duration),
         capacity: Number(classForm.capacity),
-        is_cancelled: false,
         room: ''
       }));
 
-      try {
-        const batchSize = 10;
-        let insertedClasses = [];
+      const { data, error } = await supabase.from('classes').insert(payload).select();
 
-        for (let i = 0; i < payload.length; i += batchSize) {
-          const batch = payload.slice(i, i + batchSize);
-          const { data, error } = await supabase.from('classes').insert(batch).select();
-          if (error) throw error;
-          if (data) insertedClasses.push(...data);
-        }
-
-        setClasses((prev) => [...prev, ...insertedClasses]);
-        setShowClassModal(false);
-        showToast('¡Horarios programados por 6 meses con éxito!');
-      } catch (error) {
-        console.error('Error al guardar horarios:', error);
-        showToast('Error al guardar en la base de datos', 'error');
+      if (error) {
+        console.error('Error insertando clases:', error);
+        showToast('No se pudieron guardar los horarios', 'error');
+        return;
       }
+
+      setClasses((prev) => [...prev, ...data]);
+      setShowClassModal(false);
+      showToast(
+        weeks === 1
+          ? 'Horarios programados para la semana'
+          : `Horarios programados por ${weeks} semanas`
+      );
     }
   };
 
-  // Abrir modal de edición de clase puntual
+  // Editar clase puntual
   const handleOpenEditClass = (cls) => {
     setEditingClassId(cls.id);
-    const matchingCat = categories.find((cat) => cat.id === cls.category) || categories[0];
-    const isCustom = cls.title !== matchingCat.label;
+    const matchingSrv = services.find((s) => s.id === cls.category) || services[0];
+    const isCustom = cls.title !== matchingSrv.label;
     setClassForm({
       category: cls.category,
       title: cls.title,
@@ -595,7 +569,8 @@ export default function App() {
       time: cls.time,
       duration: cls.duration,
       capacity: cls.capacity,
-      selectedDays: [1]
+      selectedDays: [1],
+      weeksCount: 1
     });
     setShowClassModal(true);
   };
@@ -606,7 +581,6 @@ export default function App() {
     if (!targetClass) return;
 
     const nextCancelledState = !targetClass.is_cancelled;
-
     const { error } = await supabase
       .from('classes')
       .update({ is_cancelled: nextCancelledState })
@@ -616,9 +590,9 @@ export default function App() {
       setClasses((prev) =>
         prev.map((c) => (c.id === classId ? { ...c, is_cancelled: nextCancelledState } : c))
       );
-      showToast(nextCancelledState ? 'Clase pausada correctamente' : 'Clase reactivada');
+      showToast(nextCancelledState ? 'Clase pausada' : 'Clase reactivada');
     } else {
-      showToast('No se pudo actualizar el estado', 'error');
+      showToast('Verifica que la columna is_cancelled exista en Supabase', 'error');
     }
   };
 
@@ -628,11 +602,11 @@ export default function App() {
     if (!error) {
       setClasses((prev) => prev.filter((c) => c.id !== classId));
       setBookings((prev) => prev.filter((b) => b.classId !== classId));
-      showToast('Horario eliminado de la agenda');
+      showToast('Clase eliminada');
     }
   };
 
-  // Crear nuevo alumno / consultante
+  // Nuevo Alumno
   const handleAddStudent = async (e) => {
     e.preventDefault();
     const { data, error } = await supabase
@@ -672,7 +646,7 @@ export default function App() {
       name: '',
       phone: '',
       plan: 'Mensual - 2 veces por semana',
-      expiryDate: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
+      expiryDate: toISODate(new Date(Date.now() + 30 * 86400000)),
       credits: 8
     });
     showToast('Registrado con éxito');
@@ -683,7 +657,7 @@ export default function App() {
     const student = students.find((s) => s.id === studentId);
     if (!student) return;
 
-    const nextMonth = new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0];
+    const nextMonth = toISODate(new Date(Date.now() + 30 * 86400000));
     const renewedCredits = getDefaultCreditsForPlan(student.plan);
 
     const { error } = await supabase
@@ -707,19 +681,32 @@ export default function App() {
     }
   };
 
-  // Generar enlace de WhatsApp para recordatorio
   const getWhatsAppReminderUrl = (student) => {
     const cleanPhone = student.phone.replace(/\D/g, '');
     const message = `¡Hola ${student.name}! Te saludamos desde *Espacio Sat-Nam* 🪷. Te recordamos que tu plan (*${student.plan}*) vence el día *${formatDateDDMMYYYY(student.expiryDate)}*. Avísanos por aquí si deseas renovarlo para mantener tu lugar. ¡Sat Nam! ✨`;
     return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
   };
 
-  // Filtrar clases por fecha y categoría (excluyendo servicios pausados)
-  const activeCategoryIds = categories.filter((c) => !c.isPaused).map((c) => c.id);
-  const filteredClasses = classes
+  const getPillarForCategory = (categoryId) => {
+    const srv = services.find((s) => s.id === categoryId);
+    if (srv) return srv.pillar;
+    if (categoryId === 'Estetica' || categoryId === 'Bienestar') return 'estetica';
+    if (categoryId === 'Coaching' || categoryId === 'Constelaciones' || categoryId === 'Eventos')
+      return 'mente';
+    return 'cuerpo';
+  };
+
+  // Filtrado de clases en Vista Alumno (por fecha y pilar)
+  const studentFilteredClasses = classes
     .filter((c) => c.date === selectedDate)
-    .filter((c) => activeCategoryIds.includes(c.category))
-    .filter((c) => (categoryFilter === 'Todas' ? true : c.category === categoryFilter))
+    .filter((c) =>
+      pillarFilter === 'Todas' ? true : getPillarForCategory(c.category) === pillarFilter
+    )
+    .sort((a, b) => a.time.localeCompare(b.time));
+
+  // Clases del día seleccionado en Modo Estudio
+  const dayClassesAdmin = classes
+    .filter((c) => c.date === selectedDate)
     .sort((a, b) => a.time.localeCompare(b.time));
 
   const filteredStudents = students.filter(
@@ -729,7 +716,7 @@ export default function App() {
   );
 
   const getStatusBadge = (student) => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = toISODate(new Date());
     if (student.expiryDate < today || student.status === 'overdue') {
       return (
         <span className="px-2.5 py-0.5 text-xs font-medium rounded-full bg-rose-100/80 text-rose-800">
@@ -748,22 +735,24 @@ export default function App() {
       );
     }
     return (
-      <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full ${t.softBadge}`}>
+      <span className="px-2.5 py-0.5 text-xs font-medium rounded-full bg-[#EDF3EE] text-[#4C6352]">
         Al día
       </span>
     );
   };
 
   const getCategoryBadge = (category) => {
-    const catObj = categories.find((c) => c.id === category);
-    const label = catObj ? catObj.label.toUpperCase() : category.toUpperCase();
-    const badgeClass = `inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${t.softBadge}`;
-    
+    const srvObj = services.find((s) => s.id === category);
+    const label = srvObj ? srvObj.label.toUpperCase() : category.toUpperCase();
+    const badgeClass =
+      'inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#EDF3EE] text-[#4C6352]';
+
     switch (category) {
       case 'Spinning':
         return <span className={badgeClass}><Bike className="w-3 h-3" /> {label}</span>;
       case 'Pilates':
       case 'Circuito':
+      case 'CircuitoSatNam':
         return <span className={badgeClass}><Flame className="w-3 h-3" /> {label}</span>;
       case 'Coaching':
         return <span className={badgeClass}><Compass className="w-3 h-3" /> {label}</span>;
@@ -779,15 +768,60 @@ export default function App() {
     }
   };
 
+  // Construcción de días para el calendario semanal o mensual
+  const getWeekDays = (cursor) => {
+    const start = new Date(cursor);
+    const day = start.getDay();
+    const diff = start.getDate() - day + (day === 0 ? -6 : 1); // Lunes como primer día
+    start.setDate(diff);
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      return d;
+    });
+  };
+
+  const getMonthGridDays = (cursor) => {
+    const year = cursor.getFullYear();
+    const month = cursor.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const startOffset = (firstDay.getDay() + 6) % 7; // Lunes = 0
+    const days = [];
+    for (let i = 0; i < startOffset; i++) days.push(null);
+    for (let d = 1; d <= lastDay.getDate(); d++) days.push(new Date(year, month, d));
+    return days;
+  };
+
+  const handleNavigateCalendar = (direction) => {
+    const next = new Date(calendarCursor);
+    if (calendarView === 'week') {
+      next.setDate(next.getDate() + direction * 7);
+    } else {
+      next.setMonth(next.getMonth() + direction);
+    }
+    setCalendarCursor(next);
+  };
+
+  // Métricas para Dashboard
+  const todayISO = toISODate(new Date());
+  const activeStudentsCount = students.filter((s) => s.expiryDate >= todayISO).length;
+  const overdueOrSoonCount = students.filter((s) => {
+    const diff = Math.ceil((new Date(s.expiryDate) - new Date(todayISO)) / 86400000);
+    return diff <= 5;
+  }).length;
+  const totalBookingsCount = bookings.length;
+  const totalAttendedCount = bookings.filter((b) => b.attended).length;
+  const attendanceRate =
+    totalBookingsCount > 0 ? Math.round((totalAttendedCount / totalBookingsCount) * 100) : 0;
+
   return (
-    <div
-      className={`min-h-screen ${t.bg} ${t.textMain} font-sans pb-28 md:pb-16 transition-colors duration-300 flex flex-col`}
-    >
+    <div className="min-h-screen bg-[#F7F5F0] text-[#2D332F] font-sans pb-28 md:pb-16 flex flex-col">
       {/* Notificación flotante */}
       {notification && (
         <div
-          className={`fixed bottom-24 md:bottom-14 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-2xl shadow-lg text-sm font-medium transition-all ${
-            notification.type === 'error' ? 'bg-rose-700 text-white' : t.toastBg
+          className={`fixed bottom-24 md:bottom-14 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-2xl shadow-lg text-sm font-medium ${
+            notification.type === 'error' ? 'bg-rose-700 text-white' : 'bg-[#2D332F] text-white'
           }`}
         >
           <Check className="w-4 h-4" />
@@ -796,48 +830,24 @@ export default function App() {
       )}
 
       {/* Encabezado */}
-      <header
-        className={`bg-white/90 backdrop-blur-md border-b ${t.headerBorder} sticky top-0 z-30`}
-      >
+      <header className="bg-white/90 backdrop-blur-md border-b border-[#E5E0D8] sticky top-0 z-30">
         <div className="max-w-5xl mx-auto px-4 py-3.5 flex flex-wrap items-center justify-between gap-2.5">
           <div className="flex items-center gap-3.5">
-            <SatNamLogo bgClass={t.logoBg} />
+            <SatNamLogo />
             <div>
               <div className="flex items-baseline gap-2">
                 <h1 className="font-semibold text-xl tracking-tight leading-none">
-                  Espacio <span className={t.brandAccent}>Sat-Nam</span>
+                  Espacio <span className="text-[#5C7362]">Sat-Nam</span>
                 </h1>
-                <span className="text-xs italic text-stone-500">
-                  by Patricia Aleman
-                </span>
+                <span className="text-xs italic text-stone-500">by Patricia Aleman</span>
               </div>
-              <p className={`text-xs ${t.subtitleText} mt-1`}>
+              <p className="text-xs text-[#737D76] mt-1">
                 Bienestar Integral • Movimiento, Coaching, Constelaciones & Estética
               </p>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Selector de paletas */}
-            <div
-              className="flex items-center gap-1.5 bg-black/[0.03] px-2.5 py-1.5 rounded-xl border border-black/[0.06]"
-              title="Elegir paleta de colores"
-            >
-              {Object.entries(THEMES).map(([key, themeObj]) => (
-                <button
-                  key={key}
-                  onClick={() => handleSelectTheme(key)}
-                  title={themeObj.name}
-                  style={{ backgroundColor: themeObj.swatch }}
-                  className={`w-4 h-4 rounded-full transition-transform ${
-                    themeKey === key
-                      ? `ring-2 ring-offset-1 ${themeObj.ringSwatch} scale-110`
-                      : 'opacity-50 hover:opacity-100'
-                  }`}
-                />
-              ))}
-            </div>
-
+          <div className="flex items-center gap-2">
             <button
               onClick={fetchAllData}
               title="Actualizar datos"
@@ -850,7 +860,9 @@ export default function App() {
               <button
                 onClick={() => setRole('student')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                  role === 'student' ? t.activePill : 'text-stone-600 hover:text-stone-900'
+                  role === 'student'
+                    ? 'bg-[#5C7362] text-white shadow-xs'
+                    : 'text-stone-600 hover:text-stone-900'
                 }`}
               >
                 Vista Alumno
@@ -858,7 +870,9 @@ export default function App() {
               <button
                 onClick={handleSelectAdminMode}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1 ${
-                  role === 'admin' ? t.activePill : 'text-stone-600 hover:text-stone-900'
+                  role === 'admin'
+                    ? 'bg-[#5C7362] text-white shadow-xs'
+                    : 'text-stone-600 hover:text-stone-900'
                 }`}
               >
                 {isAdminUnlocked ? (
@@ -879,6 +893,7 @@ export default function App() {
             Conectando con la agenda de Espacio Sat-Nam...
           </div>
         ) : role === 'student' ? (
+          /* ================= VISTA ALUMNO SIMPLIFICADA ================= */
           <div className="space-y-6">
             {/* Presentación */}
             <div className="bg-white/80 rounded-3xl px-5 py-4 border border-stone-200/70">
@@ -890,25 +905,23 @@ export default function App() {
               </p>
             </div>
 
-            {/* Selector de Alumno / Consultante Activo */}
+            {/* Tarjeta de Perfil del Alumno (ver y editar) */}
             {students.length > 0 ? (
               <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative overflow-hidden">
-                <div className={`absolute top-0 left-0 w-1 h-full ${t.cardAccentBar}`} />
+                <div className="absolute top-0 left-0 w-1 h-full bg-[#5C7362]" />
                 <div className="flex items-center gap-3.5 pl-2">
-                  <div
-                    className={`w-11 h-11 rounded-2xl ${t.softBadge} font-semibold flex items-center justify-center text-base`}
-                  >
+                  <div className="w-11 h-11 rounded-2xl bg-[#EDF3EE] text-[#4C6352] font-semibold flex items-center justify-center text-base">
                     {activeStudent?.name.charAt(0)}
                   </div>
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="text-xs text-stone-400 uppercase tracking-wider font-medium">
                         Hola,
                       </span>
                       <select
                         value={activeStudentId}
                         onChange={(e) => setActiveStudentId(e.target.value)}
-                        className={`text-sm font-semibold ${t.bg} border border-stone-200 rounded-xl px-2.5 py-1 focus:outline-none ${t.focusBorder}`}
+                        className="text-sm font-semibold bg-[#F7F5F0] border border-stone-200 rounded-xl px-2.5 py-1 focus:outline-none focus:border-[#5C7362]"
                       >
                         {students.map((s) => (
                           <option key={s.id} value={s.id}>
@@ -916,15 +929,23 @@ export default function App() {
                           </option>
                         ))}
                       </select>
+                      <button
+                        onClick={handleOpenEditProfile}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-[#5C7362] bg-[#EDF3EE] hover:bg-[#dce8de] px-2.5 py-1 rounded-xl transition-colors"
+                      >
+                        <UserCog className="w-3.5 h-3.5" /> Editar perfil
+                      </button>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2 mt-1.5">
-                      <span className={`text-xs font-medium ${t.softBadge} px-2.5 py-0.5 rounded-lg`}>
+
+                    <div className="flex flex-wrap items-center gap-2 mt-2">
+                      <span className="text-xs font-medium bg-[#EDF3EE] text-[#4C6352] px-2.5 py-0.5 rounded-lg">
                         {activeStudent?.plan}
                       </span>
                       {activeStudent && getStatusBadge(activeStudent)}
                       {activeStudent && !isUnlimitedPlan(activeStudent.plan) && (
                         <span className="text-xs text-stone-600">
-                          • <strong>{activeStudent.credits}</strong> disponibles
+                          • Saldo: <strong>{activeStudent.credits}</strong> disponibles (
+                          {getStudentQuotaDisplay(activeStudent)})
                         </span>
                       )}
                     </div>
@@ -944,18 +965,18 @@ export default function App() {
               </div>
             )}
 
-            {/* Filtros de fecha y actividades */}
+            {/* Filtros por Fecha y los 3 Pilares */}
             <div className="space-y-3">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-xl font-semibold">Agenda y Turnos</h2>
+                  <h2 className="text-xl font-semibold">Agenda y Reservas</h2>
                   <p className="text-sm text-stone-500">
-                    Reserva tu clase, taller, sesión individual o tratamiento
+                    Elige una categoría y fecha para reservar tu espacio
                   </p>
                 </div>
 
                 <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-stone-200/80 shadow-2xs w-fit">
-                  <Calendar className={`w-4 h-4 ${t.iconAccent}`} />
+                  <Calendar className="w-4 h-4 text-[#5C7362]" />
                   <input
                     type="date"
                     value={selectedDate}
@@ -968,47 +989,35 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Barra horizontal de categorías (excluyendo pausadas) */}
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-                <button
-                  onClick={() => setCategoryFilter('Todas')}
-                  className={`px-3.5 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-all border ${
-                    categoryFilter === 'Todas'
-                      ? `${t.activePill} border-transparent`
-                      : 'bg-white text-stone-600 border-stone-200/80 hover:border-stone-300'
-                  }`}
-                >
-                  Todas
-                </button>
-                {categories
-                  .filter((cat) => !cat.isPaused)
-                  .map((cat) => (
-                    <button
-                      key={cat.id}
-                      onClick={() => setCategoryFilter(cat.id)}
-                      className={`px-3.5 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-all border ${
-                        categoryFilter === cat.id
-                          ? `${t.activePill} border-transparent`
-                          : 'bg-white text-stone-600 border-stone-200/80 hover:border-stone-300'
-                      }`}
-                    >
-                      {cat.label}
-                    </button>
-                  ))}
+              {/* 4 botones limpios agrupados por pilares */}
+              <div className="flex flex-wrap items-center gap-2">
+                {PILLARS.map((pil) => (
+                  <button
+                    key={pil.id}
+                    onClick={() => setPillarFilter(pil.id)}
+                    className={`px-4 py-2 rounded-xl text-xs font-medium transition-all border ${
+                      pillarFilter === pil.id
+                        ? 'bg-[#5C7362] text-white border-transparent shadow-xs'
+                        : 'bg-white text-stone-600 border-stone-200/80 hover:border-stone-300'
+                    }`}
+                  >
+                    {pil.label}
+                  </button>
+                ))}
               </div>
             </div>
 
-            {/* Tarjetas de Clases y Sesiones */}
-            {filteredClasses.length === 0 ? (
+            {/* Tarjetas de Clases */}
+            {studentFilteredClasses.length === 0 ? (
               <div className="bg-white rounded-3xl p-10 text-center border border-stone-200/70">
                 <p className="text-stone-500 text-sm">
-                  No hay actividades o turnos programados para la fecha{' '}
-                  <strong>{formatDateDDMMYYYY(selectedDate)}</strong>.
+                  No hay actividades disponibles para el{' '}
+                  <strong>{formatDateDDMMYYYY(selectedDate)}</strong> en esta categoría.
                 </p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {filteredClasses.map((cls) => {
+                {studentFilteredClasses.map((cls) => {
                   const classBookings = bookings.filter((b) => b.classId === cls.id);
                   const isBooked = activeStudent
                     ? classBookings.some((b) => b.studentId === activeStudent.id)
@@ -1022,7 +1031,7 @@ export default function App() {
                         cls.is_cancelled
                           ? 'border-stone-200 bg-stone-50/70 opacity-80'
                           : isBooked
-                          ? `${t.bookedRing} shadow-sm`
+                          ? 'border-[#5C7362] ring-1 ring-[#5C7362]/25 shadow-sm'
                           : 'border-stone-200/70 shadow-2xs hover:border-stone-300'
                       }`}
                     >
@@ -1035,9 +1044,7 @@ export default function App() {
                             </span>
                           ) : (
                             isBooked && (
-                              <span
-                                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${t.activePill}`}
-                              >
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#5C7362] text-white shadow-xs">
                                 <CheckCircle2 className="w-3.5 h-3.5" /> Reservado
                               </span>
                             )
@@ -1048,11 +1055,11 @@ export default function App() {
 
                         <div className="flex items-center gap-4 text-sm text-stone-600 mt-3">
                           <span className="flex items-center gap-1.5">
-                            <Clock className={`w-4 h-4 ${t.iconAccent}`} />
+                            <Clock className="w-4 h-4 text-[#5C7362]" />
                             {cls.time} hs ({cls.duration} min)
                           </span>
                           <span className="flex items-center gap-1.5">
-                            <Users className={`w-4 h-4 ${t.iconAccent}`} />
+                            <Users className="w-4 h-4 text-[#5C7362]" />
                             {cls.instructor}
                           </span>
                         </div>
@@ -1071,7 +1078,7 @@ export default function App() {
                                   ? 'bg-rose-100/80 text-rose-700'
                                   : spotsLeft <= 2
                                   ? 'bg-amber-100/80 text-amber-800'
-                                  : t.softBadge
+                                  : 'bg-[#EDF3EE] text-[#4C6352]'
                               }`}
                             >
                               {spotsLeft === 0
@@ -1092,7 +1099,7 @@ export default function App() {
                                 ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200/80'
                                 : spotsLeft === 0
                                 ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
-                                : t.primaryBtn
+                                : 'bg-[#5C7362] hover:bg-[#4B5F50] text-white shadow-xs'
                             }`}
                           >
                             {isBooked ? 'Cancelar Reserva' : 'Reservar'}
@@ -1106,33 +1113,50 @@ export default function App() {
             )}
           </div>
         ) : (
-          /* ================= VISTA MODO ESTUDIO (ADMIN) ================= */
+          /* ================= MODO ESTUDIO (ADMIN) ================= */
           <div className="space-y-6">
+            {/* Navegación superior Modo Estudio */}
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="hidden md:flex items-center gap-2 bg-white p-1.5 rounded-2xl border border-stone-200/80 w-fit shadow-2xs">
+              <div className="hidden md:flex items-center gap-1.5 bg-white p-1.5 rounded-2xl border border-stone-200/80 w-fit shadow-2xs">
                 <button
                   onClick={() => setAdminTab('schedule')}
                   className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-                    adminTab === 'schedule' ? t.activePill : 'text-stone-600 hover:bg-stone-50'
+                    adminTab === 'schedule'
+                      ? 'bg-[#5C7362] text-white shadow-xs'
+                      : 'text-stone-600 hover:bg-stone-50'
                   }`}
                 >
-                  <Calendar className="w-4 h-4" /> Agenda y Asistencia
+                  <Calendar className="w-4 h-4" /> Calendario & Clases
+                </button>
+                <button
+                  onClick={() => setAdminTab('dashboard')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                    adminTab === 'dashboard'
+                      ? 'bg-[#5C7362] text-white shadow-xs'
+                      : 'text-stone-600 hover:bg-stone-50'
+                  }`}
+                >
+                  <BarChart3 className="w-4 h-4" /> Dashboard & Asistencia
                 </button>
                 <button
                   onClick={() => setAdminTab('students')}
                   className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-                    adminTab === 'students' ? t.activePill : 'text-stone-600 hover:bg-stone-50'
+                    adminTab === 'students'
+                      ? 'bg-[#5C7362] text-white shadow-xs'
+                      : 'text-stone-600 hover:bg-stone-50'
                   }`}
                 >
-                  <Users className="w-4 h-4" /> Alumnos y Consultantes
+                  <Users className="w-4 h-4" /> Alumnos
                 </button>
                 <button
                   onClick={() => setAdminTab('payments')}
                   className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-                    adminTab === 'payments' ? t.activePill : 'text-stone-600 hover:bg-stone-50'
+                    adminTab === 'payments'
+                      ? 'bg-[#5C7362] text-white shadow-xs'
+                      : 'text-stone-600 hover:bg-stone-50'
                   }`}
                 >
-                  <CreditCard className="w-4 h-4" /> Pagos y WhatsApp
+                  <CreditCard className="w-4 h-4" /> Pagos & WhatsApp
                 </button>
               </div>
 
@@ -1144,271 +1168,505 @@ export default function App() {
                 }}
                 className="text-xs font-medium text-stone-600 hover:text-stone-900 flex items-center gap-1.5 bg-white px-3.5 py-2 rounded-xl border border-stone-200/80"
               >
-                <Lock className={`w-3.5 h-3.5 ${t.iconAccent}`} /> Bloquear Modo Estudio
+                <Lock className="w-3.5 h-3.5 text-[#5C7362]" /> Bloquear Modo Estudio
               </button>
             </div>
 
+            {/* PESTAÑA 1: CALENDARIO SEMANAL / MENSUAL Y DETALLE DEL DÍA */}
             {adminTab === 'schedule' && (
-              <div className="space-y-6">
-                {/* Panel de Gestión Independiente: Servicios & Horarios */}
-                <div className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-stone-100">
-                    <div>
-                      <h3 className="font-semibold text-base flex items-center gap-2">
-                        <Layers className={`w-4 h-4 ${t.iconAccent}`} /> Panel de Servicios y Áreas
-                      </h3>
-                      <p className="text-xs text-stone-500">
-                        Crea, edita, pausa o elimina los servicios base del estudio
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => {
-                        setEditingService(null);
-                        setServiceForm({ label: '', defaultCap: 12, isPaused: false });
-                        setShowServiceModal(true);
-                      }}
-                      className={`flex items-center gap-1.5 ${t.primaryBtn} px-3.5 py-2 rounded-xl text-xs font-medium`}
-                    >
-                      <Plus className="w-3.5 h-3.5" /> Crear Servicio
-                    </button>
+              <div className="space-y-5">
+                {/* Barra de Acciones Principales */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-xl font-semibold">Agenda Espacio Sat-Nam</h2>
+                    <p className="text-sm text-stone-500">
+                      Haz clic en cualquier día del calendario para ver sus clases e inscritos
+                    </p>
                   </div>
 
-                  {/* Listado de Servicios */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                    {categories.map((cat) => (
-                      <div
-                        key={cat.id}
-                        className={`p-3.5 rounded-2xl border flex items-center justify-between gap-2 transition-all ${
-                          cat.isPaused
-                            ? 'bg-stone-50 border-stone-200 opacity-60'
-                            : 'bg-stone-50/50 border-stone-200/80'
-                        }`}
-                      >
-                        <div>
-                          <p className="text-sm font-semibold">{cat.label}</p>
-                          <p className="text-[11px] text-stone-500">Cupo base: {cat.defaultCap}</p>
-                          {cat.isPaused && (
-                            <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md mt-1 inline-block">
-                              PAUSADO
-                            </span>
-                          )}
-                        </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setNewServiceForm({ label: '', pillar: 'cuerpo', defaultCap: 10 });
+                        setShowAddServiceModal(true);
+                      }}
+                      className="flex items-center gap-1.5 bg-white hover:bg-stone-50 text-[#5C7362] border border-[#5C7362]/40 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all"
+                    >
+                      <Plus className="w-4 h-4" /> Servicio
+                    </button>
 
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => {
-                              setEditingService(cat);
-                              setServiceForm({ label: cat.label, defaultCap: cat.defaultCap, isPaused: cat.isPaused });
-                              setShowServiceModal(true);
-                            }}
-                            title="Editar servicio"
-                            className="p-1.5 text-stone-600 hover:bg-white rounded-lg transition-colors border border-stone-200"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleTogglePauseService(cat.id)}
-                            title={cat.isPaused ? 'Activar servicio' : 'Pausar servicio'}
-                            className={`p-1.5 rounded-lg transition-colors border ${
-                              cat.isPaused
-                                ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
-                                : 'text-amber-700 bg-amber-50 border-amber-200'
-                            }`}
-                          >
-                            <Ban className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteService(cat.id)}
-                            title="Eliminar servicio"
-                            className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors border border-rose-200"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                    <button
+                      onClick={() => {
+                        setEditingClassId(null);
+                        const firstSrv = services[0];
+                        setClassForm({
+                          category: firstSrv.id,
+                          title: firstSrv.label,
+                          isCustomTitle: false,
+                          instructor: 'Patricia Aleman',
+                          time: '10:00',
+                          duration: 60,
+                          capacity: firstSrv.defaultCap,
+                          selectedDays: [1, 3, 5],
+                          weeksCount: 4
+                        });
+                        setShowClassModal(true);
+                      }}
+                      className="flex items-center gap-1.5 bg-[#5C7362] hover:bg-[#4B5F50] text-white shadow-xs px-4 py-2 rounded-xl text-xs font-semibold transition-all"
+                    >
+                      <Plus className="w-4 h-4" /> Programar Horarios
+                    </button>
                   </div>
                 </div>
 
-                {/* Sección de Agenda y Horarios */}
-                <div className="space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div>
-                      <h2 className="text-xl font-semibold flex items-center gap-2">
-                        <CalendarDays className={`w-5 h-5 ${t.iconAccent}`} /> Horarios y Clases (Semestrales)
-                      </h2>
-                      <p className="text-sm text-stone-500">
-                        Programa bloques recurrentes por 6 meses, edita, pausa o cancela días puntuales
-                      </p>
-                    </div>
-
+                {/* Controles del Calendario (Semanal / Mensual) */}
+                <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
-                      <input
-                        type="date"
-                        value={selectedDate}
-                        onChange={(e) => setSelectedDate(e.target.value)}
-                        className="text-sm font-medium bg-white px-3 py-2 rounded-xl border border-stone-200/80"
-                      />
+                      <button
+                        onClick={() => handleNavigateCalendar(-1)}
+                        className="p-1.5 rounded-xl border border-stone-200 hover:bg-stone-50"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <span className="font-semibold text-sm sm:text-base min-w-[140px] text-center">
+                        {MONTH_NAMES[calendarCursor.getMonth()]} {calendarCursor.getFullYear()}
+                      </span>
+                      <button
+                        onClick={() => handleNavigateCalendar(1)}
+                        className="p-1.5 rounded-xl border border-stone-200 hover:bg-stone-50"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
                       <button
                         onClick={() => {
-                          setEditingClassId(null);
-                          const firstCat = categories[0] || INITIAL_CATEGORIES[0];
-                          setClassForm({
-                            category: firstCat.id,
-                            title: firstCat.label,
-                            isCustomTitle: false,
-                            instructor: 'Patricia Aleman',
-                            time: '10:00',
-                            duration: 60,
-                            capacity: firstCat.defaultCap,
-                            selectedDays: [1, 3, 5]
-                          });
-                          setShowClassModal(true);
+                          const now = new Date();
+                          setCalendarCursor(now);
+                          setSelectedDate(toISODate(now));
                         }}
-                        className={`flex items-center gap-1.5 ${t.primaryBtn} px-4 py-2 rounded-xl text-sm font-medium transition-all`}
+                        className="text-xs font-medium text-[#5C7362] bg-[#EDF3EE] px-2.5 py-1 rounded-lg ml-1"
                       >
-                        <Plus className="w-4 h-4" /> Agregar Horario / Clase
+                        Hoy
+                      </button>
+                    </div>
+
+                    <div className="flex items-center bg-[#F7F5F0] p-1 rounded-xl border border-stone-200/70">
+                      <button
+                        onClick={() => setCalendarView('week')}
+                        className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                          calendarView === 'week'
+                            ? 'bg-[#5C7362] text-white shadow-2xs'
+                            : 'text-stone-600'
+                        }`}
+                      >
+                        Semanal
+                      </button>
+                      <button
+                        onClick={() => setCalendarView('month')}
+                        className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                          calendarView === 'month'
+                            ? 'bg-[#5C7362] text-white shadow-2xs'
+                            : 'text-stone-600'
+                        }`}
+                      >
+                        Mensual
                       </button>
                     </div>
                   </div>
 
-                  <div className="space-y-4">
-                    {filteredClasses.map((cls) => {
-                      const classBookings = bookings.filter((b) => b.classId === cls.id);
+                  {/* Vista Semanal */}
+                  {calendarView === 'week' ? (
+                    <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
+                      {getWeekDays(calendarCursor).map((dayObj) => {
+                        const iso = toISODate(dayObj);
+                        const isSelected = iso === selectedDate;
+                        const isToday = iso === todayISO;
+                        const count = classes.filter((c) => c.date === iso).length;
+                        const dayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
-                      return (
-                        <div
-                          key={cls.id}
-                          className={`bg-white rounded-3xl p-5 border shadow-2xs ${
-                            cls.is_cancelled ? 'border-rose-200 bg-rose-50/20' : 'border-stone-200/70'
-                          }`}
-                        >
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-stone-100">
-                            <div>
-                              <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                                {getCategoryBadge(cls.category)}
-                                <span
-                                  className={`text-xs font-medium px-2.5 py-0.5 rounded-lg ${t.softBadge}`}
-                                >
-                                  {cls.time} hs ({cls.duration} min) — {formatDateDDMMYYYY(cls.date)}
-                                </span>
-                                {cls.is_cancelled && (
-                                  <span className="text-xs font-semibold px-2 py-0.5 bg-rose-100 text-rose-700 rounded-lg">
-                                    [CLASE PAUSADA]
-                                  </span>
-                                )}
-                              </div>
-                              <h3 className="font-semibold text-base">
-                                {cls.title}{' '}
-                                <span className="text-sm font-normal text-stone-500">
-                                  — {cls.instructor}
-                                </span>
-                              </h3>
-                            </div>
-
-                            <div className="flex flex-wrap items-center gap-2">
-                              {/* Botón Editar Horario */}
-                              <button
-                                onClick={() => handleOpenEditClass(cls)}
-                                title="Editar horario"
-                                className="p-2 text-stone-600 hover:bg-stone-100 rounded-xl transition-colors border border-stone-200"
-                              >
-                                <Edit3 className="w-4 h-4" />
-                              </button>
-
-                              {/* Botón Pausar / Cancelar Clase */}
-                              <button
-                                onClick={() => handleToggleCancelClass(cls.id)}
-                                className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-                                  cls.is_cancelled
-                                    ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
-                                    : 'bg-amber-100 text-amber-800 hover:bg-amber-200'
+                        return (
+                          <button
+                            key={iso}
+                            onClick={() => setSelectedDate(iso)}
+                            className={`p-2 sm:p-3 rounded-2xl border text-center transition-all flex flex-col items-center justify-between min-h-[76px] ${
+                              isSelected
+                                ? 'bg-[#5C7362] text-white border-[#5C7362] shadow-xs'
+                                : isToday
+                                ? 'bg-[#EDF3EE] border-[#5C7362]/40 text-[#2D332F]'
+                                : 'bg-[#F7F5F0]/60 border-stone-200/80 hover:border-stone-300'
+                            }`}
+                          >
+                            <span
+                              className={`text-[11px] font-medium ${
+                                isSelected ? 'text-white/80' : 'text-stone-500'
+                              }`}
+                            >
+                              {dayNames[dayObj.getDay()]}
+                            </span>
+                            <span className="text-base sm:text-lg font-bold my-0.5">
+                              {dayObj.getDate()}
+                            </span>
+                            {count > 0 ? (
+                              <span
+                                className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
+                                  isSelected
+                                    ? 'bg-white/20 text-white'
+                                    : 'bg-[#EDF3EE] text-[#4C6352]'
                                 }`}
                               >
-                                <Ban className="w-3.5 h-3.5" />
-                                {cls.is_cancelled ? 'Reactivar' : 'Pausar'}
-                              </button>
-
-                              {/* Botón Eliminar */}
-                              <button
-                                onClick={() => handleDeleteClass(cls.id)}
-                                title="Eliminar horario"
-                                className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition-colors border border-rose-200"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </div>
-
-                          <div className="mt-4">
-                            {classBookings.length === 0 ? (
-                              <p className="text-xs text-stone-400 italic">
-                                Aún no hay reservas en este horario.
-                              </p>
+                                {count} {count === 1 ? 'clase' : 'clases'}
+                              </span>
                             ) : (
-                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
-                                {classBookings.map((booking) => {
-                                  const st = students.find((s) => s.id === booking.studentId);
-                                  if (!st) return null;
+                              <span className="text-[10px] opacity-40">—</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    /* Vista Mensual */
+                    <div>
+                      <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold text-stone-400 mb-1.5">
+                        <span>Lun</span>
+                        <span>Mar</span>
+                        <span>Mié</span>
+                        <span>Jue</span>
+                        <span>Vie</span>
+                        <span>Sáb</span>
+                        <span>Dom</span>
+                      </div>
+                      <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
+                        {getMonthGridDays(calendarCursor).map((dayObj, idx) => {
+                          if (!dayObj) return <div key={`empty-${idx}`} className="p-2" />;
+                          const iso = toISODate(dayObj);
+                          const isSelected = iso === selectedDate;
+                          const isToday = iso === todayISO;
+                          const count = classes.filter((c) => c.date === iso).length;
 
-                                  return (
-                                    <div
-                                      key={booking.id}
-                                      onClick={() => handleToggleAttendance(booking.id)}
-                                      className={`cursor-pointer p-3 rounded-2xl border flex items-center justify-between transition-all ${
-                                        booking.attended
-                                          ? `${t.softBadge} border-current/20`
-                                          : `${t.bg} border-stone-200/80 hover:border-stone-300`
-                                      }`}
-                                    >
-                                      <div>
-                                        <p className="text-sm font-medium">{st.name}</p>
-                                        <p className="text-[11px] text-stone-500">{st.plan}</p>
-                                      </div>
+                          return (
+                            <button
+                              key={iso}
+                              onClick={() => setSelectedDate(iso)}
+                              className={`p-1.5 sm:p-2 rounded-xl border text-center transition-all flex flex-col items-center justify-center min-h-[54px] ${
+                                isSelected
+                                  ? 'bg-[#5C7362] text-white border-[#5C7362]'
+                                  : isToday
+                                  ? 'bg-[#EDF3EE] border-[#5C7362]/40'
+                                  : 'bg-[#F7F5F0]/50 border-stone-200/70 hover:border-stone-300'
+                              }`}
+                            >
+                              <span className="text-xs sm:text-sm font-semibold">
+                                {dayObj.getDate()}
+                              </span>
+                              {count > 0 && (
+                                <span
+                                  className={`mt-0.5 text-[10px] px-1.5 rounded-full font-medium ${
+                                    isSelected
+                                      ? 'bg-white/25 text-white'
+                                      : 'bg-[#EDF3EE] text-[#4C6352]'
+                                  }`}
+                                >
+                                  {count}
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
 
-                                      <span
-                                        className={`flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-xl ${
+                {/* Detalle del Día Seleccionado: Clases + Personas Registradas con Abono */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-base">
+                      Detalle del día:{' '}
+                      <span className="text-[#5C7362]">{formatDateDDMMYYYY(selectedDate)}</span>
+                    </h3>
+                    <span className="text-xs text-stone-500">
+                      {dayClassesAdmin.length}{' '}
+                      {dayClassesAdmin.length === 1 ? 'actividad' : 'actividades'}
+                    </span>
+                  </div>
+
+                  {dayClassesAdmin.length === 0 ? (
+                    <div className="bg-white rounded-3xl p-8 text-center border border-stone-200/70 text-stone-500 text-sm">
+                      No hay clases programadas para el{' '}
+                      <strong>{formatDateDDMMYYYY(selectedDate)}</strong>. Usa{' '}
+                      <strong>+ Programar Horarios</strong> para cargar turnos.
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {dayClassesAdmin.map((cls) => {
+                        const classBookings = bookings.filter((b) => b.classId === cls.id);
+
+                        return (
+                          <div
+                            key={cls.id}
+                            className={`bg-white rounded-3xl p-5 border shadow-2xs ${
+                              cls.is_cancelled
+                                ? 'border-rose-200 bg-rose-50/20'
+                                : 'border-stone-200/70'
+                            }`}
+                          >
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-stone-100">
+                              <div>
+                                <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                                  {getCategoryBadge(cls.category)}
+                                  <span className="text-xs font-medium px-2.5 py-0.5 rounded-lg bg-[#EDF3EE] text-[#4C6352]">
+                                    {cls.time} hs ({cls.duration} min)
+                                  </span>
+                                  <span className="text-xs text-stone-500 font-medium">
+                                    Cupo: {classBookings.length}/{cls.capacity}
+                                  </span>
+                                  {cls.is_cancelled && (
+                                    <span className="text-xs font-semibold px-2 py-0.5 bg-rose-100 text-rose-700 rounded-lg">
+                                      PAUSADA / CANCELADA
+                                    </span>
+                                  )}
+                                </div>
+                                <h4 className="font-semibold text-base">
+                                  {cls.title}{' '}
+                                  <span className="text-sm font-normal text-stone-500">
+                                    — {cls.instructor}
+                                  </span>
+                                </h4>
+                              </div>
+
+                              {/* Acciones dentro de cada box de clase: Editar, Pausar, Eliminar */}
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => handleOpenEditClass(cls)}
+                                  title="Editar clase"
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-100 rounded-xl border border-stone-200 transition-colors"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" /> Editar
+                                </button>
+
+                                <button
+                                  onClick={() => handleToggleCancelClass(cls.id)}
+                                  className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                                    cls.is_cancelled
+                                      ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                                      : 'bg-amber-100 text-amber-800 hover:bg-amber-200'
+                                  }`}
+                                >
+                                  <Ban className="w-3.5 h-3.5" />
+                                  {cls.is_cancelled ? 'Reactivar' : 'Pausar'}
+                                </button>
+
+                                <button
+                                  onClick={() => handleDeleteClass(cls.id)}
+                                  title="Eliminar clase"
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 rounded-xl border border-rose-200 transition-colors"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" /> Eliminar
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Personas registradas con contador de abono (ej: Federico: 1/4) */}
+                            <div className="mt-4">
+                              <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2.5">
+                                Personas registradas ({classBookings.length})
+                              </p>
+                              {classBookings.length === 0 ? (
+                                <p className="text-xs text-stone-400 italic">
+                                  Aún no hay personas registradas en este horario.
+                                </p>
+                              ) : (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                                  {classBookings.map((booking) => {
+                                    const st = students.find((s) => s.id === booking.studentId);
+                                    if (!st) return null;
+
+                                    return (
+                                      <div
+                                        key={booking.id}
+                                        onClick={() => handleToggleAttendance(booking.id)}
+                                        className={`cursor-pointer p-3 rounded-2xl border flex items-center justify-between transition-all ${
                                           booking.attended
-                                            ? t.activePill
-                                            : 'bg-white text-stone-600 border border-stone-200'
+                                            ? 'bg-[#EDF3EE] text-[#4C6352] border-[#5C7362]/30'
+                                            : 'bg-[#F7F5F0] border-stone-200/80 hover:border-stone-300'
                                         }`}
                                       >
-                                        <UserCheck className="w-3.5 h-3.5" />
-                                        {booking.attended ? 'Asistió' : 'Marcar'}
-                                      </span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
+                                        <div>
+                                          <p className="text-sm font-semibold">
+                                            {st.name}:{' '}
+                                            <span className="text-[#5C7362]">
+                                              {getStudentQuotaDisplay(st)}
+                                            </span>
+                                          </p>
+                                          <p className="text-[11px] text-stone-500">{st.plan}</p>
+                                        </div>
 
-                  {filteredClasses.length === 0 && (
-                    <div className="bg-white rounded-3xl p-8 text-center border border-stone-200/70 text-stone-500 text-sm">
-                      No hay horarios cargados para la fecha{' '}
-                      <strong>{formatDateDDMMYYYY(selectedDate)}</strong>. Haz clic en <strong>Agregar Horario / Clase</strong>.
+                                        <span
+                                          className={`flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-xl ${
+                                            booking.attended
+                                              ? 'bg-[#5C7362] text-white'
+                                              : 'bg-white text-stone-600 border border-stone-200'
+                                          }`}
+                                        >
+                                          <UserCheck className="w-3.5 h-3.5" />
+                                          {booking.attended ? 'Asistió' : 'Asistencia'}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
               </div>
             )}
 
+            {/* PESTAÑA 2: DASHBOARD DE MÉTRICAS Y ASISTENCIA */}
+            {adminTab === 'dashboard' && (
+              <div className="space-y-6">
+                <div>
+                  <h2 className="text-xl font-semibold">Dashboard & Control de Asistencia</h2>
+                  <p className="text-sm text-stone-500">
+                    Resumen general del estudio y registro rápido de presentismo
+                  </p>
+                </div>
+
+                {/* Tarjetas KPI */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
+                  <div className="bg-white rounded-3xl p-4 border border-stone-200/70 shadow-2xs">
+                    <p className="text-xs text-stone-500 font-medium">Alumnos Activos</p>
+                    <p className="text-2xl font-bold text-[#5C7362] mt-1">
+                      {activeStudentsCount}
+                    </p>
+                    <p className="text-[11px] text-stone-400 mt-1">
+                      De {students.length} registrados
+                    </p>
+                  </div>
+
+                  <div className="bg-white rounded-3xl p-4 border border-stone-200/70 shadow-2xs">
+                    <p className="text-xs text-stone-500 font-medium">Abonos por Renovar</p>
+                    <p className="text-2xl font-bold text-amber-700 mt-1">
+                      {overdueOrSoonCount}
+                    </p>
+                    <p className="text-[11px] text-stone-400 mt-1">Vencidos o ≤ 5 días</p>
+                  </div>
+
+                  <div className="bg-white rounded-3xl p-4 border border-stone-200/70 shadow-2xs">
+                    <p className="text-xs text-stone-500 font-medium">Reservas Totales</p>
+                    <p className="text-2xl font-bold text-[#2D332F] mt-1">
+                      {totalBookingsCount}
+                    </p>
+                    <p className="text-[11px] text-stone-400 mt-1">En agenda cargada</p>
+                  </div>
+
+                  <div className="bg-white rounded-3xl p-4 border border-stone-200/70 shadow-2xs">
+                    <p className="text-xs text-stone-500 font-medium">Tasa de Asistencia</p>
+                    <p className="text-2xl font-bold text-[#5C7362] mt-1">{attendanceRate}%</p>
+                    <p className="text-[11px] text-stone-400 mt-1">
+                      {totalAttendedCount} asistencias marcadas
+                    </p>
+                  </div>
+                </div>
+
+                {/* Toma de Asistencia por Fecha */}
+                <div className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-stone-100">
+                    <div>
+                      <h3 className="font-semibold text-base">
+                        Planilla de Asistencia ({formatDateDDMMYYYY(selectedDate)})
+                      </h3>
+                      <p className="text-xs text-stone-500">
+                        Haz clic sobre cada alumno para marcar o desmarcar su asistencia
+                      </p>
+                    </div>
+                    <input
+                      type="date"
+                      value={selectedDate}
+                      onChange={(e) => setSelectedDate(e.target.value)}
+                      className="text-sm font-medium bg-[#F7F5F0] px-3 py-1.5 rounded-xl border border-stone-200"
+                    />
+                  </div>
+
+                  {dayClassesAdmin.length === 0 ? (
+                    <p className="text-sm text-stone-500 py-4 text-center">
+                      No hay clases registradas en esta fecha.
+                    </p>
+                  ) : (
+                    <div className="space-y-4">
+                      {dayClassesAdmin.map((cls) => {
+                        const clsBookings = bookings.filter((b) => b.classId === cls.id);
+                        return (
+                          <div
+                            key={cls.id}
+                            className="p-4 rounded-2xl bg-[#F7F5F0]/70 border border-stone-200/70 space-y-3"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <span className="text-xs font-semibold text-[#5C7362]">
+                                  {cls.time} hs
+                                </span>{' '}
+                                <span className="font-semibold text-sm">• {cls.title}</span>
+                              </div>
+                              <span className="text-xs text-stone-500">
+                                Presentes: {clsBookings.filter((b) => b.attended).length}/
+                                {clsBookings.length}
+                              </span>
+                            </div>
+
+                            {clsBookings.length === 0 ? (
+                              <p className="text-xs text-stone-400 italic">Sin inscritos</p>
+                            ) : (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                                {clsBookings.map((b) => {
+                                  const st = students.find((s) => s.id === b.studentId);
+                                  if (!st) return null;
+                                  return (
+                                    <button
+                                      key={b.id}
+                                      onClick={() => handleToggleAttendance(b.id)}
+                                      className={`p-2.5 rounded-xl border text-left flex items-center justify-between transition-all ${
+                                        b.attended
+                                          ? 'bg-[#5C7362] text-white border-[#5C7362]'
+                                          : 'bg-white text-stone-700 border-stone-200 hover:border-stone-300'
+                                      }`}
+                                    >
+                                      <span className="text-xs font-semibold">
+                                        {st.name} ({getStudentQuotaDisplay(st)})
+                                      </span>
+                                      <UserCheck className="w-4 h-4 shrink-0" />
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* PESTAÑA 3: ALUMNOS */}
             {adminTab === 'students' && (
               <div className="space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <h2 className="text-xl font-semibold">Alumnos & Consultantes</h2>
                     <p className="text-sm text-stone-500">
-                      Administra abonos de clases, sesiones individuales y participantes de talleres
+                      Administra abonos de clases, sesiones individuales y participantes
                     </p>
                   </div>
 
                   <button
                     onClick={() => setShowNewStudentModal(true)}
-                    className={`flex items-center gap-1.5 ${t.primaryBtn} px-4 py-2 rounded-xl text-sm font-medium w-fit`}
+                    className="flex items-center gap-1.5 bg-[#5C7362] hover:bg-[#4B5F50] text-white shadow-xs px-4 py-2 rounded-xl text-sm font-medium w-fit"
                   >
                     <Plus className="w-4 h-4" /> Nuevo Registro
                   </button>
@@ -1421,7 +1679,7 @@ export default function App() {
                     placeholder="Buscar por nombre o modalidad..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className={`w-full bg-white pl-10 pr-4 py-2.5 rounded-xl border border-stone-200/80 text-sm focus:outline-none ${t.focusBorder}`}
+                    className="w-full bg-white pl-10 pr-4 py-2.5 rounded-xl border border-stone-200/80 text-sm focus:outline-none focus:border-[#5C7362]"
                   />
                 </div>
 
@@ -1429,12 +1687,10 @@ export default function App() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                       <thead>
-                        <tr
-                          className={`${t.bg} border-b border-stone-200/80 text-xs uppercase tracking-wider text-stone-500`}
-                        >
+                        <tr className="bg-[#F7F5F0] border-b border-stone-200/80 text-xs uppercase tracking-wider text-stone-500">
                           <th className="py-3.5 px-4 font-medium">Nombre</th>
                           <th className="py-3.5 px-4 font-medium">Modalidad</th>
-                          <th className="py-3.5 px-4 font-medium">Saldo</th>
+                          <th className="py-3.5 px-4 font-medium">Saldo / Abono</th>
                           <th className="py-3.5 px-4 font-medium">Vencimiento</th>
                           <th className="py-3.5 px-4 font-medium">Estado</th>
                         </tr>
@@ -1447,17 +1703,17 @@ export default function App() {
                               <p className="text-xs text-stone-500">{st.phone}</p>
                             </td>
                             <td className="py-3.5 px-4">
-                              <span className={`font-medium ${t.brandAccent}`}>{st.plan}</span>
+                              <span className="font-medium text-[#5C7362]">{st.plan}</span>
                             </td>
                             <td className="py-3.5 px-4">
                               {isUnlimitedPlan(st.plan) ? (
-                                <span
-                                  className={`text-xs ${t.softBadge} px-2.5 py-0.5 rounded-lg font-medium`}
-                                >
-                                  Ilimitado
+                                <span className="text-xs bg-[#EDF3EE] text-[#4C6352] px-2.5 py-0.5 rounded-lg font-medium">
+                                  Pase Libre
                                 </span>
                               ) : (
-                                <span>{st.credits} disponibles</span>
+                                <span>
+                                  {st.credits} disp. ({getStudentQuotaDisplay(st)})
+                                </span>
                               )}
                             </td>
                             <td className="py-3.5 px-4 text-stone-600">
@@ -1473,6 +1729,7 @@ export default function App() {
               </div>
             )}
 
+            {/* PESTAÑA 4: PAGOS Y WHATSAPP */}
             {adminTab === 'payments' && (
               <div className="space-y-4">
                 <div>
@@ -1491,9 +1748,7 @@ export default function App() {
                       <div className="flex justify-between items-start gap-2">
                         <div>
                           <h3 className="font-semibold text-base">{st.name}</h3>
-                          <p className={`text-xs ${t.brandAccent} font-medium mt-0.5`}>
-                            {st.plan}
-                          </p>
+                          <p className="text-xs text-[#5C7362] font-medium mt-0.5">{st.plan}</p>
                           <p className="text-xs text-stone-500 mt-0.5">
                             Vence el: <strong>{formatDateDDMMYYYY(st.expiryDate)}</strong>
                           </p>
@@ -1514,7 +1769,7 @@ export default function App() {
 
                         <button
                           onClick={() => handleRenewPlan(st.id)}
-                          className={`flex items-center justify-center gap-1 ${t.softBadge} py-2.5 px-3 rounded-xl text-xs font-semibold transition-all`}
+                          className="flex items-center justify-center gap-1 bg-[#EDF3EE] text-[#4C6352] py-2.5 px-3 rounded-xl text-xs font-semibold transition-all"
                         >
                           <CheckCircle2 className="w-3.5 h-3.5" />
                           Renovar Plan
@@ -1530,57 +1785,62 @@ export default function App() {
       </main>
 
       {/* Pie de página fijo con Copyright */}
-      <footer
-        className={`fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t ${t.headerBorder} py-2 px-4 text-center z-30`}
-      >
+      <footer className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-[#E5E0D8] py-2 px-4 text-center z-30">
         <p className="text-xs text-stone-600 tracking-wide">
           © {new Date().getFullYear()}{' '}
           <strong className="font-semibold text-stone-800">Espacio Sat-Nam</strong> •{' '}
-          <span className={`font-medium ${t.brandAccent}`}>by Patricia Aleman</span>. Todos los
+          <span className="font-medium text-[#5C7362]">by Patricia Aleman</span>. Todos los
           derechos reservados.
         </p>
       </footer>
 
-      {/* Navegación móvil inferior */}
+      {/* Navegación móvil inferior Modo Estudio */}
       {role === 'admin' && (
         <nav className="md:hidden fixed bottom-8 left-0 right-0 bg-white border-t border-stone-200 flex justify-around py-2 px-2 z-40">
           <button
             onClick={() => setAdminTab('schedule')}
-            className={`flex flex-col items-center gap-1 text-xs font-medium ${
-              adminTab === 'schedule' ? t.brandAccent : 'text-stone-400'
+            className={`flex flex-col items-center gap-1 text-[11px] font-medium ${
+              adminTab === 'schedule' ? 'text-[#5C7362]' : 'text-stone-400'
             }`}
           >
-            <Calendar className="w-5 h-5" />
+            <Calendar className="w-4 h-4" />
             Agenda
           </button>
           <button
-            onClick={() => setAdminTab('students')}
-            className={`flex flex-col items-center gap-1 text-xs font-medium ${
-              adminTab === 'students' ? t.brandAccent : 'text-stone-400'
+            onClick={() => setAdminTab('dashboard')}
+            className={`flex flex-col items-center gap-1 text-[11px] font-medium ${
+              adminTab === 'dashboard' ? 'text-[#5C7362]' : 'text-stone-400'
             }`}
           >
-            <Users className="w-5 h-5" />
-            Personas
+            <BarChart3 className="w-4 h-4" />
+            Dashboard
+          </button>
+          <button
+            onClick={() => setAdminTab('students')}
+            className={`flex flex-col items-center gap-1 text-[11px] font-medium ${
+              adminTab === 'students' ? 'text-[#5C7362]' : 'text-stone-400'
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            Alumnos
           </button>
           <button
             onClick={() => setAdminTab('payments')}
-            className={`flex flex-col items-center gap-1 text-xs font-medium ${
-              adminTab === 'payments' ? t.brandAccent : 'text-stone-400'
+            className={`flex flex-col items-center gap-1 text-[11px] font-medium ${
+              adminTab === 'payments' ? 'text-[#5C7362]' : 'text-stone-400'
             }`}
           >
-            <CreditCard className="w-5 h-5" />
+            <CreditCard className="w-4 h-4" />
             Pagos
           </button>
         </nav>
       )}
 
-      {/* Modal: Verificación PIN Modo Estudio */}
+      {/* Modal: PIN Modo Estudio */}
       {showPinModal && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-xs w-full p-6 shadow-xl text-center">
-            <div
-              className={`w-12 h-12 rounded-2xl ${t.softBadge} flex items-center justify-center mx-auto mb-3`}
-            >
+            <div className="w-12 h-12 rounded-2xl bg-[#EDF3EE] text-[#4C6352] flex items-center justify-center mx-auto mb-3">
               <Lock className="w-6 h-6" />
             </div>
             <h3 className="font-semibold text-lg">Acceso Modo Estudio</h3>
@@ -1603,7 +1863,7 @@ export default function App() {
                 className={`w-full text-center tracking-[0.6em] text-2xl font-bold border rounded-2xl py-2.5 focus:outline-none ${
                   pinError
                     ? 'border-rose-500 bg-rose-50 text-rose-700'
-                    : `border-stone-200 ${t.focusBorder}`
+                    : 'border-stone-200 focus:border-[#5C7362]'
                 }`}
               />
               {pinError && (
@@ -1622,7 +1882,7 @@ export default function App() {
                 </button>
                 <button
                   type="submit"
-                  className={`flex-1 py-2.5 rounded-xl text-xs font-semibold ${t.primaryBtn}`}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-[#5C7362] hover:bg-[#4B5F50] text-white"
                 >
                   Ingresar
                 </button>
@@ -1632,20 +1892,67 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal: Crear / Editar Servicio */}
-      {showServiceModal && (
+      {/* Modal: Editar Perfil Alumno */}
+      {showEditProfileModal && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="font-semibold text-lg">
-                {editingService ? 'Editar Servicio' : 'Nuevo Servicio / Área'}
-              </h3>
-              <button onClick={() => setShowServiceModal(false)}>
+              <h3 className="font-semibold text-lg">Editar Mi Perfil</h3>
+              <button onClick={() => setShowEditProfileModal(false)}>
                 <XCircle className="w-5 h-5 text-stone-400" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveService} className="space-y-3.5 text-sm">
+            <form onSubmit={handleSaveProfile} className="space-y-3.5 text-sm">
+              <div>
+                <label className="block text-xs font-medium text-stone-600 mb-1">
+                  Nombre y Apellido
+                </label>
+                <input
+                  required
+                  type="text"
+                  value={profileForm.name}
+                  onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })}
+                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-stone-600 mb-1">
+                  Teléfono WhatsApp
+                </label>
+                <input
+                  required
+                  type="text"
+                  value={profileForm.phone}
+                  onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })}
+                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2"
+              >
+                Guardar Cambios
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: + Servicio (Solo agregar) */}
+      {showAddServiceModal && (
+        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-semibold text-lg">Agregar Servicio</h3>
+              <button onClick={() => setShowAddServiceModal(false)}>
+                <XCircle className="w-5 h-5 text-stone-400" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddService} className="space-y-3.5 text-sm">
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">
                   Nombre del Servicio
@@ -1653,46 +1960,63 @@ export default function App() {
                 <input
                   required
                   type="text"
-                  placeholder="Ej. Yoga Terapia, Masajes..."
-                  value={serviceForm.label}
-                  onChange={(e) => setServiceForm({ ...serviceForm, label: e.target.value })}
-                  className="w-full border border-stone-200 rounded-xl px-3 py-2 text-sm"
+                  placeholder="Ej. Yoga Nidra, Masajes..."
+                  value={newServiceForm.label}
+                  onChange={(e) => setNewServiceForm({ ...newServiceForm, label: e.target.value })}
+                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">
-                  Cupo Base Predeterminado
+                  Categoría en Vista Alumno
+                </label>
+                <select
+                  value={newServiceForm.pillar}
+                  onChange={(e) => setNewServiceForm({ ...newServiceForm, pillar: e.target.value })}
+                  className="w-full border border-stone-200 rounded-xl px-3 py-2 bg-white"
+                >
+                  <option value="cuerpo">Cuerpo & Movimiento</option>
+                  <option value="mente">Mente & Procesos</option>
+                  <option value="estetica">Cuidado & Estética</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-stone-600 mb-1">
+                  Cupo Predeterminado
                 </label>
                 <input
                   required
                   type="number"
                   min="1"
                   max="60"
-                  value={serviceForm.defaultCap}
-                  onChange={(e) => setServiceForm({ ...serviceForm, defaultCap: e.target.value })}
-                  className="w-full border border-stone-200 rounded-xl px-3 py-2 text-sm"
+                  value={newServiceForm.defaultCap}
+                  onChange={(e) =>
+                    setNewServiceForm({ ...newServiceForm, defaultCap: e.target.value })
+                  }
+                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
                 />
               </div>
 
               <button
                 type="submit"
-                className={`w-full ${t.primaryBtn} font-medium py-2.5 rounded-xl mt-2`}
+                className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2"
               >
-                {editingService ? 'Guardar Cambios' : 'Crear Servicio'}
+                Agregar Servicio
               </button>
             </form>
           </div>
         </div>
       )}
 
-      {/* Modal: Agregar / Editar Horarios o Clases */}
+      {/* Modal: Programar / Editar Horarios (hasta 4 semanas) */}
       {showClassModal && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-semibold text-lg">
-                {editingClassId ? 'Editar Horario' : 'Programar Horarios (6 Meses)'}
+                {editingClassId ? 'Editar Clase' : 'Programar Horarios'}
               </h3>
               <button onClick={() => setShowClassModal(false)}>
                 <XCircle className="w-5 h-5 text-stone-400" />
@@ -1702,35 +2026,33 @@ export default function App() {
             <form onSubmit={handleSaveClass} className="space-y-3.5 text-sm">
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1.5">
-                  Área / Servicio Asociado
+                  Servicio
                 </label>
                 <div className="grid grid-cols-2 gap-2">
-                  {categories.map((cat) => (
+                  {services.map((srv) => (
                     <button
                       type="button"
-                      key={cat.id}
-                      onClick={() => {
-                        const matchingCat = categories.find((c) => c.id === cat.id);
+                      key={srv.id}
+                      onClick={() =>
                         setClassForm((prev) => ({
                           ...prev,
-                          category: cat.id,
-                          capacity: matchingCat.defaultCap,
-                          title: prev.isCustomTitle ? prev.title : matchingCat.label
-                        }));
-                      }}
+                          category: srv.id,
+                          capacity: srv.defaultCap,
+                          title: prev.isCustomTitle ? prev.title : srv.label
+                        }))
+                      }
                       className={`py-2 px-2.5 rounded-xl border text-xs font-medium text-left transition-all ${
-                        classForm.category === cat.id
-                          ? `${t.activePill} border-transparent`
-                          : `${t.bg} text-stone-600 border-stone-200`
+                        classForm.category === srv.id
+                          ? 'bg-[#5C7362] text-white border-transparent'
+                          : 'bg-[#F7F5F0] text-stone-600 border-stone-200'
                       }`}
                     >
-                      {cat.label}
+                      {srv.label}
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Nombre de la clase (igual al servicio, salvo que elija personalizar) */}
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="block text-xs font-medium text-stone-600">
@@ -1742,14 +2064,14 @@ export default function App() {
                       checked={classForm.isCustomTitle}
                       onChange={(e) => {
                         const custom = e.target.checked;
-                        const matchingCat = categories.find((c) => c.id === classForm.category);
+                        const srv = services.find((s) => s.id === classForm.category);
                         setClassForm({
                           ...classForm,
                           isCustomTitle: custom,
-                          title: custom ? classForm.title : matchingCat.label
+                          title: custom ? classForm.title : srv?.label || ''
                         });
                       }}
-                      className="rounded accent-stone-700 w-3.5 h-3.5"
+                      className="rounded accent-[#5C7362] w-3.5 h-3.5"
                     />
                     Personalizar nombre
                   </label>
@@ -1762,7 +2084,7 @@ export default function App() {
                   value={
                     classForm.isCustomTitle
                       ? classForm.title
-                      : (categories.find((c) => c.id === classForm.category)?.label || '')
+                      : services.find((s) => s.id === classForm.category)?.label || ''
                   }
                   onChange={(e) => setClassForm({ ...classForm, title: e.target.value })}
                   className={`w-full border border-stone-200 rounded-xl px-3 py-2 text-sm ${
@@ -1784,40 +2106,58 @@ export default function App() {
                 />
               </div>
 
-              {/* Selección de días (solo al crear nuevos bloques semestrales) */}
               {!editingClassId && (
-                <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1.5">
-                    Días de la semana en los que se dicta:
-                  </label>
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {DAYS_OF_WEEK.map((day) => {
-                      const isSelected = classForm.selectedDays.includes(day.id);
-                      return (
-                        <button
-                          type="button"
-                          key={day.id}
-                          onClick={() => {
-                            const updatedDays = isSelected
-                              ? classForm.selectedDays.filter((d) => d !== day.id)
-                              : [...classForm.selectedDays, day.id];
-                            setClassForm({ ...classForm, selectedDays: updatedDays });
-                          }}
-                          className={`py-2 px-2 rounded-xl text-xs font-medium border text-center transition-all ${
-                            isSelected
-                              ? `${t.activePill} border-transparent`
-                              : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
-                          }`}
-                        >
-                          {day.label}
-                        </button>
-                      );
-                    })}
+                <>
+                  <div>
+                    <label className="block text-xs font-medium text-stone-600 mb-1.5">
+                      Días de la semana (desde {formatDateDDMMYYYY(selectedDate)}):
+                    </label>
+                    <div className="grid grid-cols-7 gap-1">
+                      {DAYS_OF_WEEK.map((day) => {
+                        const isSelected = classForm.selectedDays.includes(day.id);
+                        return (
+                          <button
+                            type="button"
+                            key={day.id}
+                            onClick={() => {
+                              const updated = isSelected
+                                ? classForm.selectedDays.filter((d) => d !== day.id)
+                                : [...classForm.selectedDays, day.id];
+                              setClassForm({ ...classForm, selectedDays: updated });
+                            }}
+                            className={`py-2 rounded-xl text-xs font-medium border text-center transition-all ${
+                              isSelected
+                                ? 'bg-[#5C7362] text-white border-transparent'
+                                : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
+                            }`}
+                          >
+                            {day.short}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-stone-600 mb-1">
+                      Repetición semanal
+                    </label>
+                    <select
+                      value={classForm.weeksCount}
+                      onChange={(e) =>
+                        setClassForm({ ...classForm, weeksCount: Number(e.target.value) })
+                      }
+                      className="w-full border border-stone-200 rounded-xl px-3 py-2 bg-white text-sm"
+                    >
+                      <option value={1}>Solo esta semana (1 semana)</option>
+                      <option value={2}>Durante 2 semanas</option>
+                      <option value={4}>Durante 4 semanas (1 mes)</option>
+                    </select>
+                  </div>
+                </>
               )}
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-2.5">
                 <div>
                   <label className="block text-xs font-medium text-stone-600 mb-1">Hora</label>
                   <input
@@ -1825,11 +2165,13 @@ export default function App() {
                     type="time"
                     value={classForm.time}
                     onChange={(e) => setClassForm({ ...classForm, time: e.target.value })}
-                    className="w-full border border-stone-200 rounded-xl px-3 py-2 text-sm"
+                    className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">Duración (min)</label>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">
+                    Duración (min)
+                  </label>
                   <input
                     required
                     type="number"
@@ -1837,36 +2179,35 @@ export default function App() {
                     max="480"
                     value={classForm.duration}
                     onChange={(e) => setClassForm({ ...classForm, duration: e.target.value })}
-                    className="w-full border border-stone-200 rounded-xl px-3 py-2 text-sm"
+                    className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">Cupo</label>
+                  <input
+                    required
+                    type="number"
+                    min="1"
+                    max="60"
+                    value={classForm.capacity}
+                    onChange={(e) => setClassForm({ ...classForm, capacity: e.target.value })}
+                    className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs"
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">Cupo Máximo</label>
-                <input
-                  required
-                  type="number"
-                  min="1"
-                  max="60"
-                  value={classForm.capacity}
-                  onChange={(e) => setClassForm({ ...classForm, capacity: e.target.value })}
-                  className="w-full border border-stone-200 rounded-xl px-3 py-2 text-sm"
-                />
-              </div>
-
               <button
                 type="submit"
-                className={`w-full ${t.primaryBtn} font-medium py-2.5 rounded-xl mt-2`}
+                className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2"
               >
-                {editingClassId ? 'Guardar Cambios' : 'Generar Horarios por 6 Meses'}
+                {editingClassId ? 'Guardar Cambios' : 'Guardar Horarios'}
               </button>
             </form>
           </div>
         </div>
       )}
 
-      {/* Modal: Nuevo Alumno / Consultante */}
+      {/* Modal: Nuevo Alumno */}
       {showNewStudentModal && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl">
@@ -1962,7 +2303,7 @@ export default function App() {
 
               <button
                 type="submit"
-                className={`w-full ${t.primaryBtn} font-medium py-2.5 rounded-xl mt-2`}
+                className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2"
               >
                 Guardar Registro
               </button>
