@@ -9,7 +9,6 @@ import {
   XCircle,
   MessageCircle,
   Clock,
-  Sparkles,
   UserCheck,
   Search,
   Trash2,
@@ -17,13 +16,18 @@ import {
   Bike,
   Heart,
   Check,
-  RefreshCw
+  RefreshCw,
+  Lock,
+  Sun
 } from 'lucide-react';
 
 // Conexión a tu base de datos en Supabase
 const supabaseUrl = 'https://miwktvtdygetyzqvccal.supabase.co';
 const supabaseKey = 'sb_publishable_45-FeV94kQsHYfau3pJPjg_DOo7R6yx';
 const supabase = createClient(supabaseUrl, supabaseKey);
+
+// PIN de acceso al Modo Estudio
+const ADMIN_PIN = '1008';
 
 const PLAN_OPTIONS = [
   'Clase Individual',
@@ -33,11 +37,114 @@ const PLAN_OPTIONS = [
   'Pase Libre Yoga & Spinning'
 ];
 
+// Configuración de las 2 paletas para comparar
+const THEMES = {
+  solar: {
+    name: 'Turquesa & Coral',
+    bg: 'bg-[#FAF8F5]',
+    textMain: 'text-[#1E293B]',
+    headerBorder: 'border-orange-100',
+    brandAccent: 'text-[#0D9488]',
+    subtitleText: 'text-[#F97316]',
+    logoGradient: 'from-[#0D9488] via-[#14B8A6] to-[#F97316]',
+    cardAccentBar: 'from-[#0D9488] to-[#F97316]',
+    primaryBtn: 'bg-[#0D9488] hover:bg-[#0F766E] text-white shadow-teal-500/20',
+    secondaryBtn: 'bg-[#F97316] hover:bg-[#EA580C] text-white shadow-orange-500/20',
+    activePill: 'bg-[#0D9488] text-white shadow-xs',
+    activePillAlt: 'bg-[#F97316] text-white shadow-xs',
+    softBadge: 'bg-teal-50 text-[#0F766E]',
+    iconPrimary: 'text-[#0D9488]',
+    iconSecondary: 'text-[#F97316]',
+    bookedRing: 'border-[#0D9488] ring-2 ring-[#0D9488]/20',
+    toastBg: 'bg-[#0F766E] text-white',
+    focusBorder: 'focus:border-[#0D9488]'
+  },
+  sage: {
+    name: 'Salvia Calma',
+    bg: 'bg-[#F7F5F0]',
+    textMain: 'text-[#2D332F]',
+    headerBorder: 'border-[#E5E0D8]',
+    brandAccent: 'text-[#5C7362]',
+    subtitleText: 'text-[#737D76]',
+    logoGradient: 'from-[#5C7362] via-[#6D8573] to-[#8C9E8E]',
+    cardAccentBar: 'from-[#5C7362] to-[#8C9E8E]',
+    primaryBtn: 'bg-[#5C7362] hover:bg-[#4B5F50] text-white shadow-sm',
+    secondaryBtn: 'bg-[#5C7362] hover:bg-[#4B5F50] text-white shadow-sm',
+    activePill: 'bg-[#5C7362] text-white shadow-xs',
+    activePillAlt: 'bg-[#5C7362] text-white shadow-xs',
+    softBadge: 'bg-[#EDF3EE] text-[#4C6352]',
+    iconPrimary: 'text-[#5C7362]',
+    iconSecondary: 'text-[#5C7362]',
+    bookedRing: 'border-[#5C7362] ring-1 ring-[#5C7362]/20',
+    toastBg: 'bg-[#2D332F] text-white',
+    focusBorder: 'focus:border-[#5C7362]'
+  }
+};
+
+// Isotipo Flor de Loto + Energía Solar para Espacio SAT-NAM
+function SatNamLogo({ gradientClass, className = 'w-11 h-11' }) {
+  return (
+    <div
+      className={`${className} rounded-2xl bg-gradient-to-br ${gradientClass} p-2 flex items-center justify-center text-white shadow-md shrink-0 transition-all duration-300`}
+    >
+      <svg
+        viewBox="0 0 64 64"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        className="w-full h-full"
+      >
+        <path
+          d="M32 10C26 20 24 30 32 42C40 30 38 20 32 10Z"
+          fill="white"
+          fillOpacity="0.95"
+        />
+        <path
+          d="M29 41C19 35 14 25 16 16C24 20 28 29 29 41Z"
+          fill="white"
+          fillOpacity="0.78"
+        />
+        <path
+          d="M35 41C45 35 50 25 48 16C40 20 36 29 35 41Z"
+          fill="white"
+          fillOpacity="0.78"
+        />
+        <path
+          d="M27 43C15 43 8 36 7 28C16 28 23 34 27 43Z"
+          fill="white"
+          fillOpacity="0.58"
+        />
+        <path
+          d="M37 43C49 43 56 36 57 28C48 28 41 34 37 43Z"
+          fill="white"
+          fillOpacity="0.58"
+        />
+        <circle cx="32" cy="49" r="3.5" fill="#FDE047" />
+      </svg>
+    </div>
+  );
+}
+
 export default function App() {
+  const [themeKey, setThemeKey] = useState(
+    () => localStorage.getItem('satnam_theme') || 'solar'
+  );
+  const t = THEMES[themeKey] || THEMES.solar;
+
+  const handleSelectTheme = (key) => {
+    setThemeKey(key);
+    localStorage.setItem('satnam_theme', key);
+  };
+
   const [role, setRole] = useState('student');
   const [adminTab, setAdminTab] = useState('schedule');
   const [notification, setNotification] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  // Estados de seguridad PIN
+  const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState(false);
 
   const [students, setStudents] = useState([]);
   const [classes, setClasses] = useState([]);
@@ -73,6 +180,31 @@ export default function App() {
   const showToast = (message, type = 'success') => {
     setNotification({ message, type });
     setTimeout(() => setNotification(null), 3500);
+  };
+
+  const handleSelectAdminMode = () => {
+    if (isAdminUnlocked) {
+      setRole('admin');
+    } else {
+      setPinInput('');
+      setPinError(false);
+      setShowPinModal(true);
+    }
+  };
+
+  const handleVerifyPin = (e) => {
+    e.preventDefault();
+    if (pinInput === ADMIN_PIN) {
+      setIsAdminUnlocked(true);
+      setShowPinModal(false);
+      setRole('admin');
+      setPinInput('');
+      setPinError(false);
+      showToast('Acceso concedido al Modo Estudio');
+    } else {
+      setPinError(true);
+      setPinInput('');
+    }
   };
 
   // Cargar datos iniciales desde Supabase
@@ -140,7 +272,7 @@ export default function App() {
   // Reservar o Cancelar clase
   const handleToggleBooking = async (classId) => {
     if (!activeStudent) {
-      showToast('Primero agrega un alumno desde el Modo Estudio', 'error');
+      showToast('Primero solicita tu alta en el estudio', 'error');
       return;
     }
 
@@ -149,7 +281,6 @@ export default function App() {
     );
 
     if (existingBooking) {
-      // Cancelar reserva
       const { error } = await supabase.from('bookings').delete().eq('id', existingBooking.id);
       if (error) {
         showToast('No se pudo cancelar la reserva', 'error');
@@ -167,7 +298,6 @@ export default function App() {
       }
       showToast('Reserva cancelada correctamente');
     } else {
-      // Validar cupos y créditos
       const classObj = classes.find((c) => c.id === classId);
       const classBookingsCount = bookings.filter((b) => b.classId === classId).length;
 
@@ -354,7 +484,7 @@ export default function App() {
   // Generar enlace de WhatsApp para recordatorio de pago
   const getWhatsAppReminderUrl = (student) => {
     const cleanPhone = student.phone.replace(/\D/g, '');
-    const message = `¡Hola ${student.name}! Te saludamos desde *Espacio SAT-NAM* 🧘‍♀️🚴‍♂️. Te recordamos que tu abono (*${student.plan}*) vence el día *${student.expiryDate}*. Avísanos por aquí si deseas renovarlo para mantener tu lugar en las clases. ¡Namasté! ✨`;
+    const message = `¡Hola ${student.name}! Te saludamos desde *Espacio SAT-NAM* 🪷🚴‍♂️. Te recordamos que tu abono (*${student.plan}*) vence el día *${student.expiryDate}*. Avísanos por aquí si deseas renovarlo para mantener tu lugar en las clases. ¡Sat Nam! ✨`;
     return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
   };
 
@@ -373,7 +503,7 @@ export default function App() {
     const today = new Date().toISOString().split('T')[0];
     if (student.expiryDate < today || student.status === 'overdue') {
       return (
-        <span className="px-2.5 py-0.5 text-xs font-medium rounded-full bg-rose-100 text-rose-800">
+        <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-rose-100 text-rose-800">
           Vencido
         </span>
       );
@@ -383,13 +513,19 @@ export default function App() {
     );
     if (diffDays <= 5) {
       return (
-        <span className="px-2.5 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-800">
+        <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-amber-100 text-amber-800">
           Vence pronto ({diffDays}d)
         </span>
       );
     }
     return (
-      <span className="px-2.5 py-0.5 text-xs font-medium rounded-full bg-emerald-100 text-emerald-800">
+      <span
+        className={`px-2.5 py-0.5 text-xs font-semibold rounded-full ${
+          themeKey === 'solar'
+            ? 'bg-teal-50 text-[#0D9488] border border-teal-200'
+            : 'bg-emerald-100 text-emerald-800'
+        }`}
+      >
         Al día
       </span>
     );
@@ -398,27 +534,39 @@ export default function App() {
   const getCategoryBadge = (category) => {
     if (category === 'Spinning') {
       return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-800">
+        <span
+          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+            themeKey === 'solar'
+              ? 'bg-orange-100 text-[#EA580C]'
+              : 'bg-amber-100 text-amber-800'
+          }`}
+        >
           <Bike className="w-3 h-3" /> SPINNING
         </span>
       );
     }
     return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800">
+      <span
+        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+          themeKey === 'solar'
+            ? 'bg-teal-100 text-[#0F766E]'
+            : 'bg-emerald-100 text-emerald-800'
+        }`}
+      >
         <Heart className="w-3 h-3" /> YOGA
       </span>
     );
   };
 
   return (
-    <div className="min-h-screen bg-[#F7F5F0] text-[#2D332F] font-sans pb-20 md:pb-8">
+    <div
+      className={`min-h-screen ${t.bg} ${t.textMain} font-sans pb-20 md:pb-8 transition-colors duration-300`}
+    >
       {/* Notificación flotante */}
       {notification && (
         <div
           className={`fixed bottom-20 md:bottom-6 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-2xl shadow-lg text-sm font-medium transition-all ${
-            notification.type === 'error'
-              ? 'bg-rose-600 text-white'
-              : 'bg-[#2D332F] text-white'
+            notification.type === 'error' ? 'bg-rose-600 text-white' : t.toastBg
           }`}
         >
           <Check className="w-4 h-4" />
@@ -427,49 +575,72 @@ export default function App() {
       )}
 
       {/* Encabezado */}
-      <header className="bg-white/90 backdrop-blur-md border-b border-[#E5E0D8] sticky top-0 z-30">
-        <div className="max-w-5xl mx-auto px-4 py-3.5 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-2xl bg-[#5C7362] flex items-center justify-center text-white shadow-sm">
-              <Sparkles className="w-5 h-5" />
-            </div>
+      <header
+        className={`bg-white/95 backdrop-blur-md border-b ${t.headerBorder} sticky top-0 z-30 shadow-xs`}
+      >
+        <div className="max-w-5xl mx-auto px-4 py-3.5 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
+            <SatNamLogo gradientClass={t.logoGradient} />
             <div>
-              <h1 className="font-semibold text-lg tracking-tight text-[#252B27] leading-none">
-                Espacio SAT-NAM
+              <h1 className="font-bold text-lg tracking-tight leading-none">
+                Espacio <span className={t.brandAccent}>SAT-NAM</span>
               </h1>
-              <p className="text-xs text-[#737D76] mt-0.5">Yoga & Spinning Studio</p>
+              <p className={`text-xs font-medium ${t.subtitleText} mt-0.5 flex items-center gap-1`}>
+                <Sun className="w-3 h-3" /> Yoga & Spinning • Energía y Bienestar
+              </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Selector visual de paleta para que elija la dueña */}
+            <div
+              className="flex items-center gap-1.5 bg-slate-100/80 px-2 py-1 rounded-xl border border-slate-200/80"
+              title="Probar paleta de colores"
+            >
+              <button
+                onClick={() => handleSelectTheme('solar')}
+                title="Paleta Turquesa & Coral"
+                className={`w-5 h-5 rounded-full bg-gradient-to-br from-[#0D9488] to-[#F97316] transition-transform ${
+                  themeKey === 'solar' ? 'ring-2 ring-offset-1 ring-[#0D9488] scale-110' : 'opacity-60 hover:opacity-100'
+                }`}
+              />
+              <button
+                onClick={() => handleSelectTheme('sage')}
+                title="Paleta Verde Salvia"
+                className={`w-5 h-5 rounded-full bg-[#5C7362] transition-transform ${
+                  themeKey === 'sage' ? 'ring-2 ring-offset-1 ring-[#5C7362] scale-110' : 'opacity-60 hover:opacity-100'
+                }`}
+              />
+            </div>
+
             <button
               onClick={fetchAllData}
               title="Actualizar datos"
-              className="p-2 rounded-xl text-[#737D76] hover:bg-[#EFECE6] transition-colors"
+              className="p-2 rounded-xl text-slate-500 hover:bg-slate-100 transition-colors"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
 
-            <div className="flex items-center bg-[#EFECE6] p-1 rounded-xl border border-[#E2DDD4]">
+            <div className="flex items-center bg-[#F3EFEA] p-1 rounded-xl border border-slate-200/70">
               <button
                 onClick={() => setRole('student')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                  role === 'student'
-                    ? 'bg-[#5C7362] text-white shadow-sm'
-                    : 'text-[#616B64] hover:text-[#2D332F]'
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  role === 'student' ? t.activePill : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 Vista Alumno
               </button>
               <button
-                onClick={() => setRole('admin')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1 ${
-                  role === 'admin'
-                    ? 'bg-[#5C7362] text-white shadow-sm'
-                    : 'text-[#616B64] hover:text-[#2D332F]'
+                onClick={handleSelectAdminMode}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
+                  role === 'admin' ? t.activePillAlt : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <ShieldCheck className="w-3.5 h-3.5" />
+                {isAdminUnlocked ? (
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                ) : (
+                  <Lock className="w-3.5 h-3.5" />
+                )}
                 Modo Estudio
               </button>
             </div>
@@ -479,27 +650,32 @@ export default function App() {
 
       <main className="max-w-5xl mx-auto px-4 pt-6">
         {loading && students.length === 0 && classes.length === 0 ? (
-          <div className="text-center py-16 text-[#737D76]">
+          <div className="text-center py-16 text-slate-500">
             Conectando con la agenda de Espacio SAT-NAM...
           </div>
         ) : role === 'student' ? (
           <div className="space-y-6">
             {/* Selector de Alumno Activo */}
             {students.length > 0 ? (
-              <div className="bg-white rounded-2xl p-4 border border-[#E6E1D8] shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-full bg-[#E8EFEA] text-[#4C6352] font-semibold flex items-center justify-center text-base">
+              <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200/80 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative overflow-hidden">
+                <div
+                  className={`absolute top-0 left-0 w-1.5 h-full bg-gradient-to-b ${t.cardAccentBar}`}
+                />
+                <div className="flex items-center gap-3.5 pl-2">
+                  <div
+                    className={`w-12 h-12 rounded-2xl ${t.softBadge} font-bold flex items-center justify-center text-lg`}
+                  >
                     {activeStudent?.name.charAt(0)}
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs text-[#7B857E] uppercase tracking-wider font-medium">
-                        Alumno Activo:
+                      <span className="text-xs text-slate-400 uppercase tracking-wider font-semibold">
+                        Hola,
                       </span>
                       <select
                         value={activeStudentId}
                         onChange={(e) => setActiveStudentId(e.target.value)}
-                        className="text-sm font-semibold bg-[#F7F5F0] border border-[#DCD6CC] rounded-lg px-2 py-1 focus:outline-none focus:border-[#5C7362]"
+                        className={`text-sm font-bold ${t.bg} border border-slate-200 rounded-xl px-2.5 py-1 focus:outline-none ${t.focusBorder}`}
                       >
                         {students.map((s) => (
                           <option key={s.id} value={s.id}>
@@ -508,53 +684,54 @@ export default function App() {
                         ))}
                       </select>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2 mt-1">
-                      <span className="text-xs text-[#5C7362] font-medium bg-[#EDF3EE] px-2 py-0.5 rounded-md">
+                    <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                      <span className={`text-xs font-semibold ${t.softBadge} px-2.5 py-0.5 rounded-lg`}>
                         {activeStudent?.plan}
                       </span>
                       {activeStudent && getStatusBadge(activeStudent)}
                       {activeStudent &&
                         activeStudent.plan !== 'Pase Libre Yoga & Spinning' && (
-                          <span className="text-xs text-[#616B64]">
-                            • <strong>{activeStudent.credits}</strong> clases disponibles
+                          <span className="text-xs text-slate-600">
+                            • <strong className={t.iconSecondary}>{activeStudent.credits}</strong>{' '}
+                            clases disponibles
                           </span>
                         )}
                     </div>
                   </div>
                 </div>
 
-                <div className="text-xs text-[#737D76] sm:text-right border-t sm:border-t-0 pt-2 sm:pt-0 border-[#EFECE6]">
+                <div className="text-xs text-slate-500 sm:text-right border-t sm:border-t-0 pt-2.5 sm:pt-0 border-slate-100 pl-2 sm:pl-0">
                   Vencimiento de Abono:
-                  <span className="block font-semibold text-[#2D332F] text-sm">
-                    {activeStudent?.expiryDate}
-                  </span>
+                  <span className="block font-bold text-sm">{activeStudent?.expiryDate}</span>
                 </div>
               </div>
             ) : (
               <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-sm text-amber-900">
-                Aún no hay alumnos registrados. Cambia a <strong>Modo Estudio</strong> arriba a la derecha para agregar tus primeros alumnos y crear los horarios de clases.
+                Aún no hay alumnos registrados en la agenda. Consulta en recepción para darte de alta.
               </div>
             )}
 
             {/* Filtros de fecha y disciplina */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
               <div>
-                <h2 className="text-xl font-semibold text-[#252B27]">Reserva de Turnos</h2>
-                <p className="text-sm text-[#737D76]">
-                  Elige tus clases de Yoga y Spinning en Espacio SAT-NAM
+                <h2 className="text-xl font-bold">Reserva tu Próximo Desafío</h2>
+                <p className="text-sm text-slate-500">
+                  Conecta con tu bienestar en Yoga o supera tu ritmo en Spinning
                 </p>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <div className="flex bg-white p-1 rounded-xl border border-[#DCD6CC]">
+                <div className="flex bg-white p-1 rounded-xl border border-slate-200 shadow-2xs">
                   {['Todas', 'Yoga', 'Spinning'].map((cat) => (
                     <button
                       key={cat}
                       onClick={() => setCategoryFilter(cat)}
-                      className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                      className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                         categoryFilter === cat
-                          ? 'bg-[#5C7362] text-white'
-                          : 'text-[#616B64] hover:text-[#2D332F]'
+                          ? cat === 'Spinning'
+                            ? t.activePillAlt
+                            : t.activePill
+                          : 'text-slate-600 hover:text-slate-900'
                       }`}
                     >
                       {cat}
@@ -562,13 +739,13 @@ export default function App() {
                   ))}
                 </div>
 
-                <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-[#DCD6CC] shadow-sm">
-                  <Calendar className="w-4 h-4 text-[#5C7362]" />
+                <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-2xs">
+                  <Calendar className={`w-4 h-4 ${t.iconSecondary}`} />
                   <input
                     type="date"
                     value={selectedDate}
                     onChange={(e) => setSelectedDate(e.target.value)}
-                    className="text-sm font-medium bg-transparent focus:outline-none text-[#2D332F]"
+                    className="text-sm font-semibold bg-transparent focus:outline-none"
                   />
                 </div>
               </div>
@@ -576,19 +753,10 @@ export default function App() {
 
             {/* Tarjetas de Clases */}
             {filteredClasses.length === 0 ? (
-              <div className="bg-white rounded-2xl p-10 text-center border border-[#E6E1D8]">
-                <p className="text-[#737D76] mb-3">
-                  No hay clases programadas para esta fecha o filtro.
+              <div className="bg-white rounded-3xl p-10 text-center border border-slate-200">
+                <p className="text-slate-500">
+                  No hay clases programadas para esta fecha o filtro seleccionado.
                 </p>
-                <button
-                  onClick={() => {
-                    setCategoryFilter('Todas');
-                    setRole('admin');
-                  }}
-                  className="text-sm font-medium text-[#5C7362] underline"
-                >
-                  Ir a Modo Estudio para agregar clases
-                </button>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -598,52 +766,63 @@ export default function App() {
                     ? classBookings.some((b) => b.studentId === activeStudent.id)
                     : false;
                   const spotsLeft = cls.capacity - classBookings.length;
+                  const isSpinning = cls.category === 'Spinning';
 
                   return (
                     <div
                       key={cls.id}
-                      className={`bg-white rounded-2xl p-5 border transition-all flex flex-col justify-between ${
+                      className={`bg-white rounded-3xl p-5 border transition-all flex flex-col justify-between ${
                         isBooked
-                          ? 'border-[#5C7362] ring-1 ring-[#5C7362]/20 shadow-md'
-                          : 'border-[#E6E1D8] shadow-sm hover:border-[#C5BEB2]'
+                          ? `${t.bookedRing} shadow-md`
+                          : 'border-slate-200/80 shadow-sm hover:border-slate-300'
                       }`}
                     >
                       <div>
-                        <div className="flex justify-between items-start gap-2 mb-2">
+                        <div className="flex justify-between items-start gap-2 mb-2.5">
                           <div className="flex items-center gap-2">
                             {getCategoryBadge(cls.category)}
-                            <span className="text-xs text-[#737D76]">{cls.room}</span>
+                            <span className="text-xs text-slate-500 font-medium">{cls.room}</span>
                           </div>
                           {isBooked && (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-[#5C7362] text-white">
+                            <span
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${t.activePill}`}
+                            >
                               <CheckCircle2 className="w-3.5 h-3.5" /> Reservado
                             </span>
                           )}
                         </div>
 
-                        <h3 className="font-semibold text-lg text-[#252B27]">{cls.title}</h3>
+                        <h3 className="font-bold text-lg">{cls.title}</h3>
 
-                        <div className="flex items-center gap-4 text-sm text-[#616B64] mt-3">
-                          <span className="flex items-center gap-1.5">
-                            <Clock className="w-4 h-4 text-[#5C7362]" />
+                        <div className="flex items-center gap-4 text-sm text-slate-600 mt-3">
+                          <span className="flex items-center gap-1.5 font-medium">
+                            <Clock
+                              className={`w-4 h-4 ${
+                                isSpinning ? t.iconSecondary : t.iconPrimary
+                              }`}
+                            />
                             {cls.time} ({cls.duration} min)
                           </span>
                           <span className="flex items-center gap-1.5">
-                            <Users className="w-4 h-4 text-[#5C7362]" />
+                            <Users
+                              className={`w-4 h-4 ${
+                                isSpinning ? t.iconSecondary : t.iconPrimary
+                              }`}
+                            />
                             Prof. {cls.instructor}
                           </span>
                         </div>
                       </div>
 
-                      <div className="mt-5 pt-4 border-t border-[#F0EDE6] flex items-center justify-between">
+                      <div className="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between">
                         <div>
                           <span
-                            className={`text-xs font-semibold px-2.5 py-1 rounded-lg ${
+                            className={`text-xs font-bold px-2.5 py-1 rounded-xl ${
                               spotsLeft === 0
                                 ? 'bg-rose-100 text-rose-700'
                                 : spotsLeft <= 3
                                 ? 'bg-amber-100 text-amber-800'
-                                : 'bg-[#F2F5F3] text-[#4C6352]'
+                                : t.softBadge
                             }`}
                           >
                             {spotsLeft === 0 ? 'Cupo completo' : `${spotsLeft} lugares libres`}
@@ -653,12 +832,14 @@ export default function App() {
                         <button
                           onClick={() => handleToggleBooking(cls.id)}
                           disabled={!isBooked && spotsLeft === 0}
-                          className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                          className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
                             isBooked
                               ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200'
                               : spotsLeft === 0
-                              ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                              : 'bg-[#5C7362] text-white hover:bg-[#4B5F50] shadow-sm'
+                              ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                              : isSpinning
+                              ? t.secondaryBtn
+                              : t.primaryBtn
                           }`}
                         >
                           {isBooked ? 'Cancelar Reserva' : 'Reservar Lugar'}
@@ -673,36 +854,43 @@ export default function App() {
         ) : (
           /* ================= VISTA MODO ESTUDIO (ADMIN) ================= */
           <div className="space-y-6">
-            <div className="hidden md:flex items-center gap-2 bg-white p-1.5 rounded-2xl border border-[#E6E1D8] w-fit shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="hidden md:flex items-center gap-2 bg-white p-1.5 rounded-2xl border border-slate-200 w-fit shadow-xs">
+                <button
+                  onClick={() => setAdminTab('schedule')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+                    adminTab === 'schedule' ? t.activePill : 'text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <Calendar className="w-4 h-4" /> Agenda y Asistencia
+                </button>
+                <button
+                  onClick={() => setAdminTab('students')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+                    adminTab === 'students' ? t.activePill : 'text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <Users className="w-4 h-4" /> Alumnos y Abonos
+                </button>
+                <button
+                  onClick={() => setAdminTab('payments')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+                    adminTab === 'payments' ? t.activePill : 'text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <CreditCard className="w-4 h-4" /> Pagos y WhatsApp
+                </button>
+              </div>
+
               <button
-                onClick={() => setAdminTab('schedule')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-                  adminTab === 'schedule'
-                    ? 'bg-[#5C7362] text-white shadow-sm'
-                    : 'text-[#616B64] hover:bg-[#F7F5F0]'
-                }`}
+                onClick={() => {
+                  setIsAdminUnlocked(false);
+                  setRole('student');
+                  showToast('Sesión de estudio bloqueada');
+                }}
+                className="text-xs font-semibold text-slate-600 hover:text-slate-900 flex items-center gap-1.5 bg-white px-3.5 py-2 rounded-xl border border-slate-200"
               >
-                <Calendar className="w-4 h-4" /> Agenda y Asistencia
-              </button>
-              <button
-                onClick={() => setAdminTab('students')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-                  adminTab === 'students'
-                    ? 'bg-[#5C7362] text-white shadow-sm'
-                    : 'text-[#616B64] hover:bg-[#F7F5F0]'
-                }`}
-              >
-                <Users className="w-4 h-4" /> Alumnos y Abonos
-              </button>
-              <button
-                onClick={() => setAdminTab('payments')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-                  adminTab === 'payments'
-                    ? 'bg-[#5C7362] text-white shadow-sm'
-                    : 'text-[#616B64] hover:bg-[#F7F5F0]'
-                }`}
-              >
-                <CreditCard className="w-4 h-4" /> Pagos y WhatsApp
+                <Lock className={`w-3.5 h-3.5 ${t.iconSecondary}`} /> Bloquear Modo Estudio
               </button>
             </div>
 
@@ -710,8 +898,8 @@ export default function App() {
               <div className="space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
-                    <h2 className="text-xl font-semibold text-[#252B27]">Agenda Espacio SAT-NAM</h2>
-                    <p className="text-sm text-[#737D76]">
+                    <h2 className="text-xl font-bold">Agenda Espacio SAT-NAM</h2>
+                    <p className="text-sm text-slate-500">
                       Controla los inscriptos por turno y marca la asistencia en sala
                     </p>
                   </div>
@@ -721,14 +909,14 @@ export default function App() {
                       type="date"
                       value={selectedDate}
                       onChange={(e) => setSelectedDate(e.target.value)}
-                      className="text-sm font-medium bg-white px-3 py-2 rounded-xl border border-[#DCD6CC]"
+                      className="text-sm font-semibold bg-white px-3 py-2 rounded-xl border border-slate-200"
                     />
                     <button
                       onClick={() => {
                         setNewClass((prev) => ({ ...prev, date: selectedDate }));
                         setShowNewClassModal(true);
                       }}
-                      className="flex items-center gap-1.5 bg-[#5C7362] hover:bg-[#4B5F50] text-white px-4 py-2 rounded-xl text-sm font-medium shadow-sm transition-all"
+                      className={`flex items-center gap-1.5 ${t.secondaryBtn} px-4 py-2 rounded-xl text-sm font-semibold transition-all`}
                     >
                       <Plus className="w-4 h-4" /> Nueva Clase
                     </button>
@@ -745,27 +933,29 @@ export default function App() {
                       return (
                         <div
                           key={cls.id}
-                          className="bg-white rounded-2xl p-5 border border-[#E6E1D8] shadow-sm"
+                          className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-sm"
                         >
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-[#F0EDE6]">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-slate-100">
                             <div>
                               <div className="flex items-center gap-2 mb-1">
                                 {getCategoryBadge(cls.category)}
-                                <span className="text-xs font-semibold px-2.5 py-0.5 rounded-md bg-[#EDF3EE] text-[#4C6352]">
+                                <span
+                                  className={`text-xs font-bold px-2.5 py-0.5 rounded-lg ${t.softBadge}`}
+                                >
                                   {cls.time} hs
                                 </span>
-                                <span className="text-xs text-[#737D76]">• {cls.room}</span>
+                                <span className="text-xs text-slate-500">• {cls.room}</span>
                               </div>
-                              <h3 className="font-semibold text-base text-[#252B27]">
+                              <h3 className="font-bold text-base">
                                 {cls.title}{' '}
-                                <span className="text-sm font-normal text-[#737D76]">
+                                <span className="text-sm font-normal text-slate-500">
                                   — Prof. {cls.instructor}
                                 </span>
                               </h3>
                             </div>
 
                             <div className="flex items-center gap-3">
-                              <span className="text-sm font-medium text-[#4C6352]">
+                              <span className={`text-sm font-semibold ${t.brandAccent}`}>
                                 Inscriptos: {classBookings.length} / {cls.capacity}
                               </span>
                               <button
@@ -780,7 +970,7 @@ export default function App() {
 
                           <div className="mt-4">
                             {classBookings.length === 0 ? (
-                              <p className="text-xs text-[#8C968F] italic">
+                              <p className="text-xs text-slate-400 italic">
                                 Aún no hay alumnos anotados en este turno.
                               </p>
                             ) : (
@@ -793,24 +983,22 @@ export default function App() {
                                     <div
                                       key={booking.id}
                                       onClick={() => handleToggleAttendance(booking.id)}
-                                      className={`cursor-pointer p-3 rounded-xl border flex items-center justify-between transition-all ${
+                                      className={`cursor-pointer p-3 rounded-2xl border flex items-center justify-between transition-all ${
                                         booking.attended
-                                          ? 'bg-[#EDF3EE] border-[#5C7362]/40'
-                                          : 'bg-[#FAF9F6] border-[#E6E1D8] hover:border-[#C5BEB2]'
+                                          ? `${t.softBadge} border-current/20`
+                                          : `${t.bg} border-slate-200 hover:border-slate-300`
                                       }`}
                                     >
                                       <div>
-                                        <p className="text-sm font-medium text-[#252B27]">
-                                          {st.name}
-                                        </p>
-                                        <p className="text-[11px] text-[#737D76]">{st.plan}</p>
+                                        <p className="text-sm font-semibold">{st.name}</p>
+                                        <p className="text-[11px] text-slate-500">{st.plan}</p>
                                       </div>
 
                                       <span
-                                        className={`flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-lg ${
+                                        className={`flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-xl ${
                                           booking.attended
-                                            ? 'bg-[#5C7362] text-white'
-                                            : 'bg-white text-[#737D76] border border-[#DCD6CC]'
+                                            ? t.activePill
+                                            : 'bg-white text-slate-600 border border-slate-200'
                                         }`}
                                       >
                                         <UserCheck className="w-3.5 h-3.5" />
@@ -827,7 +1015,7 @@ export default function App() {
                     })}
 
                   {classes.filter((c) => c.date === selectedDate).length === 0 && (
-                    <div className="bg-white rounded-2xl p-8 text-center border border-[#E6E1D8] text-[#737D76]">
+                    <div className="bg-white rounded-3xl p-8 text-center border border-slate-200 text-slate-500">
                       No hay clases cargadas para esta fecha. Haz clic en{' '}
                       <strong>+ Nueva Clase</strong> para crear tu primer turno.
                     </div>
@@ -840,63 +1028,67 @@ export default function App() {
               <div className="space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
-                    <h2 className="text-xl font-semibold text-[#252B27]">Alumnos & Planes</h2>
-                    <p className="text-sm text-[#737D76]">
+                    <h2 className="text-xl font-bold">Alumnos & Planes</h2>
+                    <p className="text-sm text-slate-500">
                       Administra los abonos de Yoga, Spinning y Pase Libre
                     </p>
                   </div>
 
                   <button
                     onClick={() => setShowNewStudentModal(true)}
-                    className="flex items-center gap-1.5 bg-[#5C7362] hover:bg-[#4B5F50] text-white px-4 py-2 rounded-xl text-sm font-medium shadow-sm w-fit"
+                    className={`flex items-center gap-1.5 ${t.secondaryBtn} px-4 py-2 rounded-xl text-sm font-semibold w-fit`}
                   >
                     <Plus className="w-4 h-4" /> Nuevo Alumno
                   </button>
                 </div>
 
                 <div className="relative">
-                  <Search className="w-4 h-4 text-[#8C968F] absolute left-3.5 top-3" />
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                   <input
                     type="text"
                     placeholder="Buscar alumno por nombre o tipo de abono..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full bg-white pl-10 pr-4 py-2.5 rounded-xl border border-[#DCD6CC] text-sm focus:outline-none focus:border-[#5C7362]"
+                    className={`w-full bg-white pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none ${t.focusBorder}`}
                   />
                 </div>
 
-                <div className="bg-white rounded-2xl border border-[#E6E1D8] overflow-hidden shadow-sm">
+                <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm">
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                       <thead>
-                        <tr className="bg-[#FAF9F6] border-b border-[#E6E1D8] text-xs uppercase tracking-wider text-[#737D76]">
-                          <th className="py-3.5 px-4 font-medium">Alumno</th>
-                          <th className="py-3.5 px-4 font-medium">Modalidad de Abono</th>
-                          <th className="py-3.5 px-4 font-medium">Saldo</th>
-                          <th className="py-3.5 px-4 font-medium">Vencimiento</th>
-                          <th className="py-3.5 px-4 font-medium">Estado</th>
+                        <tr
+                          className={`${t.bg} border-b border-slate-200 text-xs uppercase tracking-wider text-slate-500`}
+                        >
+                          <th className="py-3.5 px-4 font-semibold">Alumno</th>
+                          <th className="py-3.5 px-4 font-semibold">Modalidad de Abono</th>
+                          <th className="py-3.5 px-4 font-semibold">Saldo</th>
+                          <th className="py-3.5 px-4 font-semibold">Vencimiento</th>
+                          <th className="py-3.5 px-4 font-semibold">Estado</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-[#F0EDE6] text-sm">
+                      <tbody className="divide-y divide-slate-100 text-sm">
                         {filteredStudents.map((st) => (
-                          <tr key={st.id} className="hover:bg-[#FAF9F6]">
+                          <tr key={st.id} className="hover:bg-slate-50/60">
                             <td className="py-3.5 px-4">
-                              <p className="font-medium text-[#252B27]">{st.name}</p>
-                              <p className="text-xs text-[#737D76]">{st.phone}</p>
+                              <p className="font-semibold">{st.name}</p>
+                              <p className="text-xs text-slate-500">{st.phone}</p>
                             </td>
                             <td className="py-3.5 px-4">
-                              <span className="font-medium text-[#4C6352]">{st.plan}</span>
+                              <span className={`font-semibold ${t.brandAccent}`}>{st.plan}</span>
                             </td>
                             <td className="py-3.5 px-4">
                               {st.plan === 'Pase Libre Yoga & Spinning' ? (
-                                <span className="text-xs bg-[#EDF3EE] text-[#4C6352] px-2 py-0.5 rounded-md font-medium">
+                                <span
+                                  className={`text-xs ${t.softBadge} px-2.5 py-0.5 rounded-lg font-semibold`}
+                                >
                                   Ilimitado
                                 </span>
                               ) : (
-                                <span>{st.credits} clases</span>
+                                <span className="font-medium">{st.credits} clases</span>
                               )}
                             </td>
-                            <td className="py-3.5 px-4 text-[#616B64]">{st.expiryDate}</td>
+                            <td className="py-3.5 px-4 text-slate-600">{st.expiryDate}</td>
                             <td className="py-3.5 px-4">{getStatusBadge(st)}</td>
                           </tr>
                         ))}
@@ -910,10 +1102,8 @@ export default function App() {
             {adminTab === 'payments' && (
               <div className="space-y-4">
                 <div>
-                  <h2 className="text-xl font-semibold text-[#252B27]">
-                    Recordatorios de Pago y Renovación
-                  </h2>
-                  <p className="text-sm text-[#737D76]">
+                  <h2 className="text-xl font-bold">Recordatorios de Pago y Renovación</h2>
+                  <p className="text-sm text-slate-500">
                     Envía avisos automáticos por WhatsApp o registra el pago mensual
                   </p>
                 </div>
@@ -922,25 +1112,27 @@ export default function App() {
                   {students.map((st) => (
                     <div
                       key={st.id}
-                      className="bg-white rounded-2xl p-5 border border-[#E6E1D8] shadow-sm flex flex-col justify-between gap-4"
+                      className="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm flex flex-col justify-between gap-4"
                     >
                       <div className="flex justify-between items-start gap-2">
                         <div>
-                          <h3 className="font-semibold text-base text-[#252B27]">{st.name}</h3>
-                          <p className="text-xs text-[#5C7362] font-medium mt-0.5">{st.plan}</p>
-                          <p className="text-xs text-[#737D76] mt-0.5">
+                          <h3 className="font-bold text-base">{st.name}</h3>
+                          <p className={`text-xs ${t.brandAccent} font-semibold mt-0.5`}>
+                            {st.plan}
+                          </p>
+                          <p className="text-xs text-slate-500 mt-0.5">
                             Vence el: <strong>{st.expiryDate}</strong>
                           </p>
                         </div>
                         {getStatusBadge(st)}
                       </div>
 
-                      <div className="flex items-center gap-2 pt-3 border-t border-[#F0EDE6]">
+                      <div className="flex items-center gap-2 pt-3 border-t border-slate-100">
                         <a
                           href={getWhatsAppReminderUrl(st)}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="flex-1 flex items-center justify-center gap-1.5 bg-[#25D366] hover:bg-[#1EBE5D] text-white py-2 px-3 rounded-xl text-xs font-semibold shadow-sm transition-all"
+                          className="flex-1 flex items-center justify-center gap-1.5 bg-[#25D366] hover:bg-[#1EBE5D] text-white py-2.5 px-3 rounded-xl text-xs font-bold shadow-sm transition-all"
                         >
                           <MessageCircle className="w-4 h-4" />
                           Recordatorio WhatsApp
@@ -948,7 +1140,7 @@ export default function App() {
 
                         <button
                           onClick={() => handleRenewPlan(st.id)}
-                          className="flex items-center justify-center gap-1 bg-[#F2F5F3] hover:bg-[#E2EBE4] text-[#4C6352] py-2 px-3 rounded-xl text-xs font-semibold transition-all"
+                          className={`flex items-center justify-center gap-1 ${t.softBadge} py-2.5 px-3 rounded-xl text-xs font-bold transition-all`}
                         >
                           <CheckCircle2 className="w-3.5 h-3.5" />
                           Renovar Plan
@@ -965,11 +1157,11 @@ export default function App() {
 
       {/* Navegación móvil inferior */}
       {role === 'admin' && (
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-[#E5E0D8] flex justify-around py-2.5 px-2 z-40">
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around py-2.5 px-2 z-40">
           <button
             onClick={() => setAdminTab('schedule')}
-            className={`flex flex-col items-center gap-1 text-xs font-medium ${
-              adminTab === 'schedule' ? 'text-[#5C7362]' : 'text-[#8C968F]'
+            className={`flex flex-col items-center gap-1 text-xs font-semibold ${
+              adminTab === 'schedule' ? t.brandAccent : 'text-slate-400'
             }`}
           >
             <Calendar className="w-5 h-5" />
@@ -977,8 +1169,8 @@ export default function App() {
           </button>
           <button
             onClick={() => setAdminTab('students')}
-            className={`flex flex-col items-center gap-1 text-xs font-medium ${
-              adminTab === 'students' ? 'text-[#5C7362]' : 'text-[#8C968F]'
+            className={`flex flex-col items-center gap-1 text-xs font-semibold ${
+              adminTab === 'students' ? t.brandAccent : 'text-slate-400'
             }`}
           >
             <Users className="w-5 h-5" />
@@ -986,8 +1178,8 @@ export default function App() {
           </button>
           <button
             onClick={() => setAdminTab('payments')}
-            className={`flex flex-col items-center gap-1 text-xs font-medium ${
-              adminTab === 'payments' ? 'text-[#5C7362]' : 'text-[#8C968F]'
+            className={`flex flex-col items-center gap-1 text-xs font-semibold ${
+              adminTab === 'payments' ? t.brandAccent : 'text-slate-400'
             }`}
           >
             <CreditCard className="w-5 h-5" />
@@ -996,20 +1188,76 @@ export default function App() {
         </nav>
       )}
 
+      {/* Modal: Verificación PIN Modo Estudio */}
+      {showPinModal && (
+        <div className="fixed inset-0 bg-slate-900/45 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-xs w-full p-6 shadow-xl text-center">
+            <div className={`w-12 h-12 rounded-2xl ${t.softBadge} flex items-center justify-center mx-auto mb-3`}>
+              <Lock className="w-6 h-6" />
+            </div>
+            <h3 className="font-bold text-lg">Acceso Modo Estudio</h3>
+            <p className="text-xs text-slate-500 mt-1 mb-4">
+              Ingresa el PIN de 4 dígitos para administrar la agenda y los alumnos
+            </p>
+
+            <form onSubmit={handleVerifyPin} className="space-y-3">
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={4}
+                autoFocus
+                placeholder="••••"
+                value={pinInput}
+                onChange={(e) => {
+                  setPinInput(e.target.value.replace(/\D/g, ''));
+                  setPinError(false);
+                }}
+                className={`w-full text-center tracking-[0.6em] text-2xl font-bold border rounded-2xl py-2.5 focus:outline-none ${
+                  pinError
+                    ? 'border-rose-500 bg-rose-50 text-rose-700'
+                    : `border-slate-200 ${t.focusBorder}`
+                }`}
+              />
+              {pinError && (
+                <p className="text-xs text-rose-600 font-medium">
+                  PIN incorrecto. Intenta nuevamente.
+                </p>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowPinModal(false)}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className={`flex-1 py-2.5 rounded-xl text-xs font-bold ${t.primaryBtn}`}
+                >
+                  Ingresar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Modal: Nueva Clase */}
       {showNewClassModal && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl">
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="font-semibold text-lg">Agregar Turno a la Agenda</h3>
+              <h3 className="font-bold text-lg">Agregar Turno a la Agenda</h3>
               <button onClick={() => setShowNewClassModal(false)}>
-                <XCircle className="w-5 h-5 text-[#8C968F]" />
+                <XCircle className="w-5 h-5 text-slate-400" />
               </button>
             </div>
 
             <form onSubmit={handleAddClass} className="space-y-3.5 text-sm">
               <div>
-                <label className="block text-xs font-medium text-[#616B64] mb-1">Disciplina</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Disciplina</label>
                 <div className="grid grid-cols-2 gap-2">
                   {['Yoga', 'Spinning'].map((cat) => (
                     <button
@@ -1023,10 +1271,12 @@ export default function App() {
                           capacity: cat === 'Yoga' ? 12 : 10
                         })
                       }
-                      className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 ${
+                      className={`py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 ${
                         newClass.category === cat
-                          ? 'bg-[#5C7362] text-white border-[#5C7362]'
-                          : 'bg-[#FAF9F6] text-[#616B64] border-[#DCD6CC]'
+                          ? cat === 'Spinning'
+                            ? t.activePillAlt
+                            : t.activePill
+                          : `${t.bg} text-slate-600 border-slate-200`
                       }`}
                     >
                       {cat === 'Yoga' ? (
@@ -1041,7 +1291,7 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-[#616B64] mb-1">
+                <label className="block text-xs font-semibold text-slate-600 mb-1">
                   Nombre de la Clase
                 </label>
                 <input
@@ -1054,13 +1304,13 @@ export default function App() {
                   }
                   value={newClass.title}
                   onChange={(e) => setNewClass({ ...newClass, title: e.target.value })}
-                  className="w-full border border-[#DCD6CC] rounded-xl px-3 py-2"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-[#616B64] mb-1">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
                     Profesor/a
                   </label>
                   <input
@@ -1069,43 +1319,43 @@ export default function App() {
                     placeholder="Nombre"
                     value={newClass.instructor}
                     onChange={(e) => setNewClass({ ...newClass, instructor: e.target.value })}
-                    className="w-full border border-[#DCD6CC] rounded-xl px-3 py-2"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-[#616B64] mb-1">Sala</label>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Sala</label>
                   <input
                     type="text"
                     value={newClass.room}
                     onChange={(e) => setNewClass({ ...newClass, room: e.target.value })}
-                    className="w-full border border-[#DCD6CC] rounded-xl px-3 py-2"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-[#616B64] mb-1">Fecha</label>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Fecha</label>
                   <input
                     required
                     type="date"
                     value={newClass.date}
                     onChange={(e) => setNewClass({ ...newClass, date: e.target.value })}
-                    className="w-full border border-[#DCD6CC] rounded-xl px-2.5 py-2"
+                    className="w-full border border-slate-200 rounded-xl px-2.5 py-2"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-[#616B64] mb-1">Hora</label>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Hora</label>
                   <input
                     required
                     type="time"
                     value={newClass.time}
                     onChange={(e) => setNewClass({ ...newClass, time: e.target.value })}
-                    className="w-full border border-[#DCD6CC] rounded-xl px-2.5 py-2"
+                    className="w-full border border-slate-200 rounded-xl px-2.5 py-2"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-[#616B64] mb-1">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
                     Cupo Máx.
                   </label>
                   <input
@@ -1115,14 +1365,14 @@ export default function App() {
                     max="40"
                     value={newClass.capacity}
                     onChange={(e) => setNewClass({ ...newClass, capacity: e.target.value })}
-                    className="w-full border border-[#DCD6CC] rounded-xl px-2.5 py-2"
+                    className="w-full border border-slate-200 rounded-xl px-2.5 py-2"
                   />
                 </div>
               </div>
 
               <button
                 type="submit"
-                className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2"
+                className={`w-full ${t.primaryBtn} font-semibold py-2.5 rounded-xl mt-2`}
               >
                 Guardar Clase
               </button>
@@ -1133,18 +1383,18 @@ export default function App() {
 
       {/* Modal: Nuevo Alumno */}
       {showNewStudentModal && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl">
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="font-semibold text-lg">Registrar Nuevo Alumno</h3>
+              <h3 className="font-bold text-lg">Registrar Nuevo Alumno</h3>
               <button onClick={() => setShowNewStudentModal(false)}>
-                <XCircle className="w-5 h-5 text-[#8C968F]" />
+                <XCircle className="w-5 h-5 text-slate-400" />
               </button>
             </div>
 
             <form onSubmit={handleAddStudent} className="space-y-3.5 text-sm">
               <div>
-                <label className="block text-xs font-medium text-[#616B64] mb-1">
+                <label className="block text-xs font-semibold text-slate-600 mb-1">
                   Nombre Completo
                 </label>
                 <input
@@ -1153,12 +1403,12 @@ export default function App() {
                   placeholder="Ej. María Gómez"
                   value={newStudent.name}
                   onChange={(e) => setNewStudent({ ...newStudent, name: e.target.value })}
-                  className="w-full border border-[#DCD6CC] rounded-xl px-3 py-2"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-[#616B64] mb-1">
+                <label className="block text-xs font-semibold text-slate-600 mb-1">
                   Teléfono WhatsApp (con código de país)
                 </label>
                 <input
@@ -1167,13 +1417,13 @@ export default function App() {
                   placeholder="Ej. +5491123456789"
                   value={newStudent.phone}
                   onChange={(e) => setNewStudent({ ...newStudent, phone: e.target.value })}
-                  className="w-full border border-[#DCD6CC] rounded-xl px-3 py-2"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2"
                 />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-[#616B64] mb-1">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
                     Modalidad de Abono
                   </label>
                   <select
@@ -1186,7 +1436,7 @@ export default function App() {
                         credits: getDefaultCreditsForPlan(chosenPlan)
                       });
                     }}
-                    className="w-full border border-[#DCD6CC] rounded-xl px-3 py-2 bg-white"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 bg-white"
                   >
                     {PLAN_OPTIONS.map((planName) => (
                       <option key={planName} value={planName}>
@@ -1197,7 +1447,7 @@ export default function App() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-[#616B64] mb-1">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
                     Clases Disponibles
                   </label>
                   <input
@@ -1209,13 +1459,13 @@ export default function App() {
                       newStudent.plan === 'Pase Libre Yoga & Spinning' ? 99 : newStudent.credits
                     }
                     onChange={(e) => setNewStudent({ ...newStudent, credits: e.target.value })}
-                    className="w-full border border-[#DCD6CC] rounded-xl px-3 py-2 disabled:bg-gray-100"
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2 disabled:bg-slate-100"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-[#616B64] mb-1">
+                <label className="block text-xs font-semibold text-slate-600 mb-1">
                   Fecha de Vencimiento del Abono
                 </label>
                 <input
@@ -1223,13 +1473,13 @@ export default function App() {
                   type="date"
                   value={newStudent.expiryDate}
                   onChange={(e) => setNewStudent({ ...newStudent, expiryDate: e.target.value })}
-                  className="w-full border border-[#DCD6CC] rounded-xl px-3 py-2"
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2"
                 />
               </div>
 
               <button
                 type="submit"
-                className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2"
+                className={`w-full ${t.primaryBtn} font-semibold py-2.5 rounded-xl mt-2`}
               >
                 Registrar Alumno
               </button>
