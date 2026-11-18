@@ -415,7 +415,7 @@ export default function App() {
     }
   };
 
-  // Crear nuevo turno / actividad con soporte de recurrencia fija (1 año automático)
+  // Crear nuevo turno / actividad con inserción por lotes para evitar errores de tamaño
   const handleAddClass = async (e) => {
     e.preventDefault();
 
@@ -443,26 +443,39 @@ export default function App() {
       room: ''
     }));
 
-    const { data, error } = await supabase.from('classes').insert(payload).select();
+    try {
+      // Insertar en lotes de 10 registros para no saturar la conexión con Supabase
+      const batchSize = 10;
+      let insertedClasses = [];
 
-    if (error) {
-      showToast('Error al guardar el turno', 'error');
-      return;
+      for (let i = 0; i < payload.length; i += batchSize) {
+        const batch = payload.slice(i, i + batchSize);
+        const { data, error } = await supabase.from('classes').insert(batch).select();
+        if (error) throw error;
+        if (data) insertedClasses.push(...data);
+      }
+
+      setClasses((prev) => [...prev, ...insertedClasses]);
+      setShowNewClassModal(false);
+      setNewClass({
+        title: '',
+        category: 'Yoga',
+        instructor: 'Patricia Aleman',
+        date: selectedDate,
+        time: '10:00',
+        duration: 60,
+        capacity: 12,
+        isRecurring: false
+      });
+      showToast(
+        newClass.isRecurring
+          ? '¡Clases fijas programadas para todo el año con éxito!'
+          : 'Actividad agregada a la agenda'
+      );
+    } catch (error) {
+      console.error('Error al guardar turnos:', error);
+      showToast('Error al guardar el turno en la base de datos', 'error');
     }
-
-    setClasses((prev) => [...prev, ...data]);
-    setShowNewClassModal(false);
-    setNewClass({
-      title: '',
-      category: 'Yoga',
-      instructor: 'Patricia Aleman',
-      date: selectedDate,
-      time: '10:00',
-      duration: 60,
-      capacity: 12,
-      isRecurring: false
-    });
-    showToast(newClass.isRecurring ? '¡Clases fijas programadas para todo el año con éxito!' : 'Actividad agregada a la agenda');
   };
 
   // Cancelar o Reactivar clase manualmente desde el portal de admin
