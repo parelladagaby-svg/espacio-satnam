@@ -1512,4 +1512,159 @@ export default function App() {
                     min="15"
                     max="480"
                     value={newClass.duration}
-                    onChange
+                    onChange={(e) => setNewClass({ ...newClass, duration: e.target.value })}
+                    className="w-full border border-stone-200 rounded-xl px-2 py-2 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">Cupo</label>
+                  <input
+                    required
+                    type="number"
+                    min="1"
+                    max="60"
+                    value={newClass.capacity}
+                    onChange={(e) => setNewClass({ ...newClass, capacity: e.target.value })}
+                    className="w-full border border-stone-200 rounded-xl px-2 py-2 text-xs"
+                  />
+                </div>
+              </div>
+
+              {/* Casilla para generar clases fijas para todo el año */}
+              <div className="pt-1">
+                <label className="flex items-center gap-2.5 cursor-pointer bg-stone-50 p-3 rounded-xl border border-stone-200">
+                  <input
+                    type="checkbox"
+                    checked={newClass.isRecurring}
+                    onChange={(e) => setNewClass({ ...newClass, isRecurring: e.target.checked })}
+                    className="rounded accent-stone-700 w-4 h-4"
+                  />
+                  <div>
+                    <span className="text-xs font-semibold text-stone-800 block">
+                      Programar automáticamente durante 1 año (52 semanas)
+                    </span>
+                    <span className="text-[11px] text-stone-500">
+                      Ideal para dejar fijas las clases de Yoga y Spinning sin mantenimiento.
+                    </span>
+                  </div>
+                </label>
+              </div>
+
+              <button
+                type="submit"
+                className={`w-full ${t.primaryBtn} font-medium py-2.5 rounded-xl mt-2`}
+              >
+                Guardar en Agenda
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Nuevo Alumno / Consultante */}
+      {showNewStudentModal && (
+        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-semibold text-lg">Nuevo Alumno / Consultante</h3>
+              <button onClick={() => setShowNewStudentModal(false)}>
+                <XCircle className="w-5 h-5 text-stone-400" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddStudent} className="space-y-3.5 text-sm">
+              <div>
+                <label className="block text-xs font-medium text-stone-600 mb-1">
+                  Nombre Completo
+                </label>
+                <input
+                  required
+                  type="text"
+                  placeholder="Ej. María Gómez"
+                  value={newStudent.name}
+                  onChange={(e) => setNewStudent({ ...newStudent, name: e.target.value })}
+                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-stone-600 mb-1">
+                  Teléfono WhatsApp (con código de país)
+                </label>
+                <input
+                  required
+                  type="text"
+                  placeholder="Ej. +5491123456789"
+                  value={newStudent.phone}
+                  onChange={(e) => setNewStudent({ ...newStudent, phone: e.target.value })}
+                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">
+                    Modalidad / Plan
+                  </label>
+                  <select
+                    value={newStudent.plan}
+                    onChange={(e) => {
+                      const chosenPlan = e.target.value;
+                      setNewStudent({
+                        ...newStudent,
+                        plan: chosenPlan,
+                        credits: getDefaultCreditsForPlan(chosenPlan)
+                      });
+                    }}
+                    className="w-full border border-stone-200 rounded-xl px-3 py-2 bg-white"
+                  >
+                    {PLAN_OPTIONS.map((planName) => (
+                      <option key={planName} value={planName}>
+                        {planName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">
+                    Sesiones / Clases
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="99"
+                    disabled={isUnlimitedPlan(newStudent.plan)}
+                    value={isUnlimitedPlan(newStudent.plan) ? 99 : newStudent.credits}
+                    onChange={(e) => setNewStudent({ ...newStudent, credits: e.target.value })}
+                    className="w-full border border-stone-200 rounded-xl px-3 py-2 disabled:bg-stone-100"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-stone-600 mb-1">
+                  Fecha de Vencimiento
+                </label>
+                <input
+                  required
+                  type="date"
+                  value={newStudent.expiryDate}
+                  onChange={(e) => setNewStudent({ ...newStudent, expiryDate: e.target.value })}
+                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className={`w-full ${t.primaryBtn} font-medium py-2.5 rounded-xl mt-2`}
+              >
+                Guardar Registro
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
