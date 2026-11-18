@@ -22,7 +22,8 @@ import {
   Flame,
   Flower2,
   Compass,
-  Orbit
+  Orbit,
+  Ban
 } from 'lucide-react';
 
 // Conexión a tu base de datos en Supabase
@@ -53,7 +54,15 @@ const PLAN_OPTIONS = [
   'Pase Libre Clases'
 ];
 
-// 3 opciones de paleta (máximo 2-3 colores por opción)
+// Utilidad para formatear fechas de YYYY-MM-DD a DD-MM-YYYY
+const formatDateDDMMYYYY = (dateStr) => {
+  if (!dateStr) return '';
+  const [year, month, day] = dateStr.split('-');
+  if (!year || !month || !day) return dateStr;
+  return `${day}-${month}-${year}`;
+};
+
+// 3 opciones de paleta
 const THEMES = {
   sage: {
     name: 'Salvia & Lino',
@@ -114,7 +123,7 @@ const THEMES = {
   }
 };
 
-// Logo oficial: Flor de Loto ampliada
+// Logo oficial: Flor de Loto
 function SatNamLogo({ bgClass, className = 'w-14 h-14' }) {
   return (
     <div
@@ -189,16 +198,17 @@ export default function App() {
   const [categoryFilter, setCategoryFilter] = useState('Todas');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Estados de modales
+  // Estados de modales (instructor por defecto: Patricia Aleman)
   const [showNewClassModal, setShowNewClassModal] = useState(false);
   const [newClass, setNewClass] = useState({
     title: '',
     category: 'Yoga',
-    instructor: '',
+    instructor: 'Patricia Aleman',
     date: new Date().toISOString().split('T')[0],
     time: '10:00',
     duration: 60,
-    capacity: 12
+    capacity: 12,
+    isRecurring: false
   });
 
   const [showNewStudentModal, setShowNewStudentModal] = useState(false);
@@ -343,6 +353,11 @@ export default function App() {
       showToast('Reserva cancelada correctamente');
     } else {
       const classObj = classes.find((c) => c.id === classId);
+      if (classObj.is_cancelled) {
+        showToast('Esta clase se encuentra cancelada.', 'error');
+        return;
+      }
+
       const classBookingsCount = bookings.filter((b) => b.classId === classId).length;
 
       if (classBookingsCount >= classObj.capacity) {
@@ -400,43 +415,76 @@ export default function App() {
     }
   };
 
-  // Crear nuevo turno / actividad
+  // Crear nuevo turno / actividad con soporte de recurrencia fija (1 año automático)
   const handleAddClass = async (e) => {
     e.preventDefault();
-    const { data, error } = await supabase
-      .from('classes')
-      .insert([
-        {
-          title: newClass.title,
-          category: newClass.category,
-          instructor: newClass.instructor,
-          date: newClass.date,
-          time: newClass.time,
-          duration: Number(newClass.duration),
-          capacity: Number(newClass.capacity),
-          room: ''
-        }
-      ])
-      .select()
-      .single();
+
+    let datesToCreate = [newClass.date];
+
+    // Si se marca como clase fija recurrente, generamos semanalmente durante 52 semanas (1 año)
+    if (newClass.isRecurring) {
+      const baseDate = new Date(newClass.date + 'T00:00:00');
+      for (let i = 1; i <= 52; i++) {
+        const nextDate = new Date(baseDate);
+        nextDate.setDate(baseDate.getDate() + i * 7);
+        datesToCreate.push(nextDate.toISOString().split('T')[0]);
+      }
+    }
+
+    const payload = datesToCreate.map((d) => ({
+      title: newClass.title,
+      category: newClass.category,
+      instructor: newClass.instructor || 'Patricia Aleman',
+      date: d,
+      time: newClass.time,
+      duration: Number(newClass.duration),
+      capacity: Number(newClass.capacity),
+      is_cancelled: false,
+      room: ''
+    }));
+
+    const { data, error } = await supabase.from('classes').insert(payload).select();
 
     if (error) {
       showToast('Error al guardar el turno', 'error');
       return;
     }
 
-    setClasses((prev) => [...prev, data]);
+    setClasses((prev) => [...prev, ...data]);
     setShowNewClassModal(false);
     setNewClass({
       title: '',
       category: 'Yoga',
-      instructor: '',
+      instructor: 'Patricia Aleman',
       date: selectedDate,
       time: '10:00',
       duration: 60,
-      capacity: 12
+      capacity: 12,
+      isRecurring: false
     });
-    showToast('Actividad agregada a la agenda');
+    showToast(newClass.isRecurring ? '¡Clases fijas programadas para todo el año con éxito!' : 'Actividad agregada a la agenda');
+  };
+
+  // Cancelar o Reactivar clase manualmente desde el portal de admin
+  const handleToggleCancelClass = async (classId) => {
+    const targetClass = classes.find((c) => c.id === classId);
+    if (!targetClass) return;
+
+    const nextCancelledState = !targetClass.is_cancelled;
+
+    const { error } = await supabase
+      .from('classes')
+      .update({ is_cancelled: nextCancelledState })
+      .eq('id', classId);
+
+    if (!error) {
+      setClasses((prev) =>
+        prev.map((c) => (c.id === classId ? { ...c, is_cancelled: nextCancelledState } : c))
+      );
+      showToast(nextCancelledState ? 'Clase marcada como cancelada' : 'Clase reactivada correctamente');
+    } else {
+      showToast('No se pudo actualizar el estado de la clase', 'error');
+    }
   };
 
   // Eliminar turno
@@ -527,7 +575,7 @@ export default function App() {
   // Generar enlace de WhatsApp para recordatorio
   const getWhatsAppReminderUrl = (student) => {
     const cleanPhone = student.phone.replace(/\D/g, '');
-    const message = `¡Hola ${student.name}! Te saludamos desde *Espacio Sat-Nam* 🪷. Te recordamos que tu plan (*${student.plan}*) vence el día *${student.expiryDate}*. Avísanos por aquí si deseas renovarlo para mantener tu lugar. ¡Sat Nam! ✨`;
+    const message = `¡Hola ${student.name}! Te saludamos desde *Espacio Sat-Nam* 🪷. Te recordamos que tu plan (*${student.plan}*) vence el día *${formatDateDDMMYYYY(student.expiryDate)}*. Avísanos por aquí si deseas renovarlo para mantener tu lugar. ¡Sat Nam! ✨`;
     return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
   };
 
@@ -719,7 +767,7 @@ export default function App() {
           </div>
         ) : role === 'student' ? (
           <div className="space-y-6">
-            {/* Presentación de Espacio Sat-Nam actualizada */}
+            {/* Presentación */}
             <div className="bg-white/80 rounded-3xl px-5 py-4 border border-stone-200/70">
               <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
                 Un lugar creado para mejorar tu calidad de vida desde el{' '}
@@ -772,7 +820,9 @@ export default function App() {
 
                 <div className="text-xs text-stone-500 sm:text-right border-t sm:border-t-0 pt-2.5 sm:pt-0 border-stone-100 pl-2 sm:pl-0">
                   Vencimiento:
-                  <span className="block font-semibold text-sm">{activeStudent?.expiryDate}</span>
+                  <span className="block font-semibold text-sm">
+                    {formatDateDDMMYYYY(activeStudent?.expiryDate)}
+                  </span>
                 </div>
               </div>
             ) : (
@@ -799,6 +849,9 @@ export default function App() {
                     onChange={(e) => setSelectedDate(e.target.value)}
                     className="text-sm font-medium bg-transparent focus:outline-none"
                   />
+                  <span className="text-xs text-stone-400 font-medium pl-1 border-l border-stone-200">
+                    ({formatDateDDMMYYYY(selectedDate)})
+                  </span>
                 </div>
               </div>
 
@@ -834,7 +887,8 @@ export default function App() {
             {filteredClasses.length === 0 ? (
               <div className="bg-white rounded-3xl p-10 text-center border border-stone-200/70">
                 <p className="text-stone-500 text-sm">
-                  No hay actividades o turnos programados para esta fecha o filtro seleccionado.
+                  No hay actividades o turnos programados para la fecha{' '}
+                  <strong>{formatDateDDMMYYYY(selectedDate)}</strong>.
                 </p>
               </div>
             ) : (
@@ -850,7 +904,9 @@ export default function App() {
                     <div
                       key={cls.id}
                       className={`bg-white rounded-3xl p-5 border transition-all flex flex-col justify-between ${
-                        isBooked
+                        cls.is_cancelled
+                          ? 'border-stone-200 bg-stone-50/70 opacity-80'
+                          : isBooked
                           ? `${t.bookedRing} shadow-sm`
                           : 'border-stone-200/70 shadow-2xs hover:border-stone-300'
                       }`}
@@ -858,12 +914,18 @@ export default function App() {
                       <div>
                         <div className="flex justify-between items-start gap-2 mb-2.5">
                           <div>{getCategoryBadge(cls.category)}</div>
-                          {isBooked && (
-                            <span
-                              className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${t.activePill}`}
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5" /> Reservado
+                          {cls.is_cancelled ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-100 text-rose-700">
+                              <Ban className="w-3.5 h-3.5" /> Clase cancelada
                             </span>
+                          ) : (
+                            isBooked && (
+                              <span
+                                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${t.activePill}`}
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" /> Reservado
+                              </span>
+                            )
                           )}
                         </div>
 
@@ -883,36 +945,44 @@ export default function App() {
 
                       <div className="mt-5 pt-4 border-t border-stone-100 flex items-center justify-between">
                         <div>
-                          <span
-                            className={`text-xs font-medium px-2.5 py-1 rounded-xl ${
-                              spotsLeft === 0
-                                ? 'bg-rose-100/80 text-rose-700'
-                                : spotsLeft <= 2
-                                ? 'bg-amber-100/80 text-amber-800'
-                                : t.softBadge
-                            }`}
-                          >
-                            {spotsLeft === 0
-                              ? 'Turno completo'
-                              : spotsLeft === 1
-                              ? '1 lugar libre'
-                              : `${spotsLeft} lugares libres`}
-                          </span>
+                          {cls.is_cancelled ? (
+                            <span className="text-xs text-stone-500 font-medium">
+                              No disponible por hoy
+                            </span>
+                          ) : (
+                            <span
+                              className={`text-xs font-medium px-2.5 py-1 rounded-xl ${
+                                spotsLeft === 0
+                                  ? 'bg-rose-100/80 text-rose-700'
+                                  : spotsLeft <= 2
+                                  ? 'bg-amber-100/80 text-amber-800'
+                                  : t.softBadge
+                              }`}
+                            >
+                              {spotsLeft === 0
+                                ? 'Turno completo'
+                                : spotsLeft === 1
+                                ? '1 lugar libre'
+                                : `${spotsLeft} lugares libres`}
+                            </span>
+                          )}
                         </div>
 
-                        <button
-                          onClick={() => handleToggleBooking(cls.id)}
-                          disabled={!isBooked && spotsLeft === 0}
-                          className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-                            isBooked
-                              ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200/80'
-                              : spotsLeft === 0
-                              ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
-                              : t.primaryBtn
-                          }`}
-                        >
-                          {isBooked ? 'Cancelar Reserva' : 'Reservar'}
-                        </button>
+                        {!cls.is_cancelled && (
+                          <button
+                            onClick={() => handleToggleBooking(cls.id)}
+                            disabled={!isBooked && spotsLeft === 0}
+                            className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                              isBooked
+                                ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200/80'
+                                : spotsLeft === 0
+                                ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
+                                : t.primaryBtn
+                            }`}
+                          >
+                            {isBooked ? 'Cancelar Reserva' : 'Reservar'}
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
@@ -969,7 +1039,7 @@ export default function App() {
                   <div>
                     <h2 className="text-xl font-semibold">Agenda Espacio Sat-Nam</h2>
                     <p className="text-sm text-stone-500">
-                      Gestiona clases, Coaching/PNL, Constelaciones, Estética y Meditaciones
+                      Gestiona clases anuales, cancela clases puntuales y revisa asistencia
                     </p>
                   </div>
 
@@ -987,7 +1057,7 @@ export default function App() {
                       }}
                       className={`flex items-center gap-1.5 ${t.primaryBtn} px-4 py-2 rounded-xl text-sm font-medium transition-all`}
                     >
-                      <Plus className="w-4 h-4" /> Nueva Actividad / Turno
+                      <Plus className="w-4 h-4" /> Programar Actividad Anual
                     </button>
                   </div>
                 </div>
@@ -1002,7 +1072,9 @@ export default function App() {
                       return (
                         <div
                           key={cls.id}
-                          className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs"
+                          className={`bg-white rounded-3xl p-5 border shadow-2xs ${
+                            cls.is_cancelled ? 'border-rose-200 bg-rose-50/20' : 'border-stone-200/70'
+                          }`}
                         >
                           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-stone-100">
                             <div>
@@ -1011,8 +1083,13 @@ export default function App() {
                                 <span
                                   className={`text-xs font-medium px-2.5 py-0.5 rounded-lg ${t.softBadge}`}
                                 >
-                                  {cls.time} hs ({cls.duration} min)
+                                  {cls.time} hs ({cls.duration} min) — {formatDateDDMMYYYY(cls.date)}
                                 </span>
+                                {cls.is_cancelled && (
+                                  <span className="text-xs font-semibold px-2 py-0.5 bg-rose-100 text-rose-700 rounded-lg">
+                                    [CANCELADA MANUALMENTE]
+                                  </span>
+                                )}
                               </div>
                               <h3 className="font-semibold text-base">
                                 {cls.title}{' '}
@@ -1022,14 +1099,24 @@ export default function App() {
                               </h3>
                             </div>
 
-                            <div className="flex items-center gap-3">
-                              <span className={`text-sm font-medium ${t.brandAccent}`}>
-                                Reservados: {classBookings.length} / {cls.capacity}
-                              </span>
+                            <div className="flex flex-wrap items-center gap-2">
+                              {/* Botón para suspender/cancelar clase manualmente */}
+                              <button
+                                onClick={() => handleToggleCancelClass(cls.id)}
+                                className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                                  cls.is_cancelled
+                                    ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                                    : 'bg-amber-100 text-amber-800 hover:bg-amber-200'
+                                }`}
+                              >
+                                <Ban className="w-3.5 h-3.5" />
+                                {cls.is_cancelled ? 'Reactivar Clase' : 'Suspender Clase'}
+                              </button>
+
                               <button
                                 onClick={() => handleDeleteClass(cls.id)}
                                 title="Eliminar turno"
-                                className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
+                                className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition-colors"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
@@ -1084,8 +1171,9 @@ export default function App() {
 
                   {classes.filter((c) => c.date === selectedDate).length === 0 && (
                     <div className="bg-white rounded-3xl p-8 text-center border border-stone-200/70 text-stone-500 text-sm">
-                      No hay actividades cargadas para esta fecha. Haz clic en{' '}
-                      <strong>+ Nueva Actividad / Turno</strong> para abrir un horario.
+                      No hay actividades cargadas para la fecha{' '}
+                      <strong>{formatDateDDMMYYYY(selectedDate)}</strong>. Haz clic en{' '}
+                      <strong>+ Programar Actividad Anual</strong>.
                     </div>
                   )}
                 </div>
@@ -1156,7 +1244,9 @@ export default function App() {
                                 <span>{st.credits} disponibles</span>
                               )}
                             </td>
-                            <td className="py-3.5 px-4 text-stone-600">{st.expiryDate}</td>
+                            <td className="py-3.5 px-4 text-stone-600">
+                              {formatDateDDMMYYYY(st.expiryDate)}
+                            </td>
                             <td className="py-3.5 px-4">{getStatusBadge(st)}</td>
                           </tr>
                         ))}
@@ -1189,7 +1279,7 @@ export default function App() {
                             {st.plan}
                           </p>
                           <p className="text-xs text-stone-500 mt-0.5">
-                            Vence el: <strong>{st.expiryDate}</strong>
+                            Vence el: <strong>{formatDateDDMMYYYY(st.expiryDate)}</strong>
                           </p>
                         </div>
                         {getStatusBadge(st)}
@@ -1235,7 +1325,7 @@ export default function App() {
         </p>
       </footer>
 
-      {/* Navegación móvil inferior (encima de la barra de copyright) */}
+      {/* Navegación móvil inferior */}
       {role === 'admin' && (
         <nav className="md:hidden fixed bottom-8 left-0 right-0 bg-white border-t border-stone-200 flex justify-around py-2 px-2 z-40">
           <button
@@ -1326,12 +1416,12 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal: Nueva Actividad / Turno */}
+      {/* Modal: Programación Anual de Clases Fijas */}
       {showNewClassModal && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="font-semibold text-lg">Agregar Actividad o Turno</h3>
+              <h3 className="font-semibold text-lg">Programar Actividad / Clase Fija</h3>
               <button onClick={() => setShowNewClassModal(false)}>
                 <XCircle className="w-5 h-5 text-stone-400" />
               </button>
@@ -1368,12 +1458,12 @@ export default function App() {
 
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">
-                  Nombre de la Clase / Taller / Sesión
+                  Nombre de la Clase / Taller
                 </label>
                 <input
                   required
                   type="text"
-                  placeholder="Ej. Yoga Restaurativo, Taller de Constelaciones, Sesión PNL..."
+                  placeholder="Ej. Yoga Restaurativo, Spinning..."
                   value={newClass.title}
                   onChange={(e) => setNewClass({ ...newClass, title: e.target.value })}
                   className="w-full border border-stone-200 rounded-xl px-3 py-2"
@@ -1382,21 +1472,20 @@ export default function App() {
 
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">
-                  Facilitador/a / Profesional
+                  Facilitadora
                 </label>
                 <input
                   required
                   type="text"
-                  placeholder="Ej. Patricia Aleman"
                   value={newClass.instructor}
                   onChange={(e) => setNewClass({ ...newClass, instructor: e.target.value })}
-                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                  className="w-full border border-stone-200 rounded-xl px-3 py-2 bg-stone-50 font-medium"
                 />
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                 <div className="col-span-2 sm:col-span-1">
-                  <label className="block text-xs font-medium text-stone-600 mb-1">Fecha</label>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">Fecha Inicial</label>
                   <input
                     required
                     type="date"
@@ -1416,146 +1505,11 @@ export default function App() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">Duración</label>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">Duración (min)</label>
                   <input
                     required
                     type="number"
                     min="15"
                     max="480"
                     value={newClass.duration}
-                    onChange={(e) => setNewClass({ ...newClass, duration: e.target.value })}
-                    className="w-full border border-stone-200 rounded-xl px-2 py-2 text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">Cupo</label>
-                  <input
-                    required
-                    type="number"
-                    min="1"
-                    max="60"
-                    value={newClass.capacity}
-                    onChange={(e) => setNewClass({ ...newClass, capacity: e.target.value })}
-                    className="w-full border border-stone-200 rounded-xl px-2 py-2 text-xs"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                className={`w-full ${t.primaryBtn} font-medium py-2.5 rounded-xl mt-2`}
-              >
-                Guardar en Agenda
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: Nuevo Alumno / Consultante */}
-      {showNewStudentModal && (
-        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-semibold text-lg">Nuevo Alumno / Consultante</h3>
-              <button onClick={() => setShowNewStudentModal(false)}>
-                <XCircle className="w-5 h-5 text-stone-400" />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddStudent} className="space-y-3.5 text-sm">
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">
-                  Nombre Completo
-                </label>
-                <input
-                  required
-                  type="text"
-                  placeholder="Ej. María Gómez"
-                  value={newStudent.name}
-                  onChange={(e) => setNewStudent({ ...newStudent, name: e.target.value })}
-                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">
-                  Teléfono WhatsApp (con código de país)
-                </label>
-                <input
-                  required
-                  type="text"
-                  placeholder="Ej. +5491123456789"
-                  value={newStudent.phone}
-                  onChange={(e) => setNewStudent({ ...newStudent, phone: e.target.value })}
-                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">
-                    Modalidad / Plan
-                  </label>
-                  <select
-                    value={newStudent.plan}
-                    onChange={(e) => {
-                      const chosenPlan = e.target.value;
-                      setNewStudent({
-                        ...newStudent,
-                        plan: chosenPlan,
-                        credits: getDefaultCreditsForPlan(chosenPlan)
-                      });
-                    }}
-                    className="w-full border border-stone-200 rounded-xl px-3 py-2 bg-white"
-                  >
-                    {PLAN_OPTIONS.map((planName) => (
-                      <option key={planName} value={planName}>
-                        {planName}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">
-                    Sesiones / Clases
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="99"
-                    disabled={isUnlimitedPlan(newStudent.plan)}
-                    value={isUnlimitedPlan(newStudent.plan) ? 99 : newStudent.credits}
-                    onChange={(e) => setNewStudent({ ...newStudent, credits: e.target.value })}
-                    className="w-full border border-stone-200 rounded-xl px-3 py-2 disabled:bg-stone-100"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">
-                  Fecha de Vencimiento
-                </label>
-                <input
-                  required
-                  type="date"
-                  value={newStudent.expiryDate}
-                  onChange={(e) => setNewStudent({ ...newStudent, expiryDate: e.target.value })}
-                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
-                />
-              </div>
-
-              <button
-                type="submit"
-                className={`w-full ${t.primaryBtn} font-medium py-2.5 rounded-xl mt-2`}
-              >
-                Guardar Registro
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+                    onChange
