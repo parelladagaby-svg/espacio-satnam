@@ -10,6 +10,7 @@ import {
   MessageCircle,
   Clock,
   UserCheck,
+  UserX,
   Search,
   Trash2,
   ShieldCheck,
@@ -98,7 +99,7 @@ const toISODate = (dateObj) => {
   return `${y}-${m}-${d}`;
 };
 
-// Logo oficial: Flor de Loto (tamaño proporcionado anterior)
+// Logo oficial: Flor de Loto
 function SatNamLogo({ className = 'w-11 h-11' }) {
   return (
     <div
@@ -161,6 +162,7 @@ export default function App() {
 
   const [students, setStudents] = useState([]);
   const [classes, setClasses] = useState([]);
+  // attendanceStatus: null | 'attended' | 'no_show'
   const [bookings, setBookings] = useState([]);
 
   // Vista Alumno
@@ -199,9 +201,10 @@ export default function App() {
     weeksCount: 4
   });
 
-  // Modal Nuevo Alumno
-  const [showNewStudentModal, setShowNewStudentModal] = useState(false);
-  const [newStudent, setNewStudent] = useState({
+  // Modal Crear / Editar Alumno
+  const [showStudentModal, setShowStudentModal] = useState(false);
+  const [editingStudentId, setEditingStudentId] = useState(null);
+  const [studentForm, setStudentForm] = useState({
     name: '',
     phone: '',
     plan: 'Mensual - 2 veces por semana',
@@ -275,7 +278,8 @@ export default function App() {
           id: b.id,
           classId: b.class_id,
           studentId: b.student_id,
-          attended: b.attended
+          attended: Boolean(b.attended),
+          attendanceStatus: b.attended ? 'attended' : null
         }))
       );
     } catch (error) {
@@ -413,7 +417,13 @@ export default function App() {
 
       setBookings((prev) => [
         ...prev,
-        { id: data.id, classId: data.class_id, studentId: data.student_id, attended: data.attended }
+        {
+          id: data.id,
+          classId: data.class_id,
+          studentId: data.student_id,
+          attended: Boolean(data.attended),
+          attendanceStatus: data.attended ? 'attended' : null
+        }
       ]);
 
       if (!isUnlimitedPlan(activeStudent.plan)) {
@@ -427,22 +437,26 @@ export default function App() {
     }
   };
 
-  // Marcar o actualizar asistencia
-  const handleToggleAttendance = async (bookingId) => {
+  // Establecer asistencia explícita ('attended' | 'no_show')
+  const handleSetAttendanceStatus = async (bookingId, status) => {
     const current = bookings.find((b) => b.id === bookingId);
     if (!current) return;
-    const nextVal = !current.attended;
 
+    const isAttendedBool = status === 'attended';
     const { error } = await supabase
       .from('bookings')
-      .update({ attended: nextVal })
+      .update({ attended: isAttendedBool })
       .eq('id', bookingId);
 
     if (!error) {
       setBookings((prev) =>
-        prev.map((b) => (b.id === bookingId ? { ...b, attended: nextVal } : b))
+        prev.map((b) =>
+          b.id === bookingId
+            ? { ...b, attended: isAttendedBool, attendanceStatus: status }
+            : b
+        )
       );
-      showToast(nextVal ? 'Asistencia registrada' : 'Asistencia desmarcada');
+      showToast(status === 'attended' ? 'Marcado como Asistió' : 'Marcado como No asistió');
     } else {
       showToast('No se pudo actualizar la asistencia', 'error');
     }
@@ -610,50 +624,125 @@ export default function App() {
     }
   };
 
-  // Nuevo Alumno
-  const handleAddStudent = async (e) => {
-    e.preventDefault();
-    const { data, error } = await supabase
-      .from('students')
-      .insert([
-        {
-          name: newStudent.name,
-          phone: newStudent.phone,
-          plan: newStudent.plan,
-          status: 'active',
-          expiry_date: newStudent.expiryDate,
-          credits: Number(newStudent.credits)
-        }
-      ])
-      .select()
-      .single();
-
-    if (error) {
-      showToast('Error al registrar', 'error');
-      return;
-    }
-
-    const created = {
-      id: data.id,
-      name: data.name,
-      phone: data.phone || '',
-      plan: data.plan,
-      status: data.status,
-      expiryDate: data.expiry_date,
-      credits: data.credits
-    };
-
-    setStudents((prev) => [...prev, created]);
-    if (!activeStudentId) setActiveStudentId(created.id);
-    setShowNewStudentModal(false);
-    setNewStudent({
+  // Abrir modal para crear alumno
+  const handleOpenNewStudent = () => {
+    setEditingStudentId(null);
+    setStudentForm({
       name: '',
       phone: '',
       plan: 'Mensual - 2 veces por semana',
       expiryDate: toISODate(new Date(Date.now() + 30 * 86400000)),
       credits: 8
     });
-    showToast('Registrado con éxito');
+    setShowStudentModal(true);
+  };
+
+  // Abrir modal para editar alumno existente
+  const handleOpenEditStudent = (st) => {
+    setEditingStudentId(st.id);
+    setStudentForm({
+      name: st.name,
+      phone: st.phone,
+      plan: st.plan,
+      expiryDate: st.expiryDate,
+      credits: st.credits
+    });
+    setShowStudentModal(true);
+  };
+
+  // Guardar (crear o editar) Alumno
+  const handleSaveStudent = async (e) => {
+    e.preventDefault();
+    const finalCredits = isUnlimitedPlan(studentForm.plan) ? 99 : Number(studentForm.credits);
+
+    if (editingStudentId) {
+      const { error } = await supabase
+        .from('students')
+        .update({
+          name: studentForm.name.trim(),
+          phone: studentForm.phone.trim(),
+          plan: studentForm.plan,
+          expiry_date: studentForm.expiryDate,
+          credits: finalCredits
+        })
+        .eq('id', editingStudentId);
+
+      if (error) {
+        showToast('Error al actualizar el alumno', 'error');
+        return;
+      }
+
+      setStudents((prev) =>
+        prev.map((s) =>
+          s.id === editingStudentId
+            ? {
+                ...s,
+                name: studentForm.name.trim(),
+                phone: studentForm.phone.trim(),
+                plan: studentForm.plan,
+                expiryDate: studentForm.expiryDate,
+                credits: finalCredits
+              }
+            : s
+        )
+      );
+      setShowStudentModal(false);
+      setEditingStudentId(null);
+      showToast('Datos del alumno actualizados');
+    } else {
+      const { data, error } = await supabase
+        .from('students')
+        .insert([
+          {
+            name: studentForm.name.trim(),
+            phone: studentForm.phone.trim(),
+            plan: studentForm.plan,
+            status: 'active',
+            expiry_date: studentForm.expiryDate,
+            credits: finalCredits
+          }
+        ])
+        .select()
+        .single();
+
+      if (error) {
+        showToast('Error al registrar', 'error');
+        return;
+      }
+
+      const created = {
+        id: data.id,
+        name: data.name,
+        phone: data.phone || '',
+        plan: data.plan,
+        status: data.status,
+        expiryDate: data.expiry_date,
+        credits: data.credits
+      };
+
+      setStudents((prev) => [...prev, created]);
+      if (!activeStudentId) setActiveStudentId(created.id);
+      setShowStudentModal(false);
+      showToast('Registrado con éxito');
+    }
+  };
+
+  // Eliminar Alumno
+  const handleDeleteStudent = async (studentId) => {
+    await supabase.from('bookings').delete().eq('student_id', studentId);
+    const { error } = await supabase.from('students').delete().eq('id', studentId);
+
+    if (!error) {
+      const remaining = students.filter((s) => s.id !== studentId);
+      setStudents(remaining);
+      setBookings((prev) => prev.filter((b) => b.studentId !== studentId));
+      if (activeStudentId === studentId) {
+        setActiveStudentId(remaining[0]?.id || '');
+      }
+      showToast('Alumno eliminado del registro');
+    } else {
+      showToast('No se pudo eliminar el alumno', 'error');
+    }
   };
 
   // Renovar abono
@@ -815,7 +904,7 @@ export default function App() {
     return diff <= 5;
   }).length;
   const totalBookingsCount = bookings.length;
-  const totalAttendedCount = bookings.filter((b) => b.attended).length;
+  const totalAttendedCount = bookings.filter((b) => b.attendanceStatus === 'attended' || b.attended).length;
   const attendanceRate =
     totalBookingsCount > 0 ? Math.round((totalAttendedCount / totalBookingsCount) * 100) : 0;
 
@@ -838,7 +927,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Encabezado (tamaño compacto anterior) */}
+      {/* Encabezado */}
       <header className="bg-white/90 backdrop-blur-md border-b border-[#E5E0D8] sticky top-0 z-30">
         <div className="max-w-5xl mx-auto px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-3">
@@ -1475,7 +1564,7 @@ export default function App() {
                               </div>
                             </div>
 
-                            {/* Personas registradas con contador de abono (ej: Federico: 1/4) */}
+                            {/* Personas registradas con contador de abono (ej: Federico: 1/4) y Asistió / No asistió */}
                             <div className="mt-4">
                               <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2.5">
                                 Personas registradas ({classBookings.length})
@@ -1485,19 +1574,24 @@ export default function App() {
                                   Aún no hay personas registradas en este horario.
                                 </p>
                               ) : (
-                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                                   {classBookings.map((booking) => {
                                     const st = students.find((s) => s.id === booking.studentId);
                                     if (!st) return null;
+                                    const isNoShow = booking.attendanceStatus === 'no_show';
+                                    const isAttended =
+                                      booking.attendanceStatus === 'attended' ||
+                                      (!isNoShow && booking.attended);
 
                                     return (
                                       <div
                                         key={booking.id}
-                                        onClick={() => handleToggleAttendance(booking.id)}
-                                        className={`cursor-pointer p-3 rounded-2xl border flex items-center justify-between transition-all ${
-                                          booking.attended
+                                        className={`p-3 rounded-2xl border flex items-center justify-between gap-2 transition-all ${
+                                          isAttended
                                             ? 'bg-[#EDF3EE] text-[#4C6352] border-[#5C7362]/30'
-                                            : 'bg-[#F7F5F0] border-stone-200/80 hover:border-stone-300'
+                                            : isNoShow
+                                            ? 'bg-rose-50/70 text-rose-900 border-rose-200'
+                                            : 'bg-[#F7F5F0] border-stone-200/80'
                                         }`}
                                       >
                                         <div>
@@ -1510,16 +1604,35 @@ export default function App() {
                                           <p className="text-[11px] text-stone-500">{st.plan}</p>
                                         </div>
 
-                                        <span
-                                          className={`flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-xl ${
-                                            booking.attended
-                                              ? 'bg-[#5C7362] text-white'
-                                              : 'bg-white text-stone-600 border border-stone-200'
-                                          }`}
-                                        >
-                                          <UserCheck className="w-3.5 h-3.5" />
-                                          {booking.attended ? 'Asistió' : 'Asistencia'}
-                                        </span>
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                          <button
+                                            onClick={() =>
+                                              handleSetAttendanceStatus(booking.id, 'attended')
+                                            }
+                                            className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-xl transition-all ${
+                                              isAttended
+                                                ? 'bg-[#5C7362] text-white'
+                                                : 'bg-white text-stone-600 border border-stone-200 hover:bg-[#EDF3EE]'
+                                            }`}
+                                          >
+                                            <UserCheck className="w-3.5 h-3.5" />
+                                            Asistió
+                                          </button>
+
+                                          <button
+                                            onClick={() =>
+                                              handleSetAttendanceStatus(booking.id, 'no_show')
+                                            }
+                                            className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-xl transition-all ${
+                                              isNoShow
+                                                ? 'bg-rose-600 text-white'
+                                                : 'bg-white text-stone-600 border border-stone-200 hover:bg-rose-50'
+                                            }`}
+                                          >
+                                            <UserX className="w-3.5 h-3.5" />
+                                            No asistió
+                                          </button>
+                                        </div>
                                       </div>
                                     );
                                   })}
@@ -1590,7 +1703,7 @@ export default function App() {
                         Actualizar Asistencia ({formatDateDDMMYYYY(selectedDate)})
                       </h3>
                       <p className="text-xs text-stone-500">
-                        Selecciona la fecha y la clase para marcar o quitar la asistencia de cada alumno
+                        Selecciona la fecha y la clase para marcar Asistió o No asistió
                       </p>
                     </div>
 
@@ -1641,8 +1754,13 @@ export default function App() {
                                 <span className="font-semibold text-sm">• {cls.title}</span>
                               </div>
                               <span className="text-xs font-medium text-stone-600">
-                                Presentes: {clsBookings.filter((b) => b.attended).length}/
-                                {clsBookings.length}
+                                Presentes:{' '}
+                                {
+                                  clsBookings.filter(
+                                    (b) => b.attendanceStatus === 'attended' || b.attended
+                                  ).length
+                                }
+                                /{clsBookings.length}
                               </span>
                             </div>
 
@@ -1655,10 +1773,14 @@ export default function App() {
                                 {clsBookings.map((b) => {
                                   const st = students.find((s) => s.id === b.studentId);
                                   if (!st) return null;
+                                  const isNoShow = b.attendanceStatus === 'no_show';
+                                  const isAttended =
+                                    b.attendanceStatus === 'attended' || (!isNoShow && b.attended);
+
                                   return (
                                     <div
                                       key={b.id}
-                                      className="bg-white p-3 rounded-xl border border-stone-200/80 flex items-center justify-between gap-2"
+                                      className="bg-white p-3 rounded-xl border border-stone-200/80 flex flex-wrap items-center justify-between gap-2"
                                     >
                                       <div>
                                         <p className="text-sm font-semibold">
@@ -1670,17 +1792,35 @@ export default function App() {
                                         <p className="text-xs text-stone-500">{st.plan}</p>
                                       </div>
 
-                                      <button
-                                        onClick={() => handleToggleAttendance(b.id)}
-                                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-                                          b.attended
-                                            ? 'bg-[#5C7362] text-white hover:bg-[#4B5F50]'
-                                            : 'bg-[#EDF3EE] text-[#4C6352] hover:bg-[#dce8de]'
-                                        }`}
-                                      >
-                                        <UserCheck className="w-3.5 h-3.5" />
-                                        {b.attended ? 'Asistió (Actualizar)' : 'Marcar Asistencia'}
-                                      </button>
+                                      <div className="flex items-center gap-1.5">
+                                        <button
+                                          onClick={() =>
+                                            handleSetAttendanceStatus(b.id, 'attended')
+                                          }
+                                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                                            isAttended
+                                              ? 'bg-[#5C7362] text-white hover:bg-[#4B5F50]'
+                                              : 'bg-[#EDF3EE] text-[#4C6352] hover:bg-[#dce8de]'
+                                          }`}
+                                        >
+                                          <UserCheck className="w-3.5 h-3.5" />
+                                          Asistió
+                                        </button>
+
+                                        <button
+                                          onClick={() =>
+                                            handleSetAttendanceStatus(b.id, 'no_show')
+                                          }
+                                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                                            isNoShow
+                                              ? 'bg-rose-600 text-white hover:bg-rose-700'
+                                              : 'bg-rose-50 text-rose-700 hover:bg-rose-100'
+                                          }`}
+                                        >
+                                          <UserX className="w-3.5 h-3.5" />
+                                          No asistió
+                                        </button>
+                                      </div>
                                     </div>
                                   );
                                 })}
@@ -1695,19 +1835,19 @@ export default function App() {
               </div>
             )}
 
-            {/* PESTAÑA 3: ALUMNOS */}
+            {/* PESTAÑA 3: ALUMNOS (con Editar y Borrar) */}
             {adminTab === 'students' && (
               <div className="space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <h2 className="text-xl font-semibold">Alumnos & Consultantes</h2>
                     <p className="text-sm text-stone-500">
-                      Administra abonos de clases, sesiones individuales y participantes
+                      Crea, edita, elimina o administra abonos de alumnos
                     </p>
                   </div>
 
                   <button
-                    onClick={() => setShowNewStudentModal(true)}
+                    onClick={handleOpenNewStudent}
                     className="flex items-center gap-1.5 bg-[#5C7362] hover:bg-[#4B5F50] text-white shadow-xs px-4 py-2 rounded-xl text-sm font-medium w-fit"
                   >
                     <Plus className="w-4 h-4" /> Nuevo Registro
@@ -1735,6 +1875,7 @@ export default function App() {
                           <th className="py-3.5 px-4 font-medium">Saldo / Abono</th>
                           <th className="py-3.5 px-4 font-medium">Vencimiento</th>
                           <th className="py-3.5 px-4 font-medium">Estado</th>
+                          <th className="py-3.5 px-4 font-medium text-right">Acciones</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-stone-100 text-sm">
@@ -1762,6 +1903,24 @@ export default function App() {
                               {formatDateDDMMYYYY(st.expiryDate)}
                             </td>
                             <td className="py-3.5 px-4">{getStatusBadge(st)}</td>
+                            <td className="py-3.5 px-4 text-right">
+                              <div className="inline-flex items-center gap-1.5">
+                                <button
+                                  onClick={() => handleOpenEditStudent(st)}
+                                  title="Editar alumno"
+                                  className="p-1.5 text-stone-600 hover:bg-stone-100 rounded-lg border border-stone-200 transition-colors"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteStudent(st.id)}
+                                  title="Eliminar alumno"
+                                  className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg border border-rose-200 transition-colors"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -2249,18 +2408,20 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal: Nuevo Alumno */}
-      {showNewStudentModal && (
+      {/* Modal: Crear / Editar Alumno */}
+      {showStudentModal && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="font-semibold text-lg">Nuevo Alumno / Consultante</h3>
-              <button onClick={() => setShowNewStudentModal(false)}>
+              <h3 className="font-semibold text-lg">
+                {editingStudentId ? 'Editar Alumno / Consultante' : 'Nuevo Alumno / Consultante'}
+              </h3>
+              <button onClick={() => setShowStudentModal(false)}>
                 <XCircle className="w-5 h-5 text-stone-400" />
               </button>
             </div>
 
-            <form onSubmit={handleAddStudent} className="space-y-3.5 text-sm">
+            <form onSubmit={handleSaveStudent} className="space-y-3.5 text-sm">
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">
                   Nombre Completo
@@ -2269,8 +2430,8 @@ export default function App() {
                   required
                   type="text"
                   placeholder="Ej. María Gómez"
-                  value={newStudent.name}
-                  onChange={(e) => setNewStudent({ ...newStudent, name: e.target.value })}
+                  value={studentForm.name}
+                  onChange={(e) => setStudentForm({ ...studentForm, name: e.target.value })}
                   className="w-full border border-stone-200 rounded-xl px-3 py-2"
                 />
               </div>
@@ -2283,8 +2444,8 @@ export default function App() {
                   required
                   type="text"
                   placeholder="Ej. +5491123456789"
-                  value={newStudent.phone}
-                  onChange={(e) => setNewStudent({ ...newStudent, phone: e.target.value })}
+                  value={studentForm.phone}
+                  onChange={(e) => setStudentForm({ ...studentForm, phone: e.target.value })}
                   className="w-full border border-stone-200 rounded-xl px-3 py-2"
                 />
               </div>
@@ -2295,11 +2456,11 @@ export default function App() {
                     Modalidad / Plan
                   </label>
                   <select
-                    value={newStudent.plan}
+                    value={studentForm.plan}
                     onChange={(e) => {
                       const chosenPlan = e.target.value;
-                      setNewStudent({
-                        ...newStudent,
+                      setStudentForm({
+                        ...studentForm,
                         plan: chosenPlan,
                         credits: getDefaultCreditsForPlan(chosenPlan)
                       });
@@ -2322,9 +2483,9 @@ export default function App() {
                     type="number"
                     min="0"
                     max="99"
-                    disabled={isUnlimitedPlan(newStudent.plan)}
-                    value={isUnlimitedPlan(newStudent.plan) ? 99 : newStudent.credits}
-                    onChange={(e) => setNewStudent({ ...newStudent, credits: e.target.value })}
+                    disabled={isUnlimitedPlan(studentForm.plan)}
+                    value={isUnlimitedPlan(studentForm.plan) ? 99 : studentForm.credits}
+                    onChange={(e) => setStudentForm({ ...studentForm, credits: e.target.value })}
                     className="w-full border border-stone-200 rounded-xl px-3 py-2 disabled:bg-stone-100"
                   />
                 </div>
@@ -2337,8 +2498,8 @@ export default function App() {
                 <input
                   required
                   type="date"
-                  value={newStudent.expiryDate}
-                  onChange={(e) => setNewStudent({ ...newStudent, expiryDate: e.target.value })}
+                  value={studentForm.expiryDate}
+                  onChange={(e) => setStudentForm({ ...studentForm, expiryDate: e.target.value })}
                   className="w-full border border-stone-200 rounded-xl px-3 py-2"
                 />
               </div>
@@ -2347,7 +2508,7 @@ export default function App() {
                 type="submit"
                 className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2"
               >
-                Guardar Registro
+                {editingStudentId ? 'Guardar Cambios' : 'Guardar Registro'}
               </button>
             </form>
           </div>
