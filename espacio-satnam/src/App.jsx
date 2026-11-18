@@ -126,13 +126,11 @@ function SatNamLogo({ bgClass, className = 'w-14 h-14' }) {
         xmlns="http://www.w3.org/2000/svg"
         className="w-full h-full"
       >
-        {/* Pétalo central */}
         <path
           d="M32 6C25 18 22.5 30 32 45C41.5 30 39 18 32 6Z"
           fill="white"
           fillOpacity="0.96"
         />
-        {/* Pétalos medios */}
         <path
           d="M28.5 44C16.5 37 10.5 25 13 13.5C22.5 18.5 27.5 29.5 28.5 44Z"
           fill="white"
@@ -143,7 +141,6 @@ function SatNamLogo({ bgClass, className = 'w-14 h-14' }) {
           fill="white"
           fillOpacity="0.78"
         />
-        {/* Pétalos base */}
         <path
           d="M26 46.5C11.5 46.5 3.5 38 2.5 28.5C13 28.5 21.5 35.5 26 46.5Z"
           fill="white"
@@ -154,7 +151,6 @@ function SatNamLogo({ bgClass, className = 'w-14 h-14' }) {
           fill="white"
           fillOpacity="0.55"
         />
-        {/* Punto de centro */}
         <circle cx="32" cy="54" r="3.4" fill="white" fillOpacity="0.92" />
       </svg>
     </div>
@@ -309,7 +305,6 @@ export default function App() {
     if (plan === 'Mensual - 1 vez por semana') return 4;
     if (
       plan === 'Sesión Individual (Coaching / PNL / Constelaciones / Estética)' ||
-      plan === 'Sesión Individual (Coaching / PNL / Estética)' ||
       plan === 'Taller de Constelaciones / Evento Especial' ||
       plan === 'Clase Individual' ||
       plan === 'Evento / Retiro Especial'
@@ -724,14 +719,13 @@ export default function App() {
           </div>
         ) : role === 'student' ? (
           <div className="space-y-6">
-            {/* Presentación de Espacio Sat-Nam */}
+            {/* Presentación de Espacio Sat-Nam actualizada */}
             <div className="bg-white/80 rounded-3xl px-5 py-4 border border-stone-200/70">
               <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
-                Un lugar creado para mejorar tu calidad de vida desde un{' '}
+                Un lugar creado para mejorar tu calidad de vida desde el{' '}
                 <strong className="font-medium text-stone-800">bienestar integral</strong>: Yoga
-                Terapia y Restaurativo, Spinning, Sesiones de Coaching y PNL (Programación
-                Neurolingüística) para acompañar procesos de cambio, Constelaciones, y Estética y
-                Cosmiatría.
+                Terapia y Restaurativo, Spinning, Pilates y Circuito, Coaching y PNL para
+                acompañar tus procesos de cambio, Constelaciones, y Estética y Cosmiatría.
               </p>
             </div>
 
@@ -1229,7 +1223,7 @@ export default function App() {
         )}
       </main>
 
-      {/* Pie de página fijo con Copyright siempre visible */}
+      {/* Pie de página fijo con Copyright */}
       <footer
         className={`fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t ${t.headerBorder} py-2 px-4 text-center z-30`}
       >
