@@ -114,134 +114,49 @@ const THEMES = {
   }
 };
 
-const LOGO_OPTIONS = [
-  { id: 'lotus', label: 'Loto' },
-  { id: 'zen', label: 'Zen' },
-  { id: 'om', label: 'Om' },
-  { id: 'cambio', label: 'Camino' }
-];
-
-// 4 Opciones de Logo para Espacio Sat-Nam
-function SatNamLogo({ bgClass, variant = 'lotus', className = 'w-11 h-11' }) {
+// Logo oficial: Flor de Loto ampliada
+function SatNamLogo({ bgClass, className = 'w-14 h-14' }) {
   return (
     <div
-      className={`${className} rounded-2xl ${bgClass} p-2 flex items-center justify-center text-white shadow-xs shrink-0 transition-colors duration-300`}
+      className={`${className} rounded-2xl ${bgClass} p-1.5 flex items-center justify-center text-white shadow-xs shrink-0 transition-colors duration-300`}
     >
-      {variant === 'lotus' && (
-        <svg
-          viewBox="0 0 64 64"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          className="w-full h-full"
-        >
-          <path
-            d="M32 11C26.5 20.5 24.5 30 32 42C39.5 30 37.5 20.5 32 11Z"
-            fill="white"
-            fillOpacity="0.95"
-          />
-          <path
-            d="M29 41C19.5 35.5 14.5 26 16.5 17C24 21 28 29.5 29 41Z"
-            fill="white"
-            fillOpacity="0.75"
-          />
-          <path
-            d="M35 41C44.5 35.5 49.5 26 47.5 17C40 21 36 29.5 35 41Z"
-            fill="white"
-            fillOpacity="0.75"
-          />
-          <path
-            d="M27 43C15.5 43 8.5 36.5 7.5 29C16 29 23 34.5 27 43Z"
-            fill="white"
-            fillOpacity="0.52"
-          />
-          <path
-            d="M37 43C48.5 43 55.5 36.5 56.5 29C48 29 41 34.5 37 43Z"
-            fill="white"
-            fillOpacity="0.52"
-          />
-          <circle cx="32" cy="49.5" r="2.8" fill="white" fillOpacity="0.9" />
-        </svg>
-      )}
-
-      {variant === 'zen' && (
-        <svg
-          viewBox="0 0 64 64"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          className="w-full h-full"
-        >
-          <path
-            d="M47 16.5C43 13.1 37.7 11 32 11C20.4 11 11 20.4 11 32C11 43.6 20.4 53 32 53C43.6 53 53 43.6 53 32C53 28.4 52.1 25 50.5 22"
-            stroke="white"
-            strokeWidth="4.2"
-            strokeLinecap="round"
-          />
-          <path
-            d="M21 32C21 25.9 25.9 21 32 21C38.1 21 43 25.9 43 32"
-            stroke="white"
-            strokeOpacity="0.65"
-            strokeWidth="3.2"
-            strokeLinecap="round"
-          />
-          <circle cx="32" cy="34" r="5" fill="white" />
-        </svg>
-      )}
-
-      {variant === 'om' && (
-        <svg
-          viewBox="0 0 64 64"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          className="w-full h-full"
-        >
-          <path
-            d="M16 23C19 18 27 18 28 24C28.8 28.5 24 31 20 31.5C26 31.5 31 35.5 30 42C29 48.5 21 51 15 47C12.5 45.3 11 42.5 11 39.5"
-            stroke="white"
-            strokeWidth="3.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M29.5 36.5C34 33 41 31 46 34.5C50.5 37.5 50.5 44 46 47.5C41.5 51 35 49 33.5 44.5"
-            stroke="white"
-            strokeWidth="3.8"
-            strokeLinecap="round"
-          />
-          <path
-            d="M35 17C38.5 20.5 44.5 20.5 48 17"
-            stroke="white"
-            strokeWidth="3.4"
-            strokeLinecap="round"
-          />
-          <circle cx="41.5" cy="12" r="2.6" fill="white" />
-        </svg>
-      )}
-
-      {variant === 'cambio' && (
-        <svg
-          viewBox="0 0 64 64"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          className="w-full h-full"
-        >
-          <circle
-            cx="32"
-            cy="32"
-            r="21"
-            stroke="white"
-            strokeOpacity="0.35"
-            strokeWidth="2.5"
-          />
-          <path
-            d="M17 42C22 30 28 28 32 34C36 40 42 36 47 22"
-            stroke="white"
-            strokeWidth="4"
-            strokeLinecap="round"
-          />
-          <circle cx="47" cy="22" r="3.5" fill="white" />
-          <circle cx="32" cy="17" r="2.8" fill="white" fillOpacity="0.85" />
-        </svg>
-      )}
+      <svg
+        viewBox="0 0 64 64"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        className="w-full h-full"
+      >
+        {/* Pétalo central */}
+        <path
+          d="M32 6C25 18 22.5 30 32 45C41.5 30 39 18 32 6Z"
+          fill="white"
+          fillOpacity="0.96"
+        />
+        {/* Pétalos medios */}
+        <path
+          d="M28.5 44C16.5 37 10.5 25 13 13.5C22.5 18.5 27.5 29.5 28.5 44Z"
+          fill="white"
+          fillOpacity="0.78"
+        />
+        <path
+          d="M35.5 44C47.5 37 53.5 25 51 13.5C41.5 18.5 36.5 29.5 35.5 44Z"
+          fill="white"
+          fillOpacity="0.78"
+        />
+        {/* Pétalos base */}
+        <path
+          d="M26 46.5C11.5 46.5 3.5 38 2.5 28.5C13 28.5 21.5 35.5 26 46.5Z"
+          fill="white"
+          fillOpacity="0.55"
+        />
+        <path
+          d="M38 46.5C52.5 46.5 60.5 38 61.5 28.5C51 28.5 42.5 35.5 38 46.5Z"
+          fill="white"
+          fillOpacity="0.55"
+        />
+        {/* Punto de centro */}
+        <circle cx="32" cy="54" r="3.4" fill="white" fillOpacity="0.92" />
+      </svg>
     </div>
   );
 }
@@ -250,20 +165,12 @@ export default function App() {
   const [themeKey, setThemeKey] = useState(
     () => localStorage.getItem('satnam_theme') || 'sage'
   );
-  const [logoVariant, setLogoVariant] = useState(
-    () => localStorage.getItem('satnam_logo') || 'lotus'
-  );
 
   const t = THEMES[themeKey] || THEMES.sage;
 
   const handleSelectTheme = (key) => {
     setThemeKey(key);
     localStorage.setItem('satnam_theme', key);
-  };
-
-  const handleSelectLogo = (variant) => {
-    setLogoVariant(variant);
-    localStorage.setItem('satnam_logo', variant);
   };
 
   const [role, setRole] = useState('student');
@@ -590,4 +497,1071 @@ export default function App() {
       expiryDate: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
       credits: 8
     });
-    showToast('
+    showToast('Registrado con éxito');
+  };
+
+  // Renovar abono
+  const handleRenewPlan = async (studentId) => {
+    const student = students.find((s) => s.id === studentId);
+    if (!student) return;
+
+    const nextMonth = new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0];
+    const renewedCredits = getDefaultCreditsForPlan(student.plan);
+
+    const { error } = await supabase
+      .from('students')
+      .update({
+        status: 'active',
+        expiry_date: nextMonth,
+        credits: renewedCredits
+      })
+      .eq('id', studentId);
+
+    if (!error) {
+      setStudents((prev) =>
+        prev.map((s) =>
+          s.id === studentId
+            ? { ...s, status: 'active', expiryDate: nextMonth, credits: renewedCredits }
+            : s
+        )
+      );
+      showToast('Abono renovado por 30 días');
+    }
+  };
+
+  // Generar enlace de WhatsApp para recordatorio
+  const getWhatsAppReminderUrl = (student) => {
+    const cleanPhone = student.phone.replace(/\D/g, '');
+    const message = `¡Hola ${student.name}! Te saludamos desde *Espacio Sat-Nam* 🪷. Te recordamos que tu plan (*${student.plan}*) vence el día *${student.expiryDate}*. Avísanos por aquí si deseas renovarlo para mantener tu lugar. ¡Sat Nam! ✨`;
+    return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+  };
+
+  const filteredClasses = classes
+    .filter((c) => c.date === selectedDate)
+    .filter((c) => (categoryFilter === 'Todas' ? true : c.category === categoryFilter))
+    .sort((a, b) => a.time.localeCompare(b.time));
+
+  const filteredStudents = students.filter(
+    (s) =>
+      s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      s.plan.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const getStatusBadge = (student) => {
+    const today = new Date().toISOString().split('T')[0];
+    if (student.expiryDate < today || student.status === 'overdue') {
+      return (
+        <span className="px-2.5 py-0.5 text-xs font-medium rounded-full bg-rose-100/80 text-rose-800">
+          Vencido
+        </span>
+      );
+    }
+    const diffDays = Math.ceil(
+      (new Date(student.expiryDate) - new Date(today)) / (1000 * 60 * 60 * 24)
+    );
+    if (diffDays <= 5) {
+      return (
+        <span className="px-2.5 py-0.5 text-xs font-medium rounded-full bg-amber-100/80 text-amber-800">
+          Vence pronto ({diffDays}d)
+        </span>
+      );
+    }
+    return (
+      <span className={`px-2.5 py-0.5 text-xs font-medium rounded-full ${t.softBadge}`}>
+        Al día
+      </span>
+    );
+  };
+
+  const getCategoryBadge = (category) => {
+    const badgeClass = `inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${t.softBadge}`;
+    switch (category) {
+      case 'Spinning':
+        return (
+          <span className={badgeClass}>
+            <Bike className="w-3 h-3" /> SPINNING
+          </span>
+        );
+      case 'Pilates':
+      case 'Circuito':
+        return (
+          <span className={badgeClass}>
+            <Flame className="w-3 h-3" /> PILATES & CIRCUITO
+          </span>
+        );
+      case 'Coaching':
+        return (
+          <span className={badgeClass}>
+            <Compass className="w-3 h-3" /> COACHING & PNL
+          </span>
+        );
+      case 'Constelaciones':
+        return (
+          <span className={badgeClass}>
+            <Orbit className="w-3 h-3" /> CONSTELACIONES
+          </span>
+        );
+      case 'Estetica':
+      case 'Bienestar':
+        return (
+          <span className={badgeClass}>
+            <Flower2 className="w-3 h-3" /> ESTÉTICA & COSMIATRÍA
+          </span>
+        );
+      case 'Eventos':
+        return (
+          <span className={badgeClass}>
+            <Sparkles className="w-3 h-3" /> MEDITACIONES
+          </span>
+        );
+      default:
+        return (
+          <span className={badgeClass}>
+            <Heart className="w-3 h-3" /> YOGA TERAPIA & RESTAURATIVO
+          </span>
+        );
+    }
+  };
+
+  return (
+    <div
+      className={`min-h-screen ${t.bg} ${t.textMain} font-sans pb-28 md:pb-16 transition-colors duration-300 flex flex-col`}
+    >
+      {/* Notificación flotante */}
+      {notification && (
+        <div
+          className={`fixed bottom-24 md:bottom-14 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-2xl shadow-lg text-sm font-medium transition-all ${
+            notification.type === 'error' ? 'bg-rose-700 text-white' : t.toastBg
+          }`}
+        >
+          <Check className="w-4 h-4" />
+          <span>{notification.message}</span>
+        </div>
+      )}
+
+      {/* Encabezado */}
+      <header
+        className={`bg-white/90 backdrop-blur-md border-b ${t.headerBorder} sticky top-0 z-30`}
+      >
+        <div className="max-w-5xl mx-auto px-4 py-3.5 flex flex-wrap items-center justify-between gap-2.5">
+          <div className="flex items-center gap-3.5">
+            <SatNamLogo bgClass={t.logoBg} />
+            <div>
+              <div className="flex items-baseline gap-2">
+                <h1 className="font-semibold text-xl tracking-tight leading-none">
+                  Espacio <span className={t.brandAccent}>Sat-Nam</span>
+                </h1>
+                <span className="text-xs italic text-stone-500">
+                  by Patricia Aleman
+                </span>
+              </div>
+              <p className={`text-xs ${t.subtitleText} mt-1`}>
+                Bienestar Integral • Movimiento, Coaching, Constelaciones & Estética
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Selector de las 3 paletas */}
+            <div
+              className="flex items-center gap-1.5 bg-black/[0.03] px-2.5 py-1.5 rounded-xl border border-black/[0.06]"
+              title="Elegir paleta de colores"
+            >
+              {Object.entries(THEMES).map(([key, themeObj]) => (
+                <button
+                  key={key}
+                  onClick={() => handleSelectTheme(key)}
+                  title={themeObj.name}
+                  style={{ backgroundColor: themeObj.swatch }}
+                  className={`w-4 h-4 rounded-full transition-transform ${
+                    themeKey === key
+                      ? `ring-2 ring-offset-1 ${themeObj.ringSwatch} scale-110`
+                      : 'opacity-50 hover:opacity-100'
+                  }`}
+                />
+              ))}
+            </div>
+
+            <button
+              onClick={fetchAllData}
+              title="Actualizar datos"
+              className="p-2 rounded-xl text-stone-500 hover:bg-black/[0.04] transition-colors"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+
+            <div className="flex items-center bg-black/[0.04] p-1 rounded-xl border border-black/[0.05]">
+              <button
+                onClick={() => setRole('student')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  role === 'student' ? t.activePill : 'text-stone-600 hover:text-stone-900'
+                }`}
+              >
+                Vista Alumno
+              </button>
+              <button
+                onClick={handleSelectAdminMode}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1 ${
+                  role === 'admin' ? t.activePill : 'text-stone-600 hover:text-stone-900'
+                }`}
+              >
+                {isAdminUnlocked ? (
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                ) : (
+                  <Lock className="w-3.5 h-3.5" />
+                )}
+                Modo Estudio
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-5xl mx-auto px-4 pt-6 flex-1 w-full">
+        {loading && students.length === 0 && classes.length === 0 ? (
+          <div className="text-center py-16 text-stone-500">
+            Conectando con la agenda de Espacio Sat-Nam...
+          </div>
+        ) : role === 'student' ? (
+          <div className="space-y-6">
+            {/* Presentación de Espacio Sat-Nam */}
+            <div className="bg-white/80 rounded-3xl px-5 py-4 border border-stone-200/70">
+              <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
+                Un lugar creado para mejorar tu calidad de vida desde un{' '}
+                <strong className="font-medium text-stone-800">bienestar integral</strong>: Yoga
+                Terapia y Restaurativo, Spinning, Sesiones de Coaching y PNL (Programación
+                Neurolingüística) para acompañar procesos de cambio, Constelaciones, y Estética y
+                Cosmiatría.
+              </p>
+            </div>
+
+            {/* Selector de Alumno / Consultante Activo */}
+            {students.length > 0 ? (
+              <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative overflow-hidden">
+                <div className={`absolute top-0 left-0 w-1 h-full ${t.cardAccentBar}`} />
+                <div className="flex items-center gap-3.5 pl-2">
+                  <div
+                    className={`w-11 h-11 rounded-2xl ${t.softBadge} font-semibold flex items-center justify-center text-base`}
+                  >
+                    {activeStudent?.name.charAt(0)}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-stone-400 uppercase tracking-wider font-medium">
+                        Hola,
+                      </span>
+                      <select
+                        value={activeStudentId}
+                        onChange={(e) => setActiveStudentId(e.target.value)}
+                        className={`text-sm font-semibold ${t.bg} border border-stone-200 rounded-xl px-2.5 py-1 focus:outline-none ${t.focusBorder}`}
+                      >
+                        {students.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                      <span className={`text-xs font-medium ${t.softBadge} px-2.5 py-0.5 rounded-lg`}>
+                        {activeStudent?.plan}
+                      </span>
+                      {activeStudent && getStatusBadge(activeStudent)}
+                      {activeStudent && !isUnlimitedPlan(activeStudent.plan) && (
+                        <span className="text-xs text-stone-600">
+                          • <strong>{activeStudent.credits}</strong> disponibles
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-xs text-stone-500 sm:text-right border-t sm:border-t-0 pt-2.5 sm:pt-0 border-stone-100 pl-2 sm:pl-0">
+                  Vencimiento:
+                  <span className="block font-semibold text-sm">{activeStudent?.expiryDate}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white border border-stone-200 rounded-2xl p-4 text-sm text-stone-600">
+                Aún no hay alumnos registrados en la agenda. Consulta en recepción para darte de alta.
+              </div>
+            )}
+
+            {/* Filtros de fecha y actividades */}
+            <div className="space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-semibold">Agenda y Turnos</h2>
+                  <p className="text-sm text-stone-500">
+                    Reserva tu clase, taller, sesión individual o tratamiento
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-stone-200/80 shadow-2xs w-fit">
+                  <Calendar className={`w-4 h-4 ${t.iconAccent}`} />
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className="text-sm font-medium bg-transparent focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Barra horizontal de categorías */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                <button
+                  onClick={() => setCategoryFilter('Todas')}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-all border ${
+                    categoryFilter === 'Todas'
+                      ? `${t.activePill} border-transparent`
+                      : 'bg-white text-stone-600 border-stone-200/80 hover:border-stone-300'
+                  }`}
+                >
+                  Todas
+                </button>
+                {CATEGORIES.map((cat) => (
+                  <button
+                    key={cat.id}
+                    onClick={() => setCategoryFilter(cat.id)}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-all border ${
+                      categoryFilter === cat.id
+                        ? `${t.activePill} border-transparent`
+                        : 'bg-white text-stone-600 border-stone-200/80 hover:border-stone-300'
+                    }`}
+                  >
+                    {cat.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Tarjetas de Clases y Sesiones */}
+            {filteredClasses.length === 0 ? (
+              <div className="bg-white rounded-3xl p-10 text-center border border-stone-200/70">
+                <p className="text-stone-500 text-sm">
+                  No hay actividades o turnos programados para esta fecha o filtro seleccionado.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {filteredClasses.map((cls) => {
+                  const classBookings = bookings.filter((b) => b.classId === cls.id);
+                  const isBooked = activeStudent
+                    ? classBookings.some((b) => b.studentId === activeStudent.id)
+                    : false;
+                  const spotsLeft = cls.capacity - classBookings.length;
+
+                  return (
+                    <div
+                      key={cls.id}
+                      className={`bg-white rounded-3xl p-5 border transition-all flex flex-col justify-between ${
+                        isBooked
+                          ? `${t.bookedRing} shadow-sm`
+                          : 'border-stone-200/70 shadow-2xs hover:border-stone-300'
+                      }`}
+                    >
+                      <div>
+                        <div className="flex justify-between items-start gap-2 mb-2.5">
+                          <div>{getCategoryBadge(cls.category)}</div>
+                          {isBooked && (
+                            <span
+                              className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${t.activePill}`}
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Reservado
+                            </span>
+                          )}
+                        </div>
+
+                        <h3 className="font-semibold text-lg">{cls.title}</h3>
+
+                        <div className="flex items-center gap-4 text-sm text-stone-600 mt-3">
+                          <span className="flex items-center gap-1.5">
+                            <Clock className={`w-4 h-4 ${t.iconAccent}`} />
+                            {cls.time} hs ({cls.duration} min)
+                          </span>
+                          <span className="flex items-center gap-1.5">
+                            <Users className={`w-4 h-4 ${t.iconAccent}`} />
+                            {cls.instructor}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="mt-5 pt-4 border-t border-stone-100 flex items-center justify-between">
+                        <div>
+                          <span
+                            className={`text-xs font-medium px-2.5 py-1 rounded-xl ${
+                              spotsLeft === 0
+                                ? 'bg-rose-100/80 text-rose-700'
+                                : spotsLeft <= 2
+                                ? 'bg-amber-100/80 text-amber-800'
+                                : t.softBadge
+                            }`}
+                          >
+                            {spotsLeft === 0
+                              ? 'Turno completo'
+                              : spotsLeft === 1
+                              ? '1 lugar libre'
+                              : `${spotsLeft} lugares libres`}
+                          </span>
+                        </div>
+
+                        <button
+                          onClick={() => handleToggleBooking(cls.id)}
+                          disabled={!isBooked && spotsLeft === 0}
+                          className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                            isBooked
+                              ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200/80'
+                              : spotsLeft === 0
+                              ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
+                              : t.primaryBtn
+                          }`}
+                        >
+                          {isBooked ? 'Cancelar Reserva' : 'Reservar'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : (
+          /* ================= VISTA MODO ESTUDIO (ADMIN) ================= */
+          <div className="space-y-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="hidden md:flex items-center gap-2 bg-white p-1.5 rounded-2xl border border-stone-200/80 w-fit shadow-2xs">
+                <button
+                  onClick={() => setAdminTab('schedule')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                    adminTab === 'schedule' ? t.activePill : 'text-stone-600 hover:bg-stone-50'
+                  }`}
+                >
+                  <Calendar className="w-4 h-4" /> Agenda y Asistencia
+                </button>
+                <button
+                  onClick={() => setAdminTab('students')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                    adminTab === 'students' ? t.activePill : 'text-stone-600 hover:bg-stone-50'
+                  }`}
+                >
+                  <Users className="w-4 h-4" /> Alumnos y Consultantes
+                </button>
+                <button
+                  onClick={() => setAdminTab('payments')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                    adminTab === 'payments' ? t.activePill : 'text-stone-600 hover:bg-stone-50'
+                  }`}
+                >
+                  <CreditCard className="w-4 h-4" /> Pagos y WhatsApp
+                </button>
+              </div>
+
+              <button
+                onClick={() => {
+                  setIsAdminUnlocked(false);
+                  setRole('student');
+                  showToast('Sesión de estudio bloqueada');
+                }}
+                className="text-xs font-medium text-stone-600 hover:text-stone-900 flex items-center gap-1.5 bg-white px-3.5 py-2 rounded-xl border border-stone-200/80"
+              >
+                <Lock className={`w-3.5 h-3.5 ${t.iconAccent}`} /> Bloquear Modo Estudio
+              </button>
+            </div>
+
+            {adminTab === 'schedule' && (
+              <div className="space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-xl font-semibold">Agenda Espacio Sat-Nam</h2>
+                    <p className="text-sm text-stone-500">
+                      Gestiona clases, Coaching/PNL, Constelaciones, Estética y Meditaciones
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="date"
+                      value={selectedDate}
+                      onChange={(e) => setSelectedDate(e.target.value)}
+                      className="text-sm font-medium bg-white px-3 py-2 rounded-xl border border-stone-200/80"
+                    />
+                    <button
+                      onClick={() => {
+                        setNewClass((prev) => ({ ...prev, date: selectedDate }));
+                        setShowNewClassModal(true);
+                      }}
+                      className={`flex items-center gap-1.5 ${t.primaryBtn} px-4 py-2 rounded-xl text-sm font-medium transition-all`}
+                    >
+                      <Plus className="w-4 h-4" /> Nueva Actividad / Turno
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  {classes
+                    .filter((c) => c.date === selectedDate)
+                    .sort((a, b) => a.time.localeCompare(b.time))
+                    .map((cls) => {
+                      const classBookings = bookings.filter((b) => b.classId === cls.id);
+
+                      return (
+                        <div
+                          key={cls.id}
+                          className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs"
+                        >
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-stone-100">
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                                {getCategoryBadge(cls.category)}
+                                <span
+                                  className={`text-xs font-medium px-2.5 py-0.5 rounded-lg ${t.softBadge}`}
+                                >
+                                  {cls.time} hs ({cls.duration} min)
+                                </span>
+                              </div>
+                              <h3 className="font-semibold text-base">
+                                {cls.title}{' '}
+                                <span className="text-sm font-normal text-stone-500">
+                                  — {cls.instructor}
+                                </span>
+                              </h3>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                              <span className={`text-sm font-medium ${t.brandAccent}`}>
+                                Reservados: {classBookings.length} / {cls.capacity}
+                              </span>
+                              <button
+                                onClick={() => handleDeleteClass(cls.id)}
+                                title="Eliminar turno"
+                                className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="mt-4">
+                            {classBookings.length === 0 ? (
+                              <p className="text-xs text-stone-400 italic">
+                                Aún no hay reservas en este horario.
+                              </p>
+                            ) : (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                                {classBookings.map((booking) => {
+                                  const st = students.find((s) => s.id === booking.studentId);
+                                  if (!st) return null;
+
+                                  return (
+                                    <div
+                                      key={booking.id}
+                                      onClick={() => handleToggleAttendance(booking.id)}
+                                      className={`cursor-pointer p-3 rounded-2xl border flex items-center justify-between transition-all ${
+                                        booking.attended
+                                          ? `${t.softBadge} border-current/20`
+                                          : `${t.bg} border-stone-200/80 hover:border-stone-300`
+                                      }`}
+                                    >
+                                      <div>
+                                        <p className="text-sm font-medium">{st.name}</p>
+                                        <p className="text-[11px] text-stone-500">{st.plan}</p>
+                                      </div>
+
+                                      <span
+                                        className={`flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-xl ${
+                                          booking.attended
+                                            ? t.activePill
+                                            : 'bg-white text-stone-600 border border-stone-200'
+                                        }`}
+                                      >
+                                        <UserCheck className="w-3.5 h-3.5" />
+                                        {booking.attended ? 'Asistió' : 'Marcar'}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                  {classes.filter((c) => c.date === selectedDate).length === 0 && (
+                    <div className="bg-white rounded-3xl p-8 text-center border border-stone-200/70 text-stone-500 text-sm">
+                      No hay actividades cargadas para esta fecha. Haz clic en{' '}
+                      <strong>+ Nueva Actividad / Turno</strong> para abrir un horario.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {adminTab === 'students' && (
+              <div className="space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-xl font-semibold">Alumnos & Consultantes</h2>
+                    <p className="text-sm text-stone-500">
+                      Administra abonos de clases, sesiones individuales y participantes de talleres
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={() => setShowNewStudentModal(true)}
+                    className={`flex items-center gap-1.5 ${t.primaryBtn} px-4 py-2 rounded-xl text-sm font-medium w-fit`}
+                  >
+                    <Plus className="w-4 h-4" /> Nuevo Registro
+                  </button>
+                </div>
+
+                <div className="relative">
+                  <Search className="w-4 h-4 text-stone-400 absolute left-3.5 top-3" />
+                  <input
+                    type="text"
+                    placeholder="Buscar por nombre o modalidad..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className={`w-full bg-white pl-10 pr-4 py-2.5 rounded-xl border border-stone-200/80 text-sm focus:outline-none ${t.focusBorder}`}
+                  />
+                </div>
+
+                <div className="bg-white rounded-3xl border border-stone-200/70 overflow-hidden shadow-2xs">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr
+                          className={`${t.bg} border-b border-stone-200/80 text-xs uppercase tracking-wider text-stone-500`}
+                        >
+                          <th className="py-3.5 px-4 font-medium">Nombre</th>
+                          <th className="py-3.5 px-4 font-medium">Modalidad</th>
+                          <th className="py-3.5 px-4 font-medium">Saldo</th>
+                          <th className="py-3.5 px-4 font-medium">Vencimiento</th>
+                          <th className="py-3.5 px-4 font-medium">Estado</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-stone-100 text-sm">
+                        {filteredStudents.map((st) => (
+                          <tr key={st.id} className="hover:bg-stone-50/50">
+                            <td className="py-3.5 px-4">
+                              <p className="font-medium">{st.name}</p>
+                              <p className="text-xs text-stone-500">{st.phone}</p>
+                            </td>
+                            <td className="py-3.5 px-4">
+                              <span className={`font-medium ${t.brandAccent}`}>{st.plan}</span>
+                            </td>
+                            <td className="py-3.5 px-4">
+                              {isUnlimitedPlan(st.plan) ? (
+                                <span
+                                  className={`text-xs ${t.softBadge} px-2.5 py-0.5 rounded-lg font-medium`}
+                                >
+                                  Ilimitado
+                                </span>
+                              ) : (
+                                <span>{st.credits} disponibles</span>
+                              )}
+                            </td>
+                            <td className="py-3.5 px-4 text-stone-600">{st.expiryDate}</td>
+                            <td className="py-3.5 px-4">{getStatusBadge(st)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {adminTab === 'payments' && (
+              <div className="space-y-4">
+                <div>
+                  <h2 className="text-xl font-semibold">Recordatorios de Pago y Renovación</h2>
+                  <p className="text-sm text-stone-500">
+                    Envía avisos personalizados por WhatsApp o renueva planes
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {students.map((st) => (
+                    <div
+                      key={st.id}
+                      className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs flex flex-col justify-between gap-4"
+                    >
+                      <div className="flex justify-between items-start gap-2">
+                        <div>
+                          <h3 className="font-semibold text-base">{st.name}</h3>
+                          <p className={`text-xs ${t.brandAccent} font-medium mt-0.5`}>
+                            {st.plan}
+                          </p>
+                          <p className="text-xs text-stone-500 mt-0.5">
+                            Vence el: <strong>{st.expiryDate}</strong>
+                          </p>
+                        </div>
+                        {getStatusBadge(st)}
+                      </div>
+
+                      <div className="flex items-center gap-2 pt-3 border-t border-stone-100">
+                        <a
+                          href={getWhatsAppReminderUrl(st)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-1 flex items-center justify-center gap-1.5 bg-[#25D366] hover:bg-[#1EBE5D] text-white py-2.5 px-3 rounded-xl text-xs font-semibold shadow-2xs transition-all"
+                        >
+                          <MessageCircle className="w-4 h-4" />
+                          Recordatorio WhatsApp
+                        </a>
+
+                        <button
+                          onClick={() => handleRenewPlan(st.id)}
+                          className={`flex items-center justify-center gap-1 ${t.softBadge} py-2.5 px-3 rounded-xl text-xs font-semibold transition-all`}
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          Renovar Plan
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </main>
+
+      {/* Pie de página fijo con Copyright siempre visible */}
+      <footer
+        className={`fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t ${t.headerBorder} py-2 px-4 text-center z-30`}
+      >
+        <p className="text-xs text-stone-600 tracking-wide">
+          © {new Date().getFullYear()}{' '}
+          <strong className="font-semibold text-stone-800">Espacio Sat-Nam</strong> •{' '}
+          <span className={`font-medium ${t.brandAccent}`}>by Patricia Aleman</span>. Todos los
+          derechos reservados.
+        </p>
+      </footer>
+
+      {/* Navegación móvil inferior (encima de la barra de copyright) */}
+      {role === 'admin' && (
+        <nav className="md:hidden fixed bottom-8 left-0 right-0 bg-white border-t border-stone-200 flex justify-around py-2 px-2 z-40">
+          <button
+            onClick={() => setAdminTab('schedule')}
+            className={`flex flex-col items-center gap-1 text-xs font-medium ${
+              adminTab === 'schedule' ? t.brandAccent : 'text-stone-400'
+            }`}
+          >
+            <Calendar className="w-5 h-5" />
+            Agenda
+          </button>
+          <button
+            onClick={() => setAdminTab('students')}
+            className={`flex flex-col items-center gap-1 text-xs font-medium ${
+              adminTab === 'students' ? t.brandAccent : 'text-stone-400'
+            }`}
+          >
+            <Users className="w-5 h-5" />
+            Personas
+          </button>
+          <button
+            onClick={() => setAdminTab('payments')}
+            className={`flex flex-col items-center gap-1 text-xs font-medium ${
+              adminTab === 'payments' ? t.brandAccent : 'text-stone-400'
+            }`}
+          >
+            <CreditCard className="w-5 h-5" />
+            Pagos
+          </button>
+        </nav>
+      )}
+
+      {/* Modal: Verificación PIN Modo Estudio */}
+      {showPinModal && (
+        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-xs w-full p-6 shadow-xl text-center">
+            <div
+              className={`w-12 h-12 rounded-2xl ${t.softBadge} flex items-center justify-center mx-auto mb-3`}
+            >
+              <Lock className="w-6 h-6" />
+            </div>
+            <h3 className="font-semibold text-lg">Acceso Modo Estudio</h3>
+            <p className="text-xs text-stone-500 mt-1 mb-4">
+              Ingresa el PIN de 4 dígitos para administrar la agenda y los turnos
+            </p>
+
+            <form onSubmit={handleVerifyPin} className="space-y-3">
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={4}
+                autoFocus
+                placeholder="••••"
+                value={pinInput}
+                onChange={(e) => {
+                  setPinInput(e.target.value.replace(/\D/g, ''));
+                  setPinError(false);
+                }}
+                className={`w-full text-center tracking-[0.6em] text-2xl font-bold border rounded-2xl py-2.5 focus:outline-none ${
+                  pinError
+                    ? 'border-rose-500 bg-rose-50 text-rose-700'
+                    : `border-stone-200 ${t.focusBorder}`
+                }`}
+              />
+              {pinError && (
+                <p className="text-xs text-rose-600 font-medium">
+                  PIN incorrecto. Intenta nuevamente.
+                </p>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowPinModal(false)}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-medium bg-stone-100 text-stone-600 hover:bg-stone-200"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className={`flex-1 py-2.5 rounded-xl text-xs font-semibold ${t.primaryBtn}`}
+                >
+                  Ingresar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Nueva Actividad / Turno */}
+      {showNewClassModal && (
+        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-semibold text-lg">Agregar Actividad o Turno</h3>
+              <button onClick={() => setShowNewClassModal(false)}>
+                <XCircle className="w-5 h-5 text-stone-400" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddClass} className="space-y-3.5 text-sm">
+              <div>
+                <label className="block text-xs font-medium text-stone-600 mb-1.5">
+                  Área / Servicio
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {CATEGORIES.map((cat) => (
+                    <button
+                      type="button"
+                      key={cat.id}
+                      onClick={() =>
+                        setNewClass({
+                          ...newClass,
+                          category: cat.id,
+                          capacity: cat.defaultCap
+                        })
+                      }
+                      className={`py-2 px-2.5 rounded-xl border text-xs font-medium text-left transition-all ${
+                        newClass.category === cat.id
+                          ? `${t.activePill} border-transparent`
+                          : `${t.bg} text-stone-600 border-stone-200`
+                      }`}
+                    >
+                      {cat.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-stone-600 mb-1">
+                  Nombre de la Clase / Taller / Sesión
+                </label>
+                <input
+                  required
+                  type="text"
+                  placeholder="Ej. Yoga Restaurativo, Taller de Constelaciones, Sesión PNL..."
+                  value={newClass.title}
+                  onChange={(e) => setNewClass({ ...newClass, title: e.target.value })}
+                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-stone-600 mb-1">
+                  Facilitador/a / Profesional
+                </label>
+                <input
+                  required
+                  type="text"
+                  placeholder="Ej. Patricia Aleman"
+                  value={newClass.instructor}
+                  onChange={(e) => setNewClass({ ...newClass, instructor: e.target.value })}
+                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <div className="col-span-2 sm:col-span-1">
+                  <label className="block text-xs font-medium text-stone-600 mb-1">Fecha</label>
+                  <input
+                    required
+                    type="date"
+                    value={newClass.date}
+                    onChange={(e) => setNewClass({ ...newClass, date: e.target.value })}
+                    className="w-full border border-stone-200 rounded-xl px-2 py-2 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">Hora</label>
+                  <input
+                    required
+                    type="time"
+                    value={newClass.time}
+                    onChange={(e) => setNewClass({ ...newClass, time: e.target.value })}
+                    className="w-full border border-stone-200 rounded-xl px-2 py-2 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">Duración</label>
+                  <input
+                    required
+                    type="number"
+                    min="15"
+                    max="480"
+                    value={newClass.duration}
+                    onChange={(e) => setNewClass({ ...newClass, duration: e.target.value })}
+                    className="w-full border border-stone-200 rounded-xl px-2 py-2 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">Cupo</label>
+                  <input
+                    required
+                    type="number"
+                    min="1"
+                    max="60"
+                    value={newClass.capacity}
+                    onChange={(e) => setNewClass({ ...newClass, capacity: e.target.value })}
+                    className="w-full border border-stone-200 rounded-xl px-2 py-2 text-xs"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className={`w-full ${t.primaryBtn} font-medium py-2.5 rounded-xl mt-2`}
+              >
+                Guardar en Agenda
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Nuevo Alumno / Consultante */}
+      {showNewStudentModal && (
+        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-semibold text-lg">Nuevo Alumno / Consultante</h3>
+              <button onClick={() => setShowNewStudentModal(false)}>
+                <XCircle className="w-5 h-5 text-stone-400" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddStudent} className="space-y-3.5 text-sm">
+              <div>
+                <label className="block text-xs font-medium text-stone-600 mb-1">
+                  Nombre Completo
+                </label>
+                <input
+                  required
+                  type="text"
+                  placeholder="Ej. María Gómez"
+                  value={newStudent.name}
+                  onChange={(e) => setNewStudent({ ...newStudent, name: e.target.value })}
+                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-stone-600 mb-1">
+                  Teléfono WhatsApp (con código de país)
+                </label>
+                <input
+                  required
+                  type="text"
+                  placeholder="Ej. +5491123456789"
+                  value={newStudent.phone}
+                  onChange={(e) => setNewStudent({ ...newStudent, phone: e.target.value })}
+                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">
+                    Modalidad / Plan
+                  </label>
+                  <select
+                    value={newStudent.plan}
+                    onChange={(e) => {
+                      const chosenPlan = e.target.value;
+                      setNewStudent({
+                        ...newStudent,
+                        plan: chosenPlan,
+                        credits: getDefaultCreditsForPlan(chosenPlan)
+                      });
+                    }}
+                    className="w-full border border-stone-200 rounded-xl px-3 py-2 bg-white"
+                  >
+                    {PLAN_OPTIONS.map((planName) => (
+                      <option key={planName} value={planName}>
+                        {planName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">
+                    Sesiones / Clases
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="99"
+                    disabled={isUnlimitedPlan(newStudent.plan)}
+                    value={isUnlimitedPlan(newStudent.plan) ? 99 : newStudent.credits}
+                    onChange={(e) => setNewStudent({ ...newStudent, credits: e.target.value })}
+                    className="w-full border border-stone-200 rounded-xl px-3 py-2 disabled:bg-stone-100"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-stone-600 mb-1">
+                  Fecha de Vencimiento
+                </label>
+                <input
+                  required
+                  type="date"
+                  value={newStudent.expiryDate}
+                  onChange={(e) => setNewStudent({ ...newStudent, expiryDate: e.target.value })}
+                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className={`w-full ${t.primaryBtn} font-medium py-2.5 rounded-xl mt-2`}
+              >
+                Guardar Registro
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
