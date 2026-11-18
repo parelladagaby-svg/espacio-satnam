@@ -49,7 +49,7 @@ const PLAN_OPTIONS = [
   'Evento / Retiro Especial'
 ];
 
-// 3 opciones de paleta (máximo 2-3 colores por opción: fondo + principal + texto)
+// 3 opciones de paleta (máximo 2-3 colores por opción)
 const THEMES = {
   sage: {
     name: 'Salvia & Lino',
@@ -110,45 +110,74 @@ const THEMES = {
   }
 };
 
-// Isotipo Flor de Loto minimalista para Espacio SAT-NAM
-function SatNamLogo({ bgClass, className = 'w-10 h-10' }) {
+// 2 Opciones de Logo para Espacio SAT-NAM (Loto Orgánico vs. Círculo Zen / Movimiento)
+function SatNamLogo({ bgClass, variant = 'lotus', className = 'w-10 h-10' }) {
   return (
     <div
       className={`${className} rounded-2xl ${bgClass} p-2 flex items-center justify-center text-white shadow-xs shrink-0 transition-colors duration-300`}
     >
-      <svg
-        viewBox="0 0 64 64"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        className="w-full h-full"
-      >
-        <path
-          d="M32 11C26.5 20.5 24.5 30 32 42C39.5 30 37.5 20.5 32 11Z"
-          fill="white"
-          fillOpacity="0.95"
-        />
-        <path
-          d="M29 41C19.5 35.5 14.5 26 16.5 17C24 21 28 29.5 29 41Z"
-          fill="white"
-          fillOpacity="0.75"
-        />
-        <path
-          d="M35 41C44.5 35.5 49.5 26 47.5 17C40 21 36 29.5 35 41Z"
-          fill="white"
-          fillOpacity="0.75"
-        />
-        <path
-          d="M27 43C15.5 43 8.5 36.5 7.5 29C16 29 23 34.5 27 43Z"
-          fill="white"
-          fillOpacity="0.52"
-        />
-        <path
-          d="M37 43C48.5 43 55.5 36.5 56.5 29C48 29 41 34.5 37 43Z"
-          fill="white"
-          fillOpacity="0.52"
-        />
-        <circle cx="32" cy="49.5" r="2.8" fill="white" fillOpacity="0.9" />
-      </svg>
+      {variant === 'lotus' ? (
+        /* Opción 1: Flor de Loto Orgánica */
+        <svg
+          viewBox="0 0 64 64"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          className="w-full h-full"
+        >
+          <path
+            d="M32 11C26.5 20.5 24.5 30 32 42C39.5 30 37.5 20.5 32 11Z"
+            fill="white"
+            fillOpacity="0.95"
+          />
+          <path
+            d="M29 41C19.5 35.5 14.5 26 16.5 17C24 21 28 29.5 29 41Z"
+            fill="white"
+            fillOpacity="0.75"
+          />
+          <path
+            d="M35 41C44.5 35.5 49.5 26 47.5 17C40 21 36 29.5 35 41Z"
+            fill="white"
+            fillOpacity="0.75"
+          />
+          <path
+            d="M27 43C15.5 43 8.5 36.5 7.5 29C16 29 23 34.5 27 43Z"
+            fill="white"
+            fillOpacity="0.52"
+          />
+          <path
+            d="M37 43C48.5 43 55.5 36.5 56.5 29C48 29 41 34.5 37 43Z"
+            fill="white"
+            fillOpacity="0.52"
+          />
+          <circle cx="32" cy="49.5" r="2.8" fill="white" fillOpacity="0.9" />
+        </svg>
+      ) : (
+        /* Opción 2: Círculo Zen / Movimiento & Núcleo Sat-Nam */
+        <svg
+          viewBox="0 0 64 64"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          className="w-full h-full"
+        >
+          {/* Aro exterior abierto (fluidez y movimiento) */}
+          <path
+            d="M47 16.5C43 13.1 37.7 11 32 11C20.4 11 11 20.4 11 32C11 43.6 20.4 53 32 53C43.6 53 53 43.6 53 32C53 28.4 52.1 25 50.5 22"
+            stroke="white"
+            strokeWidth="4.2"
+            strokeLinecap="round"
+          />
+          {/* Arco interior de equilibrio */}
+          <path
+            d="M21 32C21 25.9 25.9 21 32 21C38.1 21 43 25.9 43 32"
+            stroke="white"
+            strokeOpacity="0.65"
+            strokeWidth="3.2"
+            strokeLinecap="round"
+          />
+          {/* Punto central (Identidad / Sat Nam) */}
+          <circle cx="32" cy="34" r="5" fill="white" />
+        </svg>
+      )}
     </div>
   );
 }
@@ -157,11 +186,20 @@ export default function App() {
   const [themeKey, setThemeKey] = useState(
     () => localStorage.getItem('satnam_theme') || 'sage'
   );
+  const [logoVariant, setLogoVariant] = useState(
+    () => localStorage.getItem('satnam_logo') || 'lotus'
+  );
+
   const t = THEMES[themeKey] || THEMES.sage;
 
   const handleSelectTheme = (key) => {
     setThemeKey(key);
     localStorage.setItem('satnam_theme', key);
+  };
+
+  const handleSelectLogo = (variant) => {
+    setLogoVariant(variant);
+    localStorage.setItem('satnam_logo', variant);
   };
 
   const [role, setRole] = useState('student');
@@ -562,7 +600,6 @@ export default function App() {
     );
   };
 
-  // Etiquetas alineadas estrictamente a la paleta elegida (sin colores extra)
   const getCategoryBadge = (category) => {
     const badgeClass = `inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${t.softBadge}`;
     switch (category) {
@@ -627,7 +664,7 @@ export default function App() {
       >
         <div className="max-w-5xl mx-auto px-4 py-3.5 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-3">
-            <SatNamLogo bgClass={t.logoBg} />
+            <SatNamLogo bgClass={t.logoBg} variant={logoVariant} />
             <div>
               <h1 className="font-semibold text-lg tracking-tight leading-none">
                 Espacio <span className={t.brandAccent}>SAT-NAM</span>
@@ -638,7 +675,34 @@ export default function App() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Selector de las 2 opciones de Logo */}
+            <div
+              className="flex items-center bg-black/[0.03] p-0.5 rounded-xl border border-black/[0.06]"
+              title="Elegir opción de logo"
+            >
+              <button
+                onClick={() => handleSelectLogo('lotus')}
+                className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-all ${
+                  logoVariant === 'lotus'
+                    ? 'bg-white text-stone-800 shadow-2xs'
+                    : 'text-stone-500 hover:text-stone-800'
+                }`}
+              >
+                Loto
+              </button>
+              <button
+                onClick={() => handleSelectLogo('zen')}
+                className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-all ${
+                  logoVariant === 'zen'
+                    ? 'bg-white text-stone-800 shadow-2xs'
+                    : 'text-stone-500 hover:text-stone-800'
+                }`}
+              >
+                Zen
+              </button>
+            </div>
+
             {/* Selector de las 3 paletas */}
             <div
               className="flex items-center gap-1.5 bg-black/[0.03] px-2.5 py-1.5 rounded-xl border border-black/[0.06]"
