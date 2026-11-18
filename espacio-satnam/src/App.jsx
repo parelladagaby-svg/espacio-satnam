@@ -24,7 +24,9 @@ import {
   Compass,
   Orbit,
   Ban,
-  Edit3
+  Edit3,
+  Layers,
+  CalendarDays
 } from 'lucide-react';
 
 // Conexión a tu base de datos en Supabase
@@ -35,7 +37,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 // PIN de acceso al Modo Estudio
 const ADMIN_PIN = '1008';
 
-const CATEGORIES = [
+const INITIAL_CATEGORIES = [
   { id: 'Yoga', label: 'Yoga Terapia & Restaurativo', defaultCap: 12 },
   { id: 'Spinning', label: 'Spinning', defaultCap: 10 },
   { id: 'Pilates', label: 'Pilates & Circuito', defaultCap: 10 },
@@ -200,6 +202,11 @@ export default function App() {
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
 
+  const [categories, setCategories] = useState(() => {
+    const saved = localStorage.getItem('satnam_categories');
+    return saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
+  });
+
   const [students, setStudents] = useState([]);
   const [classes, setClasses] = useState([]);
   const [bookings, setBookings] = useState([]);
@@ -209,19 +216,22 @@ export default function App() {
   const [categoryFilter, setCategoryFilter] = useState('Todas');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Estados para Creación y Edición de Servicios / Clases Fijas
-  const [showNewClassModal, setShowNewClassModal] = useState(false);
+  // Modales de Servicios y Horarios
+  const [showServiceModal, setShowServiceModal] = useState(false);
+  const [editingService, setEditingService] = useState(null);
+  const [serviceForm, setServiceForm] = useState({ label: '', defaultCap: 12, isPaused: false });
+
+  const [showClassModal, setShowClassModal] = useState(false);
   const [editingClassId, setEditingClassId] = useState(null);
-  const [newClass, setNewClass] = useState({
-    title: 'Yoga Terapia & Restaurativo',
+  const [classForm, setClassForm] = useState({
     category: 'Yoga',
+    title: '',
+    isCustomTitle: false,
     instructor: 'Patricia Aleman',
     time: '10:00',
     duration: 60,
     capacity: 12,
-    selectedDays: [1, 3, 5],
-    isCustomTitle: false,
-    isRecurring6Months: true
+    selectedDays: [1, 3, 5]
   });
 
   const [showNewStudentModal, setShowNewStudentModal] = useState(false);
@@ -428,38 +438,95 @@ export default function App() {
     }
   };
 
-  // Guardar (Crear o Editar) Servicio / Clases
+  // Guardar o Editar Servicio
+  const handleSaveService = (e) => {
+    e.preventDefault();
+    if (!serviceForm.label.trim()) return;
+
+    let updatedCategories;
+    if (editingService) {
+      updatedCategories = categories.map((cat) =>
+        cat.id === editingService.id
+          ? { ...cat, label: serviceForm.label, defaultCap: Number(serviceForm.defaultCap), isPaused: serviceForm.isPaused }
+          : cat
+      );
+      showToast('Servicio actualizado con éxito');
+    } else {
+      const newId = serviceForm.label.toLowerCase().replace(/[^a-z0-9]/g, '_');
+      if (categories.some((c) => c.id === newId)) {
+        showToast('Ya existe un servicio con ese nombre', 'error');
+        return;
+      }
+      updatedCategories = [
+        ...categories,
+        { id: newId, label: serviceForm.label, defaultCap: Number(serviceForm.defaultCap), isPaused: false }
+      ];
+      showToast('Nuevo servicio creado');
+    }
+
+    setCategories(updatedCategories);
+    localStorage.setItem('satnam_categories', JSON.stringify(updatedCategories));
+    setShowServiceModal(false);
+    setEditingService(null);
+    setServiceForm({ label: '', defaultCap: 12, isPaused: false });
+  };
+
+  // Pausar / Activar Servicio
+  const handleTogglePauseService = (catId) => {
+    const updatedCategories = categories.map((cat) =>
+      cat.id === catId ? { ...cat, isPaused: !cat.isPaused } : cat
+    );
+    setCategories(updatedCategories);
+    localStorage.setItem('satnam_categories', JSON.stringify(updatedCategories));
+    showToast('Estado del servicio actualizado');
+  };
+
+  // Eliminar Servicio
+  const handleDeleteService = (catId) => {
+    if (categories.length <= 1) {
+      showToast('Debes mantener al menos un servicio activo', 'error');
+      return;
+    }
+    const updatedCategories = categories.filter((cat) => cat.id !== catId);
+    setCategories(updatedCategories);
+    localStorage.setItem('satnam_categories', JSON.stringify(updatedCategories));
+    showToast('Servicio eliminado');
+  };
+
+  // Guardar o Programar Horarios/Clases (por 6 meses / 26 semanas)
   const handleSaveClass = async (e) => {
     e.preventDefault();
+    const matchingCat = categories.find((c) => c.id === classForm.category) || categories[0];
+    const finalTitle = classForm.isCustomTitle ? classForm.title : matchingCat.label;
 
     if (editingClassId) {
-      // Modo Edición de un turno puntual
+      // Editar clase puntual
       const { data, error } = await supabase
         .from('classes')
         .update({
-          title: newClass.title,
-          category: newClass.category,
-          instructor: newClass.instructor,
-          time: newClass.time,
-          duration: Number(newClass.duration),
-          capacity: Number(newClass.capacity)
+          title: finalTitle,
+          category: classForm.category,
+          instructor: classForm.instructor,
+          time: classForm.time,
+          duration: Number(classForm.duration),
+          capacity: Number(classForm.capacity)
         })
         .eq('id', editingClassId)
         .select()
         .single();
 
       if (error) {
-        showToast('Error al actualizar el servicio', 'error');
+        showToast('Error al actualizar el horario', 'error');
         return;
       }
 
       setClasses((prev) => prev.map((c) => (c.id === editingClassId ? data : c)));
-      setShowNewClassModal(false);
+      setShowClassModal(false);
       setEditingClassId(null);
-      showToast('Servicio actualizado con éxito');
+      showToast('Horario actualizado con éxito');
     } else {
-      // Modo Creación por 6 meses (26 semanas)
-      if (newClass.selectedDays.length === 0) {
+      // Crear clases recurrentes por 6 meses (26 semanas)
+      if (classForm.selectedDays.length === 0) {
         showToast('Selecciona al menos un día de la semana', 'error');
         return;
       }
@@ -469,7 +536,7 @@ export default function App() {
       today.setHours(0, 0, 0, 0);
 
       for (let week = 0; week < 26; week++) {
-        for (let dayOfWeek of newClass.selectedDays) {
+        for (let dayOfWeek of classForm.selectedDays) {
           const d = new Date(today);
           const currentDay = d.getDay();
           const distance = (dayOfWeek + 7 - currentDay) % 7;
@@ -483,13 +550,13 @@ export default function App() {
       }
 
       const payload = datesToCreate.map((d) => ({
-        title: newClass.title,
-        category: newClass.category,
-        instructor: newClass.instructor || 'Patricia Aleman',
+        title: finalTitle,
+        category: classForm.category,
+        instructor: classForm.instructor || 'Patricia Aleman',
         date: d,
-        time: newClass.time,
-        duration: Number(newClass.duration),
-        capacity: Number(newClass.capacity),
+        time: classForm.time,
+        duration: Number(classForm.duration),
+        capacity: Number(classForm.capacity),
         is_cancelled: false,
         room: ''
       }));
@@ -506,46 +573,34 @@ export default function App() {
         }
 
         setClasses((prev) => [...prev, ...insertedClasses]);
-        setShowNewClassModal(false);
-        setNewClass({
-          title: 'Yoga Terapia & Restaurativo',
-          category: 'Yoga',
-          instructor: 'Patricia Aleman',
-          time: '10:00',
-          duration: 60,
-          capacity: 12,
-          selectedDays: [1, 3, 5],
-          isCustomTitle: false,
-          isRecurring6Months: true
-        });
-        showToast('¡Nuevo servicio creado y programado por 6 meses!');
+        setShowClassModal(false);
+        showToast('¡Horarios programados por 6 meses con éxito!');
       } catch (error) {
-        console.error('Error al guardar turnos:', error);
-        showToast('Error al guardar el servicio en la base de datos', 'error');
+        console.error('Error al guardar horarios:', error);
+        showToast('Error al guardar en la base de datos', 'error');
       }
     }
   };
 
-  // Abrir modal en modo edición
+  // Abrir modal de edición de clase puntual
   const handleOpenEditClass = (cls) => {
     setEditingClassId(cls.id);
-    const matchingCat = CATEGORIES.find((cat) => cat.id === cls.category) || CATEGORIES[0];
+    const matchingCat = categories.find((cat) => cat.id === cls.category) || categories[0];
     const isCustom = cls.title !== matchingCat.label;
-    setNewClass({
-      title: cls.title,
+    setClassForm({
       category: cls.category,
+      title: cls.title,
+      isCustomTitle: isCustom,
       instructor: cls.instructor || 'Patricia Aleman',
       time: cls.time,
       duration: cls.duration,
       capacity: cls.capacity,
-      selectedDays: [1],
-      isCustomTitle: isCustom,
-      isRecurring6Months: false
+      selectedDays: [1]
     });
-    setShowNewClassModal(true);
+    setShowClassModal(true);
   };
 
-  // Pausar / Reactivar clase
+  // Pausar / Reactivar clase puntual
   const handleToggleCancelClass = async (classId) => {
     const targetClass = classes.find((c) => c.id === classId);
     if (!targetClass) return;
@@ -561,19 +616,19 @@ export default function App() {
       setClasses((prev) =>
         prev.map((c) => (c.id === classId ? { ...c, is_cancelled: nextCancelledState } : c))
       );
-      showToast(nextCancelledState ? 'Clase pausada con éxito' : 'Clase reactivada correctamente');
+      showToast(nextCancelledState ? 'Clase pausada correctamente' : 'Clase reactivada');
     } else {
-      showToast('No se pudo actualizar el estado de la clase', 'error');
+      showToast('No se pudo actualizar el estado', 'error');
     }
   };
 
-  // Eliminar turno
+  // Eliminar clase puntual
   const handleDeleteClass = async (classId) => {
     const { error } = await supabase.from('classes').delete().eq('id', classId);
     if (!error) {
       setClasses((prev) => prev.filter((c) => c.id !== classId));
       setBookings((prev) => prev.filter((b) => b.classId !== classId));
-      showToast('Servicio eliminado de la agenda');
+      showToast('Horario eliminado de la agenda');
     }
   };
 
@@ -659,8 +714,11 @@ export default function App() {
     return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
   };
 
+  // Filtrar clases por fecha y categoría (excluyendo servicios pausados)
+  const activeCategoryIds = categories.filter((c) => !c.isPaused).map((c) => c.id);
   const filteredClasses = classes
     .filter((c) => c.date === selectedDate)
+    .filter((c) => activeCategoryIds.includes(c.category))
     .filter((c) => (categoryFilter === 'Todas' ? true : c.category === categoryFilter))
     .sort((a, b) => a.time.localeCompare(b.time));
 
@@ -697,52 +755,27 @@ export default function App() {
   };
 
   const getCategoryBadge = (category) => {
+    const catObj = categories.find((c) => c.id === category);
+    const label = catObj ? catObj.label.toUpperCase() : category.toUpperCase();
     const badgeClass = `inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${t.softBadge}`;
+    
     switch (category) {
       case 'Spinning':
-        return (
-          <span className={badgeClass}>
-            <Bike className="w-3 h-3" /> SPINNING
-          </span>
-        );
+        return <span className={badgeClass}><Bike className="w-3 h-3" /> {label}</span>;
       case 'Pilates':
       case 'Circuito':
-        return (
-          <span className={badgeClass}>
-            <Flame className="w-3 h-3" /> PILATES & CIRCUITO
-          </span>
-        );
+        return <span className={badgeClass}><Flame className="w-3 h-3" /> {label}</span>;
       case 'Coaching':
-        return (
-          <span className={badgeClass}>
-            <Compass className="w-3 h-3" /> COACHING & PNL
-          </span>
-        );
+        return <span className={badgeClass}><Compass className="w-3 h-3" /> {label}</span>;
       case 'Constelaciones':
-        return (
-          <span className={badgeClass}>
-            <Orbit className="w-3 h-3" /> CONSTELACIONES
-          </span>
-        );
+        return <span className={badgeClass}><Orbit className="w-3 h-3" /> {label}</span>;
       case 'Estetica':
       case 'Bienestar':
-        return (
-          <span className={badgeClass}>
-            <Flower2 className="w-3 h-3" /> ESTÉTICA & COSMIATRÍA
-          </span>
-        );
+        return <span className={badgeClass}><Flower2 className="w-3 h-3" /> {label}</span>;
       case 'Eventos':
-        return (
-          <span className={badgeClass}>
-            <Sparkles className="w-3 h-3" /> MEDITACIONES
-          </span>
-        );
+        return <span className={badgeClass}><Sparkles className="w-3 h-3" /> {label}</span>;
       default:
-        return (
-          <span className={badgeClass}>
-            <Heart className="w-3 h-3" /> YOGA TERAPIA & RESTAURATIVO
-          </span>
-        );
+        return <span className={badgeClass}><Heart className="w-3 h-3" /> {label}</span>;
     }
   };
 
@@ -785,7 +818,7 @@ export default function App() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {/* Selector de las 3 paletas */}
+            {/* Selector de paletas */}
             <div
               className="flex items-center gap-1.5 bg-black/[0.03] px-2.5 py-1.5 rounded-xl border border-black/[0.06]"
               title="Elegir paleta de colores"
@@ -935,7 +968,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Barra horizontal de categorías */}
+              {/* Barra horizontal de categorías (excluyendo pausadas) */}
               <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
                 <button
                   onClick={() => setCategoryFilter('Todas')}
@@ -947,19 +980,21 @@ export default function App() {
                 >
                   Todas
                 </button>
-                {CATEGORIES.map((cat) => (
-                  <button
-                    key={cat.id}
-                    onClick={() => setCategoryFilter(cat.id)}
-                    className={`px-3.5 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-all border ${
-                      categoryFilter === cat.id
-                        ? `${t.activePill} border-transparent`
-                        : 'bg-white text-stone-600 border-stone-200/80 hover:border-stone-300'
-                    }`}
-                  >
-                    {cat.label}
-                  </button>
-                ))}
+                {categories
+                  .filter((cat) => !cat.isPaused)
+                  .map((cat) => (
+                    <button
+                      key={cat.id}
+                      onClick={() => setCategoryFilter(cat.id)}
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-all border ${
+                        categoryFilter === cat.id
+                          ? `${t.activePill} border-transparent`
+                          : 'bg-white text-stone-600 border-stone-200/80 hover:border-stone-300'
+                      }`}
+                    >
+                      {cat.label}
+                    </button>
+                  ))}
               </div>
             </div>
 
@@ -1114,50 +1149,131 @@ export default function App() {
             </div>
 
             {adminTab === 'schedule' && (
-              <div className="space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <h2 className="text-xl font-semibold">Agenda Espacio Sat-Nam</h2>
-                    <p className="text-sm text-stone-500">
-                      Gestiona, edita, pausa y elimina tus servicios o clases fijas
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="date"
-                      value={selectedDate}
-                      onChange={(e) => setSelectedDate(e.target.value)}
-                      className="text-sm font-medium bg-white px-3 py-2 rounded-xl border border-stone-200/80"
-                    />
+              <div className="space-y-6">
+                {/* Panel de Gestión Independiente: Servicios & Horarios */}
+                <div className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-stone-100">
+                    <div>
+                      <h3 className="font-semibold text-base flex items-center gap-2">
+                        <Layers className={`w-4 h-4 ${t.iconAccent}`} /> Panel de Servicios y Áreas
+                      </h3>
+                      <p className="text-xs text-stone-500">
+                        Crea, edita, pausa o elimina los servicios base del estudio
+                      </p>
+                    </div>
                     <button
                       onClick={() => {
-                        setEditingClassId(null);
-                        setNewClass({
-                          title: CATEGORIES[0].label,
-                          category: CATEGORIES[0].id,
-                          instructor: 'Patricia Aleman',
-                          time: '10:00',
-                          duration: 60,
-                          capacity: CATEGORIES[0].defaultCap,
-                          selectedDays: [1, 3, 5],
-                          isCustomTitle: false,
-                          isRecurring6Months: true
-                        });
-                        setShowNewClassModal(true);
+                        setEditingService(null);
+                        setServiceForm({ label: '', defaultCap: 12, isPaused: false });
+                        setShowServiceModal(true);
                       }}
-                      className={`flex items-center gap-1.5 ${t.primaryBtn} px-4 py-2 rounded-xl text-sm font-medium transition-all`}
+                      className={`flex items-center gap-1.5 ${t.primaryBtn} px-3.5 py-2 rounded-xl text-xs font-medium`}
                     >
-                      <Plus className="w-4 h-4" /> Crear, Editar, Pausar o Eliminar Servicio
+                      <Plus className="w-3.5 h-3.5" /> Crear Servicio
                     </button>
+                  </div>
+
+                  {/* Listado de Servicios */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    {categories.map((cat) => (
+                      <div
+                        key={cat.id}
+                        className={`p-3.5 rounded-2xl border flex items-center justify-between gap-2 transition-all ${
+                          cat.isPaused
+                            ? 'bg-stone-50 border-stone-200 opacity-60'
+                            : 'bg-stone-50/50 border-stone-200/80'
+                        }`}
+                      >
+                        <div>
+                          <p className="text-sm font-semibold">{cat.label}</p>
+                          <p className="text-[11px] text-stone-500">Cupo base: {cat.defaultCap}</p>
+                          {cat.isPaused && (
+                            <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md mt-1 inline-block">
+                              PAUSADO
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => {
+                              setEditingService(cat);
+                              setServiceForm({ label: cat.label, defaultCap: cat.defaultCap, isPaused: cat.isPaused });
+                              setShowServiceModal(true);
+                            }}
+                            title="Editar servicio"
+                            className="p-1.5 text-stone-600 hover:bg-white rounded-lg transition-colors border border-stone-200"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleTogglePauseService(cat.id)}
+                            title={cat.isPaused ? 'Activar servicio' : 'Pausar servicio'}
+                            className={`p-1.5 rounded-lg transition-colors border ${
+                              cat.isPaused
+                                ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                                : 'text-amber-700 bg-amber-50 border-amber-200'
+                            }`}
+                          >
+                            <Ban className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteService(cat.id)}
+                            title="Eliminar servicio"
+                            className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors border border-rose-200"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
+                {/* Sección de Agenda y Horarios */}
                 <div className="space-y-4">
-                  {classes
-                    .filter((c) => c.date === selectedDate)
-                    .sort((a, b) => a.time.localeCompare(b.time))
-                    .map((cls) => {
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <h2 className="text-xl font-semibold flex items-center gap-2">
+                        <CalendarDays className={`w-5 h-5 ${t.iconAccent}`} /> Horarios y Clases (Semestrales)
+                      </h2>
+                      <p className="text-sm text-stone-500">
+                        Programa bloques recurrentes por 6 meses, edita, pausa o cancela días puntuales
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="date"
+                        value={selectedDate}
+                        onChange={(e) => setSelectedDate(e.target.value)}
+                        className="text-sm font-medium bg-white px-3 py-2 rounded-xl border border-stone-200/80"
+                      />
+                      <button
+                        onClick={() => {
+                          setEditingClassId(null);
+                          const firstCat = categories[0] || INITIAL_CATEGORIES[0];
+                          setClassForm({
+                            category: firstCat.id,
+                            title: firstCat.label,
+                            isCustomTitle: false,
+                            instructor: 'Patricia Aleman',
+                            time: '10:00',
+                            duration: 60,
+                            capacity: firstCat.defaultCap,
+                            selectedDays: [1, 3, 5]
+                          });
+                          setShowClassModal(true);
+                        }}
+                        className={`flex items-center gap-1.5 ${t.primaryBtn} px-4 py-2 rounded-xl text-sm font-medium transition-all`}
+                      >
+                        <Plus className="w-4 h-4" /> Agregar Horario / Clase
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    {filteredClasses.map((cls) => {
                       const classBookings = bookings.filter((b) => b.classId === cls.id);
 
                       return (
@@ -1191,16 +1307,16 @@ export default function App() {
                             </div>
 
                             <div className="flex flex-wrap items-center gap-2">
-                              {/* Botón Editar */}
+                              {/* Botón Editar Horario */}
                               <button
                                 onClick={() => handleOpenEditClass(cls)}
-                                title="Editar servicio"
+                                title="Editar horario"
                                 className="p-2 text-stone-600 hover:bg-stone-100 rounded-xl transition-colors border border-stone-200"
                               >
                                 <Edit3 className="w-4 h-4" />
                               </button>
 
-                              {/* Botón Pausar / Reactivar */}
+                              {/* Botón Pausar / Cancelar Clase */}
                               <button
                                 onClick={() => handleToggleCancelClass(cls.id)}
                                 className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
@@ -1216,7 +1332,7 @@ export default function App() {
                               {/* Botón Eliminar */}
                               <button
                                 onClick={() => handleDeleteClass(cls.id)}
-                                title="Eliminar servicio"
+                                title="Eliminar horario"
                                 className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition-colors border border-rose-200"
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -1270,10 +1386,10 @@ export default function App() {
                       );
                     })}
 
-                  {classes.filter((c) => c.date === selectedDate).length === 0 && (
+                  {filteredClasses.length === 0 && (
                     <div className="bg-white rounded-3xl p-8 text-center border border-stone-200/70 text-stone-500 text-sm">
-                      No hay actividades cargadas para la fecha{' '}
-                      <strong>{formatDateDDMMYYYY(selectedDate)}</strong>. Haz clic en el botón superior para crear servicios.
+                      No hay horarios cargados para la fecha{' '}
+                      <strong>{formatDateDDMMYYYY(selectedDate)}</strong>. Haz clic en <strong>Agregar Horario / Clase</strong>.
                     </div>
                   )}
                 </div>
@@ -1517,14 +1633,68 @@ export default function App() {
       )}
 
       {/* Modal: Crear / Editar Servicio */}
-      {showNewClassModal && (
+      {showServiceModal && (
+        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-semibold text-lg">
+                {editingService ? 'Editar Servicio' : 'Nuevo Servicio / Área'}
+              </h3>
+              <button onClick={() => setShowServiceModal(false)}>
+                <XCircle className="w-5 h-5 text-stone-400" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveService} className="space-y-3.5 text-sm">
+              <div>
+                <label className="block text-xs font-medium text-stone-600 mb-1">
+                  Nombre del Servicio
+                </label>
+                <input
+                  required
+                  type="text"
+                  placeholder="Ej. Yoga Terapia, Masajes..."
+                  value={serviceForm.label}
+                  onChange={(e) => setServiceForm({ ...serviceForm, label: e.target.value })}
+                  className="w-full border border-stone-200 rounded-xl px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-stone-600 mb-1">
+                  Cupo Base Predeterminado
+                </label>
+                <input
+                  required
+                  type="number"
+                  min="1"
+                  max="60"
+                  value={serviceForm.defaultCap}
+                  onChange={(e) => setServiceForm({ ...serviceForm, defaultCap: e.target.value })}
+                  className="w-full border border-stone-200 rounded-xl px-3 py-2 text-sm"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className={`w-full ${t.primaryBtn} font-medium py-2.5 rounded-xl mt-2`}
+              >
+                {editingService ? 'Guardar Cambios' : 'Crear Servicio'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Agregar / Editar Horarios o Clases */}
+      {showClassModal && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-semibold text-lg">
-                {editingClassId ? 'Editar Servicio / Turno' : 'Crear y Programar Servicio (6 Meses)'}
+                {editingClassId ? 'Editar Horario' : 'Programar Horarios (6 Meses)'}
               </h3>
-              <button onClick={() => setShowNewClassModal(false)}>
+              <button onClick={() => setShowClassModal(false)}>
                 <XCircle className="w-5 h-5 text-stone-400" />
               </button>
             </div>
@@ -1532,23 +1702,24 @@ export default function App() {
             <form onSubmit={handleSaveClass} className="space-y-3.5 text-sm">
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1.5">
-                  Área / Servicio
+                  Área / Servicio Asociado
                 </label>
                 <div className="grid grid-cols-2 gap-2">
-                  {CATEGORIES.map((cat) => (
+                  {categories.map((cat) => (
                     <button
                       type="button"
                       key={cat.id}
                       onClick={() => {
-                        setNewClass((prev) => ({
+                        const matchingCat = categories.find((c) => c.id === cat.id);
+                        setClassForm((prev) => ({
                           ...prev,
                           category: cat.id,
-                          capacity: cat.defaultCap,
-                          title: prev.isCustomTitle ? prev.title : cat.label
+                          capacity: matchingCat.defaultCap,
+                          title: prev.isCustomTitle ? prev.title : matchingCat.label
                         }));
                       }}
                       className={`py-2 px-2.5 rounded-xl border text-xs font-medium text-left transition-all ${
-                        newClass.category === cat.id
+                        classForm.category === cat.id
                           ? `${t.activePill} border-transparent`
                           : `${t.bg} text-stone-600 border-stone-200`
                       }`}
@@ -1559,7 +1730,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Nombre de la clase (igual al servicio por defecto, o personalizado con checkbox) */}
+              {/* Nombre de la clase (igual al servicio, salvo que elija personalizar) */}
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="block text-xs font-medium text-stone-600">
@@ -1568,14 +1739,14 @@ export default function App() {
                   <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-stone-500">
                     <input
                       type="checkbox"
-                      checked={newClass.isCustomTitle}
+                      checked={classForm.isCustomTitle}
                       onChange={(e) => {
                         const custom = e.target.checked;
-                        const matchingCat = CATEGORIES.find((c) => c.id === newClass.category);
-                        setNewClass({
-                          ...newClass,
+                        const matchingCat = categories.find((c) => c.id === classForm.category);
+                        setClassForm({
+                          ...classForm,
                           isCustomTitle: custom,
-                          title: custom ? newClass.title : matchingCat.label
+                          title: custom ? classForm.title : matchingCat.label
                         });
                       }}
                       className="rounded accent-stone-700 w-3.5 h-3.5"
@@ -1587,11 +1758,15 @@ export default function App() {
                 <input
                   required
                   type="text"
-                  disabled={!newClass.isCustomTitle}
-                  value={newClass.title}
-                  onChange={(e) => setNewClass({ ...newClass, title: e.target.value })}
+                  disabled={!classForm.isCustomTitle}
+                  value={
+                    classForm.isCustomTitle
+                      ? classForm.title
+                      : (categories.find((c) => c.id === classForm.category)?.label || '')
+                  }
+                  onChange={(e) => setClassForm({ ...classForm, title: e.target.value })}
                   className={`w-full border border-stone-200 rounded-xl px-3 py-2 text-sm ${
-                    !newClass.isCustomTitle ? 'bg-stone-50 text-stone-700 font-medium' : 'bg-white'
+                    !classForm.isCustomTitle ? 'bg-stone-50 text-stone-700 font-medium' : 'bg-white'
                   }`}
                 />
               </div>
@@ -1603,13 +1778,13 @@ export default function App() {
                 <input
                   required
                   type="text"
-                  value={newClass.instructor}
-                  onChange={(e) => setNewClass({ ...newClass, instructor: e.target.value })}
+                  value={classForm.instructor}
+                  onChange={(e) => setClassForm({ ...classForm, instructor: e.target.value })}
                   className="w-full border border-stone-200 rounded-xl px-3 py-2 bg-stone-50 font-medium"
                 />
               </div>
 
-              {/* Selección de días (solo al crear nuevo servicio masivo) */}
+              {/* Selección de días (solo al crear nuevos bloques semestrales) */}
               {!editingClassId && (
                 <div>
                   <label className="block text-xs font-medium text-stone-600 mb-1.5">
@@ -1617,16 +1792,16 @@ export default function App() {
                   </label>
                   <div className="grid grid-cols-4 gap-1.5">
                     {DAYS_OF_WEEK.map((day) => {
-                      const isSelected = newClass.selectedDays.includes(day.id);
+                      const isSelected = classForm.selectedDays.includes(day.id);
                       return (
                         <button
                           type="button"
                           key={day.id}
                           onClick={() => {
                             const updatedDays = isSelected
-                              ? newClass.selectedDays.filter((d) => d !== day.id)
-                              : [...newClass.selectedDays, day.id];
-                            setNewClass({ ...newClass, selectedDays: updatedDays });
+                              ? classForm.selectedDays.filter((d) => d !== day.id)
+                              : [...classForm.selectedDays, day.id];
+                            setClassForm({ ...classForm, selectedDays: updatedDays });
                           }}
                           className={`py-2 px-2 rounded-xl text-xs font-medium border text-center transition-all ${
                             isSelected
@@ -1648,8 +1823,8 @@ export default function App() {
                   <input
                     required
                     type="time"
-                    value={newClass.time}
-                    onChange={(e) => setNewClass({ ...newClass, time: e.target.value })}
+                    value={classForm.time}
+                    onChange={(e) => setClassForm({ ...classForm, time: e.target.value })}
                     className="w-full border border-stone-200 rounded-xl px-3 py-2 text-sm"
                   />
                 </div>
@@ -1660,8 +1835,8 @@ export default function App() {
                     type="number"
                     min="15"
                     max="480"
-                    value={newClass.duration}
-                    onChange={(e) => setNewClass({ ...newClass, duration: e.target.value })}
+                    value={classForm.duration}
+                    onChange={(e) => setClassForm({ ...classForm, duration: e.target.value })}
                     className="w-full border border-stone-200 rounded-xl px-3 py-2 text-sm"
                   />
                 </div>
@@ -1674,8 +1849,8 @@ export default function App() {
                   type="number"
                   min="1"
                   max="60"
-                  value={newClass.capacity}
-                  onChange={(e) => setNewClass({ ...newClass, capacity: e.target.value })}
+                  value={classForm.capacity}
+                  onChange={(e) => setClassForm({ ...classForm, capacity: e.target.value })}
                   className="w-full border border-stone-200 rounded-xl px-3 py-2 text-sm"
                 />
               </div>
@@ -1684,7 +1859,7 @@ export default function App() {
                 type="submit"
                 className={`w-full ${t.primaryBtn} font-medium py-2.5 rounded-xl mt-2`}
               >
-                {editingClassId ? 'Guardar Cambios' : 'Generar Servicio por 6 Meses'}
+                {editingClassId ? 'Guardar Cambios' : 'Generar Horarios por 6 Meses'}
               </button>
             </form>
           </div>
