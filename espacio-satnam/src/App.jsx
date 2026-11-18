@@ -49,41 +49,64 @@ const PLAN_OPTIONS = [
   'Evento / Retiro Especial'
 ];
 
-// Dos paletas sobrias estilo boutique wellness
+// 3 opciones de paleta (máximo 2-3 colores por opción: fondo + principal + texto)
 const THEMES = {
-  terracotta: {
-    name: 'Arena & Terracota',
-    bg: 'bg-[#F8F6F2]',
-    textMain: 'text-[#2C2A29]',
-    headerBorder: 'border-[#EAE4DC]',
-    brandAccent: 'text-[#A85D44]',
-    subtitleText: 'text-[#847B73]',
-    logoBg: 'bg-[#A85D44]',
-    cardAccentBar: 'from-[#A85D44] to-[#C98E73]',
-    primaryBtn: 'bg-[#A85D44] hover:bg-[#914E38] text-white shadow-xs',
-    activePill: 'bg-[#A85D44] text-white shadow-xs',
-    softBadge: 'bg-[#F3EAE5] text-[#8E4B35]',
-    iconAccent: 'text-[#A85D44]',
-    bookedRing: 'border-[#A85D44] ring-1 ring-[#A85D44]/25',
-    toastBg: 'bg-[#2C2A29] text-white',
-    focusBorder: 'focus:border-[#A85D44]'
-  },
   sage: {
-    name: 'Salvia & Piedra',
+    name: 'Salvia & Lino',
+    swatch: '#5C7362',
     bg: 'bg-[#F7F5F0]',
     textMain: 'text-[#2D332F]',
     headerBorder: 'border-[#E5E0D8]',
     brandAccent: 'text-[#5C7362]',
     subtitleText: 'text-[#737D76]',
     logoBg: 'bg-[#5C7362]',
-    cardAccentBar: 'from-[#5C7362] to-[#8C9E8E]',
+    cardAccentBar: 'bg-[#5C7362]',
     primaryBtn: 'bg-[#5C7362] hover:bg-[#4B5F50] text-white shadow-xs',
     activePill: 'bg-[#5C7362] text-white shadow-xs',
     softBadge: 'bg-[#EDF3EE] text-[#4C6352]',
     iconAccent: 'text-[#5C7362]',
     bookedRing: 'border-[#5C7362] ring-1 ring-[#5C7362]/25',
     toastBg: 'bg-[#2D332F] text-white',
-    focusBorder: 'focus:border-[#5C7362]'
+    focusBorder: 'focus:border-[#5C7362]',
+    ringSwatch: 'ring-[#5C7362]'
+  },
+  terracotta: {
+    name: 'Arena & Terracota',
+    swatch: '#A85D44',
+    bg: 'bg-[#F8F6F2]',
+    textMain: 'text-[#2C2A29]',
+    headerBorder: 'border-[#EAE4DC]',
+    brandAccent: 'text-[#A85D44]',
+    subtitleText: 'text-[#847B73]',
+    logoBg: 'bg-[#A85D44]',
+    cardAccentBar: 'bg-[#A85D44]',
+    primaryBtn: 'bg-[#A85D44] hover:bg-[#914E38] text-white shadow-xs',
+    activePill: 'bg-[#A85D44] text-white shadow-xs',
+    softBadge: 'bg-[#F3EAE5] text-[#8E4B35]',
+    iconAccent: 'text-[#A85D44]',
+    bookedRing: 'border-[#A85D44] ring-1 ring-[#A85D44]/25',
+    toastBg: 'bg-[#2C2A29] text-white',
+    focusBorder: 'focus:border-[#A85D44]',
+    ringSwatch: 'ring-[#A85D44]'
+  },
+  indigo: {
+    name: 'Piedra & Índigo',
+    swatch: '#475B74',
+    bg: 'bg-[#F6F7F9]',
+    textMain: 'text-[#252B33]',
+    headerBorder: 'border-[#E2E6EC]',
+    brandAccent: 'text-[#475B74]',
+    subtitleText: 'text-[#6E7885]',
+    logoBg: 'bg-[#475B74]',
+    cardAccentBar: 'bg-[#475B74]',
+    primaryBtn: 'bg-[#475B74] hover:bg-[#38495E] text-white shadow-xs',
+    activePill: 'bg-[#475B74] text-white shadow-xs',
+    softBadge: 'bg-[#E9EEF4] text-[#3B4D63]',
+    iconAccent: 'text-[#475B74]',
+    bookedRing: 'border-[#475B74] ring-1 ring-[#475B74]/25',
+    toastBg: 'bg-[#252B33] text-white',
+    focusBorder: 'focus:border-[#475B74]',
+    ringSwatch: 'ring-[#475B74]'
   }
 };
 
@@ -132,9 +155,9 @@ function SatNamLogo({ bgClass, className = 'w-10 h-10' }) {
 
 export default function App() {
   const [themeKey, setThemeKey] = useState(
-    () => localStorage.getItem('satnam_theme') || 'terracotta'
+    () => localStorage.getItem('satnam_theme') || 'sage'
   );
-  const t = THEMES[themeKey] || THEMES.terracotta;
+  const t = THEMES[themeKey] || THEMES.sage;
 
   const handleSelectTheme = (key) => {
     setThemeKey(key);
@@ -254,4 +277,149 @@ export default function App() {
       );
     } catch (error) {
       console.error('Error cargando datos:', error);
-      showToast('Error al sincronizar con la nube',
+      showToast('Error al sincronizar con la nube', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAllData();
+  }, []);
+
+  const activeStudent = students.find((s) => s.id === activeStudentId) || students[0];
+
+  const isUnlimitedPlan = (plan) =>
+    plan === 'Pase Libre Actividades' || plan === 'Pase Libre Yoga & Spinning';
+
+  const getDefaultCreditsForPlan = (plan) => {
+    if (isUnlimitedPlan(plan)) return 99;
+    if (plan === 'Mensual - 3 veces por semana') return 12;
+    if (plan === 'Mensual - 2 veces por semana') return 8;
+    if (plan === 'Mensual - 1 vez por semana') return 4;
+    if (
+      plan === 'Clase / Sesión Individual' ||
+      plan === 'Clase Individual' ||
+      plan === 'Evento / Retiro Especial'
+    )
+      return 1;
+    return 4;
+  };
+
+  // Reservar o Cancelar turno
+  const handleToggleBooking = async (classId) => {
+    if (!activeStudent) {
+      showToast('Primero solicita tu alta en el estudio', 'error');
+      return;
+    }
+
+    const existingBooking = bookings.find(
+      (b) => b.classId === classId && b.studentId === activeStudent.id
+    );
+
+    if (existingBooking) {
+      const { error } = await supabase.from('bookings').delete().eq('id', existingBooking.id);
+      if (error) {
+        showToast('No se pudo cancelar la reserva', 'error');
+        return;
+      }
+
+      setBookings((prev) => prev.filter((b) => b.id !== existingBooking.id));
+
+      if (!isUnlimitedPlan(activeStudent.plan)) {
+        const updatedCredits = activeStudent.credits + 1;
+        await supabase.from('students').update({ credits: updatedCredits }).eq('id', activeStudent.id);
+        setStudents((prev) =>
+          prev.map((s) => (s.id === activeStudent.id ? { ...s, credits: updatedCredits } : s))
+        );
+      }
+      showToast('Reserva cancelada correctamente');
+    } else {
+      const classObj = classes.find((c) => c.id === classId);
+      const classBookingsCount = bookings.filter((b) => b.classId === classId).length;
+
+      if (classBookingsCount >= classObj.capacity) {
+        showToast('Este turno ya alcanzó su cupo máximo.', 'error');
+        return;
+      }
+
+      if (!isUnlimitedPlan(activeStudent.plan) && activeStudent.credits <= 0) {
+        showToast('Sin sesiones disponibles en tu abono. Consulta en recepción.', 'error');
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('bookings')
+        .insert([{ class_id: classId, student_id: activeStudent.id, attended: false }])
+        .select()
+        .single();
+
+      if (error) {
+        showToast('No se pudo realizar la reserva', 'error');
+        return;
+      }
+
+      setBookings((prev) => [
+        ...prev,
+        { id: data.id, classId: data.class_id, studentId: data.student_id, attended: data.attended }
+      ]);
+
+      if (!isUnlimitedPlan(activeStudent.plan)) {
+        const updatedCredits = Math.max(0, activeStudent.credits - 1);
+        await supabase.from('students').update({ credits: updatedCredits }).eq('id', activeStudent.id);
+        setStudents((prev) =>
+          prev.map((s) => (s.id === activeStudent.id ? { ...s, credits: updatedCredits } : s))
+        );
+      }
+      showToast(`¡Lugar reservado en ${classObj.title}!`);
+    }
+  };
+
+  // Marcar asistencia en sala
+  const handleToggleAttendance = async (bookingId) => {
+    const current = bookings.find((b) => b.id === bookingId);
+    if (!current) return;
+    const nextVal = !current.attended;
+
+    const { error } = await supabase
+      .from('bookings')
+      .update({ attended: nextVal })
+      .eq('id', bookingId);
+
+    if (!error) {
+      setBookings((prev) =>
+        prev.map((b) => (b.id === bookingId ? { ...b, attended: nextVal } : b))
+      );
+    }
+  };
+
+  // Crear nuevo turno / actividad
+  const handleAddClass = async (e) => {
+    e.preventDefault();
+    const { data, error } = await supabase
+      .from('classes')
+      .insert([
+        {
+          title: newClass.title,
+          category: newClass.category,
+          instructor: newClass.instructor,
+          date: newClass.date,
+          time: newClass.time,
+          duration: Number(newClass.duration),
+          capacity: Number(newClass.capacity),
+          room: newClass.room
+        }
+      ])
+      .select()
+      .single();
+
+    if (error) {
+      showToast('Error al guardar el turno', 'error');
+      return;
+    }
+
+    setClasses((prev) => [...prev, data]);
+    setShowNewClassModal(false);
+    setNewClass({
+      title: '',
+      category: 'Yoga',
