@@ -23,7 +23,8 @@ import {
   Flower2,
   Compass,
   Orbit,
-  Ban
+  Ban,
+  Edit3
 } from 'lucide-react';
 
 // Conexión a tu base de datos en Supabase
@@ -208,16 +209,18 @@ export default function App() {
   const [categoryFilter, setCategoryFilter] = useState('Todas');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Estados de modales con selección múltiple de días (1 = Lunes, etc.)
+  // Estados para Creación y Edición de Servicios / Clases Fijas
   const [showNewClassModal, setShowNewClassModal] = useState(false);
+  const [editingClassId, setEditingClassId] = useState(null);
   const [newClass, setNewClass] = useState({
-    title: '',
+    title: 'Yoga Terapia & Restaurativo',
     category: 'Yoga',
     instructor: 'Patricia Aleman',
     time: '10:00',
     duration: 60,
     capacity: 12,
-    selectedDays: [1, 3, 5], // por defecto L, M, V
+    selectedDays: [1, 3, 5],
+    isCustomTitle: false,
     isRecurring6Months: true
   });
 
@@ -425,25 +428,49 @@ export default function App() {
     }
   };
 
-  // Generación automática de clases por días de la semana seleccionados durante 6 meses (26 semanas)
-  const handleAddClass = async (e) => {
+  // Guardar (Crear o Editar) Servicio / Clases
+  const handleSaveClass = async (e) => {
     e.preventDefault();
 
-    if (newClass.selectedDays.length === 0) {
-      showToast('Selecciona al menos un día de la semana', 'error');
-      return;
-    }
+    if (editingClassId) {
+      // Modo Edición de un turno puntual
+      const { data, error } = await supabase
+        .from('classes')
+        .update({
+          title: newClass.title,
+          category: newClass.category,
+          instructor: newClass.instructor,
+          time: newClass.time,
+          duration: Number(newClass.duration),
+          capacity: Number(newClass.capacity)
+        })
+        .eq('id', editingClassId)
+        .select()
+        .single();
 
-    let datesToCreate = [];
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+      if (error) {
+        showToast('Error al actualizar el servicio', 'error');
+        return;
+      }
 
-    // Si es recurrente por 6 meses (26 semanas)
-    if (newClass.isRecurring6Months) {
+      setClasses((prev) => prev.map((c) => (c.id === editingClassId ? data : c)));
+      setShowNewClassModal(false);
+      setEditingClassId(null);
+      showToast('Servicio actualizado con éxito');
+    } else {
+      // Modo Creación por 6 meses (26 semanas)
+      if (newClass.selectedDays.length === 0) {
+        showToast('Selecciona al menos un día de la semana', 'error');
+        return;
+      }
+
+      let datesToCreate = [];
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
       for (let week = 0; week < 26; week++) {
         for (let dayOfWeek of newClass.selectedDays) {
           const d = new Date(today);
-          // Calcular la fecha para cada día de la semana en el rango de las 26 semanas
           const currentDay = d.getDay();
           const distance = (dayOfWeek + 7 - currentDay) % 7;
           d.setDate(d.getDate() + distance + week * 7);
@@ -454,55 +481,71 @@ export default function App() {
           }
         }
       }
-    } else {
-      // Si no, solo toma la fecha de hoy por defecto
-      datesToCreate.push(today.toISOString().split('T')[0]);
-    }
 
-    const payload = datesToCreate.map((d) => ({
-      title: newClass.title,
-      category: newClass.category,
-      instructor: newClass.instructor || 'Patricia Aleman',
-      date: d,
-      time: newClass.time,
-      duration: Number(newClass.duration),
-      capacity: Number(newClass.capacity),
-      is_cancelled: false,
-      room: ''
-    }));
+      const payload = datesToCreate.map((d) => ({
+        title: newClass.title,
+        category: newClass.category,
+        instructor: newClass.instructor || 'Patricia Aleman',
+        date: d,
+        time: newClass.time,
+        duration: Number(newClass.duration),
+        capacity: Number(newClass.capacity),
+        is_cancelled: false,
+        room: ''
+      }));
 
-    try {
-      // Insertar en lotes seguros de 10 registros para Supabase
-      const batchSize = 10;
-      let insertedClasses = [];
+      try {
+        const batchSize = 10;
+        let insertedClasses = [];
 
-      for (let i = 0; i < payload.length; i += batchSize) {
-        const batch = payload.slice(i, i + batchSize);
-        const { data, error } = await supabase.from('classes').insert(batch).select();
-        if (error) throw error;
-        if (data) insertedClasses.push(...data);
+        for (let i = 0; i < payload.length; i += batchSize) {
+          const batch = payload.slice(i, i + batchSize);
+          const { data, error } = await supabase.from('classes').insert(batch).select();
+          if (error) throw error;
+          if (data) insertedClasses.push(...data);
+        }
+
+        setClasses((prev) => [...prev, ...insertedClasses]);
+        setShowNewClassModal(false);
+        setNewClass({
+          title: 'Yoga Terapia & Restaurativo',
+          category: 'Yoga',
+          instructor: 'Patricia Aleman',
+          time: '10:00',
+          duration: 60,
+          capacity: 12,
+          selectedDays: [1, 3, 5],
+          isCustomTitle: false,
+          isRecurring6Months: true
+        });
+        showToast('¡Nuevo servicio creado y programado por 6 meses!');
+      } catch (error) {
+        console.error('Error al guardar turnos:', error);
+        showToast('Error al guardar el servicio en la base de datos', 'error');
       }
-
-      setClasses((prev) => [...prev, ...insertedClasses]);
-      setShowNewClassModal(false);
-      setNewClass({
-        title: '',
-        category: 'Yoga',
-        instructor: 'Patricia Aleman',
-        time: '10:00',
-        duration: 60,
-        capacity: 12,
-        selectedDays: [1, 3, 5],
-        isRecurring6Months: true
-      });
-      showToast('¡Clases fijas programadas por 6 meses con éxito!');
-    } catch (error) {
-      console.error('Error al guardar turnos:', error);
-      showToast('Error al guardar el turno en la base de datos', 'error');
     }
   };
 
-  // Cancelar o Reactivar clase manualmente desde el portal de admin
+  // Abrir modal en modo edición
+  const handleOpenEditClass = (cls) => {
+    setEditingClassId(cls.id);
+    const matchingCat = CATEGORIES.find((cat) => cat.id === cls.category) || CATEGORIES[0];
+    const isCustom = cls.title !== matchingCat.label;
+    setNewClass({
+      title: cls.title,
+      category: cls.category,
+      instructor: cls.instructor || 'Patricia Aleman',
+      time: cls.time,
+      duration: cls.duration,
+      capacity: cls.capacity,
+      selectedDays: [1],
+      isCustomTitle: isCustom,
+      isRecurring6Months: false
+    });
+    setShowNewClassModal(true);
+  };
+
+  // Pausar / Reactivar clase
   const handleToggleCancelClass = async (classId) => {
     const targetClass = classes.find((c) => c.id === classId);
     if (!targetClass) return;
@@ -518,7 +561,7 @@ export default function App() {
       setClasses((prev) =>
         prev.map((c) => (c.id === classId ? { ...c, is_cancelled: nextCancelledState } : c))
       );
-      showToast(nextCancelledState ? 'Clase marcada como cancelada' : 'Clase reactivada correctamente');
+      showToast(nextCancelledState ? 'Clase pausada con éxito' : 'Clase reactivada correctamente');
     } else {
       showToast('No se pudo actualizar el estado de la clase', 'error');
     }
@@ -530,7 +573,7 @@ export default function App() {
     if (!error) {
       setClasses((prev) => prev.filter((c) => c.id !== classId));
       setBookings((prev) => prev.filter((b) => b.classId !== classId));
-      showToast('Turno eliminado de la agenda');
+      showToast('Servicio eliminado de la agenda');
     }
   };
 
@@ -1076,7 +1119,7 @@ export default function App() {
                   <div>
                     <h2 className="text-xl font-semibold">Agenda Espacio Sat-Nam</h2>
                     <p className="text-sm text-stone-500">
-                      Gestiona clases semestrales, suspende clases puntuales y revisa asistencia
+                      Gestiona, edita, pausa y elimina tus servicios o clases fijas
                     </p>
                   </div>
 
@@ -1088,10 +1131,24 @@ export default function App() {
                       className="text-sm font-medium bg-white px-3 py-2 rounded-xl border border-stone-200/80"
                     />
                     <button
-                      onClick={() => setShowNewClassModal(true)}
+                      onClick={() => {
+                        setEditingClassId(null);
+                        setNewClass({
+                          title: CATEGORIES[0].label,
+                          category: CATEGORIES[0].id,
+                          instructor: 'Patricia Aleman',
+                          time: '10:00',
+                          duration: 60,
+                          capacity: CATEGORIES[0].defaultCap,
+                          selectedDays: [1, 3, 5],
+                          isCustomTitle: false,
+                          isRecurring6Months: true
+                        });
+                        setShowNewClassModal(true);
+                      }}
                       className={`flex items-center gap-1.5 ${t.primaryBtn} px-4 py-2 rounded-xl text-sm font-medium transition-all`}
                     >
-                      <Plus className="w-4 h-4" /> Programar Clases Fijas (6 Meses)
+                      <Plus className="w-4 h-4" /> Crear, Editar, Pausar o Eliminar Servicio
                     </button>
                   </div>
                 </div>
@@ -1121,7 +1178,7 @@ export default function App() {
                                 </span>
                                 {cls.is_cancelled && (
                                   <span className="text-xs font-semibold px-2 py-0.5 bg-rose-100 text-rose-700 rounded-lg">
-                                    [CANCELADA MANUALMENTE]
+                                    [CLASE PAUSADA]
                                   </span>
                                 )}
                               </div>
@@ -1134,7 +1191,16 @@ export default function App() {
                             </div>
 
                             <div className="flex flex-wrap items-center gap-2">
-                              {/* Botón para suspender/cancelar clase manualmente */}
+                              {/* Botón Editar */}
+                              <button
+                                onClick={() => handleOpenEditClass(cls)}
+                                title="Editar servicio"
+                                className="p-2 text-stone-600 hover:bg-stone-100 rounded-xl transition-colors border border-stone-200"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+
+                              {/* Botón Pausar / Reactivar */}
                               <button
                                 onClick={() => handleToggleCancelClass(cls.id)}
                                 className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
@@ -1144,13 +1210,14 @@ export default function App() {
                                 }`}
                               >
                                 <Ban className="w-3.5 h-3.5" />
-                                {cls.is_cancelled ? 'Reactivar Clase' : 'Suspender Clase'}
+                                {cls.is_cancelled ? 'Reactivar' : 'Pausar'}
                               </button>
 
+                              {/* Botón Eliminar */}
                               <button
                                 onClick={() => handleDeleteClass(cls.id)}
-                                title="Eliminar turno"
-                                className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition-colors"
+                                title="Eliminar servicio"
+                                className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition-colors border border-rose-200"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
@@ -1206,8 +1273,7 @@ export default function App() {
                   {classes.filter((c) => c.date === selectedDate).length === 0 && (
                     <div className="bg-white rounded-3xl p-8 text-center border border-stone-200/70 text-stone-500 text-sm">
                       No hay actividades cargadas para la fecha{' '}
-                      <strong>{formatDateDDMMYYYY(selectedDate)}</strong>. Haz clic en{' '}
-                      <strong>+ Programar Clases Fijas (6 Meses)</strong>.
+                      <strong>{formatDateDDMMYYYY(selectedDate)}</strong>. Haz clic en el botón superior para crear servicios.
                     </div>
                   )}
                 </div>
@@ -1450,18 +1516,20 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal: Programación Semestral por Días Múltiples */}
+      {/* Modal: Crear / Editar Servicio */}
       {showNewClassModal && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="font-semibold text-lg">Programar Clases Fijas (6 Meses)</h3>
+              <h3 className="font-semibold text-lg">
+                {editingClassId ? 'Editar Servicio / Turno' : 'Crear y Programar Servicio (6 Meses)'}
+              </h3>
               <button onClick={() => setShowNewClassModal(false)}>
                 <XCircle className="w-5 h-5 text-stone-400" />
               </button>
             </div>
 
-            <form onSubmit={handleAddClass} className="space-y-3.5 text-sm">
+            <form onSubmit={handleSaveClass} className="space-y-3.5 text-sm">
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1.5">
                   Área / Servicio
@@ -1471,13 +1539,14 @@ export default function App() {
                     <button
                       type="button"
                       key={cat.id}
-                      onClick={() =>
-                        setNewClass({
-                          ...newClass,
+                      onClick={() => {
+                        setNewClass((prev) => ({
+                          ...prev,
                           category: cat.id,
-                          capacity: cat.defaultCap
-                        })
-                      }
+                          capacity: cat.defaultCap,
+                          title: prev.isCustomTitle ? prev.title : cat.label
+                        }));
+                      }}
                       className={`py-2 px-2.5 rounded-xl border text-xs font-medium text-left transition-all ${
                         newClass.category === cat.id
                           ? `${t.activePill} border-transparent`
@@ -1490,17 +1559,40 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Nombre de la clase (igual al servicio por defecto, o personalizado con checkbox) */}
               <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">
-                  Nombre de la Clase / Taller
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-medium text-stone-600">
+                    Nombre de la Clase / Taller
+                  </label>
+                  <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-stone-500">
+                    <input
+                      type="checkbox"
+                      checked={newClass.isCustomTitle}
+                      onChange={(e) => {
+                        const custom = e.target.checked;
+                        const matchingCat = CATEGORIES.find((c) => c.id === newClass.category);
+                        setNewClass({
+                          ...newClass,
+                          isCustomTitle: custom,
+                          title: custom ? newClass.title : matchingCat.label
+                        });
+                      }}
+                      className="rounded accent-stone-700 w-3.5 h-3.5"
+                    />
+                    Personalizar nombre
+                  </label>
+                </div>
+
                 <input
                   required
                   type="text"
-                  placeholder="Ej. Yoga Restaurativo, Spinning..."
+                  disabled={!newClass.isCustomTitle}
                   value={newClass.title}
                   onChange={(e) => setNewClass({ ...newClass, title: e.target.value })}
-                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                  className={`w-full border border-stone-200 rounded-xl px-3 py-2 text-sm ${
+                    !newClass.isCustomTitle ? 'bg-stone-50 text-stone-700 font-medium' : 'bg-white'
+                  }`}
                 />
               </div>
 
@@ -1517,36 +1609,38 @@ export default function App() {
                 />
               </div>
 
-              {/* Selección Múltiple de Días de la Semana */}
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1.5">
-                  Días de la semana en los que se dicta:
-                </label>
-                <div className="grid grid-cols-4 gap-1.5">
-                  {DAYS_OF_WEEK.map((day) => {
-                    const isSelected = newClass.selectedDays.includes(day.id);
-                    return (
-                      <button
-                        type="button"
-                        key={day.id}
-                        onClick={() => {
-                          const updatedDays = isSelected
-                            ? newClass.selectedDays.filter((d) => d !== day.id)
-                            : [...newClass.selectedDays, day.id];
-                          setNewClass({ ...newClass, selectedDays: updatedDays });
-                        }}
-                        className={`py-2 px-2 rounded-xl text-xs font-medium border text-center transition-all ${
-                          isSelected
-                            ? `${t.activePill} border-transparent`
-                            : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
-                        }`}
-                      >
-                        {day.label}
-                      </button>
-                    );
-                  })}
+              {/* Selección de días (solo al crear nuevo servicio masivo) */}
+              {!editingClassId && (
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1.5">
+                    Días de la semana en los que se dicta:
+                  </label>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {DAYS_OF_WEEK.map((day) => {
+                      const isSelected = newClass.selectedDays.includes(day.id);
+                      return (
+                        <button
+                          type="button"
+                          key={day.id}
+                          onClick={() => {
+                            const updatedDays = isSelected
+                              ? newClass.selectedDays.filter((d) => d !== day.id)
+                              : [...newClass.selectedDays, day.id];
+                            setNewClass({ ...newClass, selectedDays: updatedDays });
+                          }}
+                          className={`py-2 px-2 rounded-xl text-xs font-medium border text-center transition-all ${
+                            isSelected
+                              ? `${t.activePill} border-transparent`
+                              : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
+                          }`}
+                        >
+                          {day.label}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1590,7 +1684,7 @@ export default function App() {
                 type="submit"
                 className={`w-full ${t.primaryBtn} font-medium py-2.5 rounded-xl mt-2`}
               >
-                Generar Agenda por 6 Meses
+                {editingClassId ? 'Guardar Cambios' : 'Generar Servicio por 6 Meses'}
               </button>
             </form>
           </div>
