@@ -44,9 +44,15 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 // PIN de acceso al Modo Estudio
 const ADMIN_PIN = '1008';
 
-// 3 Pilares para agrupar servicios en la Vista de Alumno
+// 3 Pilares / Categorías principales
 const PILLARS = [
   { id: 'Todas', label: 'Todas' },
+  { id: 'cuerpo', label: 'Cuerpo & Movimiento' },
+  { id: 'mente', label: 'Mente & Procesos' },
+  { id: 'estetica', label: 'Cuidado & Estética' }
+];
+
+const SELECTABLE_PILLARS = [
   { id: 'cuerpo', label: 'Cuerpo & Movimiento' },
   { id: 'mente', label: 'Mente & Procesos' },
   { id: 'estetica', label: 'Cuidado & Estética' }
@@ -180,7 +186,7 @@ export default function App() {
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
 
-  // Servicios disponibles
+  // Servicios disponibles (con edición y borrado completos)
   const [services, setServices] = useState(() => {
     const saved = localStorage.getItem('satnam_services_v2');
     return saved ? JSON.parse(saved) : INITIAL_SERVICES;
@@ -215,7 +221,6 @@ export default function App() {
 
   const [students, setStudents] = useState([]);
   const [classes, setClasses] = useState([]);
-  // attendanceStatus: null | 'attended' | 'no_show'
   const [bookings, setBookings] = useState([]);
 
   // Confirmación al editar asistencia ya registrada
@@ -244,18 +249,20 @@ export default function App() {
   // Pagos: desplegables para Activos y Por Renovar
   const [openPaymentsPanel, setOpenPaymentsPanel] = useState('renew'); // 'active' | 'renew' | null
 
-  // Modal + Servicio (solo agregar)
-  const [showAddServiceModal, setShowAddServiceModal] = useState(false);
-  const [newServiceForm, setNewServiceForm] = useState({
+  // Modal Gestionar Servicios (Crear, Editar y Borrar servicios existentes)
+  const [showServiceModal, setShowServiceModal] = useState(false);
+  const [editingServiceId, setEditingServiceId] = useState(null);
+  const [serviceForm, setServiceForm] = useState({
     label: '',
     pillar: 'cuerpo',
     defaultCap: 10
   });
 
-  // Modal Programar / Editar Clase
+  // Modal Programar / Editar Clase (con selección por categoría y servicio)
   const [showClassModal, setShowClassModal] = useState(false);
   const [editingClassId, setEditingClassId] = useState(null);
   const [classForm, setClassForm] = useState({
+    pillar: 'cuerpo',
     category: 'Yoga',
     title: 'Yoga',
     isCustomTitle: false,
@@ -290,6 +297,11 @@ export default function App() {
   const showToast = (message, type = 'success') => {
     setNotification({ message, type });
     setTimeout(() => setNotification(null), 3500);
+  };
+
+  const saveServices = (nextServices) => {
+    setServices(nextServices);
+    localStorage.setItem('satnam_services_v2', JSON.stringify(nextServices));
   };
 
   const savePlanMeta = (nextMap) => {
@@ -643,32 +655,96 @@ export default function App() {
     }
   };
 
-  // Agregar nuevo servicio (+ Servicio)
-  const handleAddService = (e) => {
+  // Crear o Editar Servicio
+  const handleSaveService = (e) => {
     e.preventDefault();
-    if (!newServiceForm.label.trim()) return;
+    const cleanLabel = serviceForm.label.trim();
+    if (!cleanLabel) return;
 
-    const newId = newServiceForm.label.trim().replace(/\s+/g, '');
-    if (services.some((s) => s.id.toLowerCase() === newId.toLowerCase())) {
-      showToast('Ya existe un servicio con ese nombre', 'error');
+    if (editingServiceId) {
+      const updated = services.map((s) =>
+        s.id === editingServiceId
+          ? {
+              ...s,
+              label: cleanLabel,
+              pillar: serviceForm.pillar,
+              defaultCap: Number(serviceForm.defaultCap) || 10
+            }
+          : s
+      );
+      saveServices(updated);
+      setEditingServiceId(null);
+      setServiceForm({ label: '', pillar: 'cuerpo', defaultCap: 10 });
+      showToast('Servicio editado correctamente');
+    } else {
+      const baseId = cleanLabel.replace(/[^a-zA-Z0-9]/g, '') || `Srv${Date.now()}`;
+      const uniqueId = services.some((s) => s.id.toLowerCase() === baseId.toLowerCase())
+        ? `${baseId}_${Date.now()}`
+        : baseId;
+
+      const updated = [
+        ...services,
+        {
+          id: uniqueId,
+          label: cleanLabel,
+          pillar: serviceForm.pillar,
+          defaultCap: Number(serviceForm.defaultCap) || 10
+        }
+      ];
+      saveServices(updated);
+      setServiceForm({ label: '', pillar: 'cuerpo', defaultCap: 10 });
+      showToast('Servicio agregado correctamente');
+    }
+  };
+
+  // Preparar formulario para editar un servicio existente
+  const handleStartEditService = (srv) => {
+    setEditingServiceId(srv.id);
+    setServiceForm({
+      label: srv.label,
+      pillar: srv.pillar,
+      defaultCap: srv.defaultCap
+    });
+  };
+
+  // Borrar un servicio existente
+  const handleDeleteService = (srvId) => {
+    if (services.length <= 1) {
+      showToast('Debe quedar al menos un servicio en el estudio.', 'error');
       return;
     }
+    const updated = services.filter((s) => s.id !== srvId);
+    saveServices(updated);
+    if (editingServiceId === srvId) {
+      setEditingServiceId(null);
+      setServiceForm({ label: '', pillar: 'cuerpo', defaultCap: 10 });
+    }
+    if (attendanceServiceFilter === srvId) {
+      setAttendanceServiceFilter('ALL');
+    }
+    showToast('Servicio eliminado');
+  };
 
-    const updated = [
-      ...services,
-      {
-        id: newId,
-        label: newServiceForm.label.trim(),
-        pillar: newServiceForm.pillar,
-        defaultCap: Number(newServiceForm.defaultCap)
-      }
-    ];
+  // Abrir modal de Programar Horarios (categoría + servicio)
+  const handleOpenNewClassModal = () => {
+    const defaultPillar = 'cuerpo';
+    const firstSrvInPillar =
+      services.find((s) => s.pillar === defaultPillar) || services[0];
 
-    setServices(updated);
-    localStorage.setItem('satnam_services_v2', JSON.stringify(updated));
-    setShowAddServiceModal(false);
-    setNewServiceForm({ label: '', pillar: 'cuerpo', defaultCap: 10 });
-    showToast('Servicio agregado correctamente');
+    setEditingClassId(null);
+    setClassForm({
+      pillar: firstSrvInPillar?.pillar || defaultPillar,
+      category: firstSrvInPillar?.id || 'Yoga',
+      title: firstSrvInPillar?.label || 'Yoga',
+      isCustomTitle: false,
+      instructor: 'Patricia Aleman',
+      time: '10:00',
+      duration: 60,
+      capacity: firstSrvInPillar?.defaultCap || 12,
+      selectedDays: [1, 3, 5],
+      weeksCount: 4
+    });
+    setShowClassModal(true);
   };
 
   // Guardar o Programar Clases (1 a 4 semanas)
@@ -761,7 +837,8 @@ export default function App() {
     const matchingSrv = services.find((s) => s.id === cls.category) || services[0];
     const isCustom = cls.title !== matchingSrv.label;
     setClassForm({
-      category: cls.category,
+      pillar: matchingSrv.pillar || 'cuerpo',
+      category: matchingSrv.id,
       title: cls.title,
       isCustomTitle: isCustom,
       instructor: cls.instructor || 'Patricia Aleman',
@@ -1252,6 +1329,7 @@ export default function App() {
   ).sort((a, b) => a.time.localeCompare(b.time) || a.title.localeCompare(b.title));
 
   const studentAllowed = canStudentOperate(activeStudent);
+  const servicesInSelectedPillar = services.filter((s) => s.pillar === classForm.pillar);
 
   return (
     <div className="min-h-screen bg-[#F7F5F0] text-[#2D332F] font-sans pb-24 md:pb-14 flex flex-col">
@@ -1636,45 +1714,31 @@ export default function App() {
               </button>
             </div>
 
-            {/* PESTAÑA 1: CALENDARIO & CLASES (Abrir/Programar, Editar, Pausar/Cerrar o Eliminar clases) */}
+            {/* PESTAÑA 1: CALENDARIO & CLASES */}
             {adminTab === 'schedule' && (
               <div className="space-y-5">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <h2 className="text-xl font-semibold">Calendario & Clases</h2>
                     <p className="text-sm text-stone-500">
-                      Agrega servicios, programa horarios o abre/cierra/edita/elimina clases
+                      Gestioná tus servicios, programá horarios por categoría o editá/cerrá clases
                     </p>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       onClick={() => {
-                        setNewServiceForm({ label: '', pillar: 'cuerpo', defaultCap: 10 });
-                        setShowAddServiceModal(true);
+                        setEditingServiceId(null);
+                        setServiceForm({ label: '', pillar: 'cuerpo', defaultCap: 10 });
+                        setShowServiceModal(true);
                       }}
                       className="flex items-center gap-1.5 bg-white hover:bg-stone-50 text-[#5C7362] border border-[#5C7362]/40 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all"
                     >
-                      <Plus className="w-4 h-4" /> Servicio
+                      <Plus className="w-4 h-4" /> Servicios
                     </button>
 
                     <button
-                      onClick={() => {
-                        setEditingClassId(null);
-                        const firstSrv = services[0];
-                        setClassForm({
-                          category: firstSrv.id,
-                          title: firstSrv.label,
-                          isCustomTitle: false,
-                          instructor: 'Patricia Aleman',
-                          time: '10:00',
-                          duration: 60,
-                          capacity: firstSrv.defaultCap,
-                          selectedDays: [1, 3, 5],
-                          weeksCount: 4
-                        });
-                        setShowClassModal(true);
-                      }}
+                      onClick={handleOpenNewClassModal}
                       className="flex items-center gap-1.5 bg-[#5C7362] hover:bg-[#4B5F50] text-white shadow-xs px-4 py-2 rounded-xl text-xs font-semibold transition-all"
                     >
                       <Plus className="w-4 h-4" /> Programar Horarios
@@ -1838,7 +1902,7 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Detalle del Día: Clases y Acciones (Editar, Pausar/Cerrar, Eliminar) */}
+                {/* Detalle del Día: Clases y Acciones */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <h3 className="font-semibold text-base">
@@ -1941,7 +2005,7 @@ export default function App() {
               </div>
             )}
 
-            {/* PESTAÑA 2: ASISTENCIA (Pura para marcar Asistió / No asistió, mismo formato calendario) */}
+            {/* PESTAÑA 2: ASISTENCIA */}
             {adminTab === 'attendance' && (
               <div className="space-y-5">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1966,7 +2030,6 @@ export default function App() {
                   </select>
                 </div>
 
-                {/* Mismo formato de calendario para seleccionar el día */}
                 <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
@@ -2122,7 +2185,6 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Planilla de Asistencia del Día */}
                 <div className="space-y-4">
                   <h3 className="font-semibold text-base">
                     Planilla del día:{' '}
@@ -2252,7 +2314,7 @@ export default function App() {
               </div>
             )}
 
-            {/* PESTAÑA 3: DASHBOARD (Desplegables + Asistieron/No asistieron por clase + Visión Mensual) */}
+            {/* PESTAÑA 3: DASHBOARD */}
             {adminTab === 'dashboard' && (
               <div className="space-y-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2712,7 +2774,7 @@ export default function App() {
                 <div>
                   <h2 className="text-xl font-semibold">Pagos, Fechas y WhatsApp</h2>
                   <p className="text-sm text-stone-500">
-                    Ingresa a Activos o Por Renovar para ver el listado y gestionar cada alumno
+                    Ingresá a Activos o Por Renovar para ver el listado y gestionar cada alumno
                   </p>
                 </div>
 
@@ -2742,7 +2804,7 @@ export default function App() {
                       {activePaymentStudents.length}
                     </p>
                     <p className="text-xs text-[#5C7362] font-medium mt-1">
-                      Toca para ver el listado de alumnos activos
+                      Tocá para ver el listado de alumnos activos
                     </p>
                   </button>
 
@@ -2771,7 +2833,7 @@ export default function App() {
                       {renewPaymentStudents.length}
                     </p>
                     <p className="text-xs text-stone-500 mt-1">
-                      Toca para ver vencidos o por vencer (≤ 5d)
+                      Tocá para ver vencidos o por vencer (≤ 5d)
                     </p>
                   </button>
                 </div>
@@ -3078,18 +3140,25 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal: + Servicio (Solo agregar) */}
-      {showAddServiceModal && (
+      {/* Modal: Gestionar Servicios (Crear, Editar y Borrar) */}
+      {showServiceModal && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-semibold text-lg">Agregar Servicio</h3>
-              <button onClick={() => setShowAddServiceModal(false)}>
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto space-y-5">
+            <div className="flex justify-between items-center">
+              <h3 className="font-semibold text-lg">
+                {editingServiceId ? 'Editar Servicio' : 'Administrar Servicios'}
+              </h3>
+              <button
+                onClick={() => {
+                  setShowServiceModal(false);
+                  setEditingServiceId(null);
+                }}
+              >
                 <XCircle className="w-5 h-5 text-stone-400" />
               </button>
             </div>
 
-            <form onSubmit={handleAddService} className="space-y-3.5 text-sm">
+            <form onSubmit={handleSaveService} className="space-y-3 text-sm border-b border-stone-100 pb-4">
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">
                   Nombre del Servicio
@@ -3098,56 +3167,118 @@ export default function App() {
                   required
                   type="text"
                   placeholder="Ej. Yoga Nidra, Masajes..."
-                  value={newServiceForm.label}
-                  onChange={(e) => setNewServiceForm({ ...newServiceForm, label: e.target.value })}
+                  value={serviceForm.label}
+                  onChange={(e) => setServiceForm({ ...serviceForm, label: e.target.value })}
                   className="w-full border border-stone-200 rounded-xl px-3 py-2"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">
-                  Categoría en Vista Alumno
-                </label>
-                <select
-                  value={newServiceForm.pillar}
-                  onChange={(e) => setNewServiceForm({ ...newServiceForm, pillar: e.target.value })}
-                  className="w-full border border-stone-200 rounded-xl px-3 py-2 bg-white"
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">
+                    Categoría
+                  </label>
+                  <select
+                    value={serviceForm.pillar}
+                    onChange={(e) => setServiceForm({ ...serviceForm, pillar: e.target.value })}
+                    className="w-full border border-stone-200 rounded-xl px-2.5 py-2 bg-white text-xs"
+                  >
+                    {SELECTABLE_PILLARS.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">
+                    Cupo Base
+                  </label>
+                  <input
+                    required
+                    type="number"
+                    min="1"
+                    max="60"
+                    value={serviceForm.defaultCap}
+                    onChange={(e) =>
+                      setServiceForm({ ...serviceForm, defaultCap: e.target.value })
+                    }
+                    className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                {editingServiceId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingServiceId(null);
+                      setServiceForm({ label: '', pillar: 'cuerpo', defaultCap: 10 });
+                    }}
+                    className="px-3 py-2 rounded-xl text-xs font-medium bg-stone-100 text-stone-600 hover:bg-stone-200"
+                  >
+                    Cancelar edición
+                  </button>
+                )}
+                <button
+                  type="submit"
+                  className="flex-1 bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2 rounded-xl text-xs"
                 >
-                  <option value="cuerpo">Cuerpo & Movimiento</option>
-                  <option value="mente">Mente & Procesos</option>
-                  <option value="estetica">Cuidado & Estética</option>
-                </select>
+                  {editingServiceId ? 'Guardar Cambios' : 'Agregar Servicio'}
+                </button>
               </div>
-
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">
-                  Cupo Predeterminado
-                </label>
-                <input
-                  required
-                  type="number"
-                  min="1"
-                  max="60"
-                  value={newServiceForm.defaultCap}
-                  onChange={(e) =>
-                    setNewServiceForm({ ...newServiceForm, defaultCap: e.target.value })
-                  }
-                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2"
-              >
-                Agregar Servicio
-              </button>
             </form>
+
+            {/* Listado de servicios existentes para editar o borrar */}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider">
+                Servicios Existentes ({services.length})
+              </p>
+              <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                {services.map((srv) => {
+                  const pillarLabel =
+                    SELECTABLE_PILLARS.find((p) => p.id === srv.pillar)?.label || srv.pillar;
+                  return (
+                    <div
+                      key={srv.id}
+                      className="p-2.5 rounded-xl bg-[#F7F5F0] border border-stone-200/80 flex items-center justify-between gap-2"
+                    >
+                      <div>
+                        <p className="text-xs font-semibold text-[#2D332F]">{srv.label}</p>
+                        <p className="text-[11px] text-stone-500">
+                          {pillarLabel} • Cupo: {srv.defaultCap}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleStartEditService(srv)}
+                          title="Editar servicio"
+                          className="p-1.5 text-stone-700 bg-white hover:bg-stone-100 rounded-lg border border-stone-200"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteService(srv.id)}
+                          title="Borrar servicio"
+                          className="p-1.5 text-rose-600 bg-white hover:bg-rose-50 rounded-lg border border-rose-200"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Modal: Programar / Editar Horarios (hasta 4 semanas) */}
+      {/* Modal: Programar / Editar Horarios (seleccionar por categoría y servicio) */}
       {showClassModal && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
@@ -3161,33 +3292,76 @@ export default function App() {
             </div>
 
             <form onSubmit={handleSaveClass} className="space-y-3.5 text-sm">
+              {/* Paso 1: Elegir Categoría */}
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1.5">
-                  Servicio
+                  1. Categoría
                 </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {services.map((srv) => (
-                    <button
-                      type="button"
-                      key={srv.id}
-                      onClick={() =>
-                        setClassForm((prev) => ({
-                          ...prev,
-                          category: srv.id,
-                          capacity: srv.defaultCap,
-                          title: prev.isCustomTitle ? prev.title : srv.label
-                        }))
-                      }
-                      className={`py-2 px-2.5 rounded-xl border text-xs font-medium text-left transition-all ${
-                        classForm.category === srv.id
-                          ? 'bg-[#5C7362] text-white border-transparent'
-                          : 'bg-[#F7F5F0] text-stone-600 border-stone-200'
-                      }`}
-                    >
-                      {srv.label}
-                    </button>
-                  ))}
+                <div className="grid grid-cols-1 gap-1.5">
+                  {SELECTABLE_PILLARS.map((pil) => {
+                    const isSelected = classForm.pillar === pil.id;
+                    return (
+                      <button
+                        type="button"
+                        key={pil.id}
+                        onClick={() => {
+                          const matchingList = services.filter((s) => s.pillar === pil.id);
+                          const fallbackSrv = matchingList[0] || services[0];
+                          setClassForm((prev) => ({
+                            ...prev,
+                            pillar: pil.id,
+                            category: fallbackSrv?.id || '',
+                            capacity: fallbackSrv?.defaultCap || 10,
+                            title: prev.isCustomTitle ? prev.title : fallbackSrv?.label || ''
+                          }));
+                        }}
+                        className={`py-2 px-3 rounded-xl border text-xs font-medium text-left transition-all ${
+                          isSelected
+                            ? 'bg-[#5C7362] text-white border-transparent'
+                            : 'bg-[#F7F5F0] text-stone-600 border-stone-200'
+                        }`}
+                      >
+                        {pil.label}
+                      </button>
+                    );
+                  })}
                 </div>
+              </div>
+
+              {/* Paso 2: Elegir Servicio dentro de la categoría */}
+              <div>
+                <label className="block text-xs font-medium text-stone-600 mb-1.5">
+                  2. Servicio
+                </label>
+                {servicesInSelectedPillar.length === 0 ? (
+                  <p className="text-xs text-stone-400 italic bg-stone-50 p-2.5 rounded-xl border border-stone-200">
+                    No hay servicios creados en esta categoría.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    {servicesInSelectedPillar.map((srv) => (
+                      <button
+                        type="button"
+                        key={srv.id}
+                        onClick={() =>
+                          setClassForm((prev) => ({
+                            ...prev,
+                            category: srv.id,
+                            capacity: srv.defaultCap,
+                            title: prev.isCustomTitle ? prev.title : srv.label
+                          }))
+                        }
+                        className={`py-2 px-2.5 rounded-xl border text-xs font-medium text-left transition-all ${
+                          classForm.category === srv.id
+                            ? 'bg-[#5C7362] text-white border-transparent'
+                            : 'bg-[#F7F5F0] text-stone-600 border-stone-200'
+                        }`}
+                      >
+                        {srv.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div>
