@@ -33,7 +33,8 @@ import {
   ChevronUp,
   UserCog,
   CalendarRange,
-  ClipboardCheck
+  ClipboardCheck,
+  Palmtree
 } from 'lucide-react';
 
 // Conexión a Supabase
@@ -191,6 +192,15 @@ export default function App() {
     return saved ? JSON.parse(saved) : INITIAL_SERVICES;
   });
 
+  // Períodos de licencia / vacaciones: [{ id, startDate, endDate, reason }]
+  const [vacationPeriods, setVacationPeriods] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('satnam_vacations_v1') || '[]');
+    } catch {
+      return [];
+    }
+  });
+
   // Fechas de inicio y estados pausados persistidos localmente
   const [planMetaMap, setPlanMetaMap] = useState(() => {
     try {
@@ -220,6 +230,7 @@ export default function App() {
 
   const [students, setStudents] = useState([]);
   const [classes, setClasses] = useState([]);
+  // attendanceStatus: null | 'attended' | 'no_show'
   const [bookings, setBookings] = useState([]);
 
   // Confirmación al editar asistencia ya registrada
@@ -227,6 +238,14 @@ export default function App() {
 
   // Confirmación al borrar cualquier registro ('class' | 'student' | 'service')
   const [pendingDeleteConfirm, setPendingDeleteConfirm] = useState(null);
+
+  // Modal Licencia / Vacaciones
+  const [showVacationModal, setShowVacationModal] = useState(false);
+  const [vacationForm, setVacationForm] = useState({
+    startDate: toISODate(new Date()),
+    endDate: addDaysToISO(toISODate(new Date()), 7),
+    cancelClasses: true
+  });
 
   // Vista Alumno
   const [activeStudentId, setActiveStudentId] = useState('');
@@ -306,6 +325,11 @@ export default function App() {
     localStorage.setItem('satnam_services_v2', JSON.stringify(nextServices));
   };
 
+  const saveVacationPeriods = (nextList) => {
+    setVacationPeriods(nextList);
+    localStorage.setItem('satnam_vacations_v1', JSON.stringify(nextList));
+  };
+
   const savePlanMeta = (nextMap) => {
     setPlanMetaMap(nextMap);
     localStorage.setItem('satnam_plan_meta_v1', JSON.stringify(nextMap));
@@ -319,6 +343,16 @@ export default function App() {
   const saveAttendanceMap = (nextMap) => {
     setAttendanceMap(nextMap);
     localStorage.setItem('satnam_attendance_v1', JSON.stringify(nextMap));
+  };
+
+  // Verificar si una fecha ISO está dentro de licencia/vacaciones
+  const getVacationForDate = (isoDate) => {
+    if (!isoDate) return null;
+    return (
+      vacationPeriods.find(
+        (vp) => isoDate >= vp.startDate && isoDate <= vp.endDate
+      ) || null
+    );
   };
 
   const handleSelectAdminMode = () => {
@@ -469,6 +503,60 @@ export default function App() {
     return `${currentNumber}/${total}`;
   };
 
+  // Guardar período de Licencia / Vacaciones y cancelar clases del rango si corresponde
+  const handleSaveVacationPeriod = async (e) => {
+    e.preventDefault();
+    if (!vacationForm.startDate || !vacationForm.endDate) return;
+    if (vacationForm.endDate < vacationForm.startDate) {
+      showToast('La fecha de fin no puede ser anterior a la fecha de inicio', 'error');
+      return;
+    }
+
+    const newPeriod = {
+      id: `vac_${Date.now()}`,
+      startDate: vacationForm.startDate,
+      endDate: vacationForm.endDate
+    };
+
+    const updatedPeriods = [...vacationPeriods, newPeriod];
+    saveVacationPeriods(updatedPeriods);
+
+    if (vacationForm.cancelClasses) {
+      const affectedClasses = classes.filter(
+        (c) => c.date >= vacationForm.startDate && c.date <= vacationForm.endDate
+      );
+
+      if (affectedClasses.length > 0) {
+        const nowISO = new Date().toISOString();
+        const idsToCancel = affectedClasses.map((c) => c.id);
+
+        await supabase
+          .from('classes')
+          .update({ is_cancelled: true })
+          .in('id', idsToCancel);
+
+        setClasses((prev) =>
+          prev.map((c) => (idsToCancel.includes(c.id) ? { ...c, is_cancelled: true } : c))
+        );
+
+        const nextTs = { ...cancelledTimestamps };
+        idsToCancel.forEach((id) => {
+          nextTs[id] = nowISO;
+        });
+        saveCancelledTimestamps(nextTs);
+      }
+    }
+
+    setShowVacationModal(false);
+    showToast('Licencia / Vacaciones registrada (se mostrará "Cerrado por vacaciones")');
+  };
+
+  const handleRemoveVacationPeriod = (periodId) => {
+    const updated = vacationPeriods.filter((vp) => vp.id !== periodId);
+    saveVacationPeriods(updated);
+    showToast('Período de licencia/vacaciones eliminado');
+  };
+
   // Editar perfil del alumno
   const handleOpenEditProfile = () => {
     if (!activeStudent) return;
@@ -501,7 +589,7 @@ export default function App() {
     showToast('Perfil actualizado correctamente');
   };
 
-  // Reservar o Cancelar turno (Alumno) - Bloqueado si el plan está vencido o pausado
+  // Reservar o Cancelar turno (Alumno) - Bloqueado si el plan está vencido/pausado o el día está de vacaciones
   const handleToggleBooking = async (classId) => {
     if (!activeStudent) {
       showToast('Primero solicita tu alta en el espacio', 'error');
@@ -520,6 +608,11 @@ export default function App() {
 
     const classObj = classes.find((c) => c.id === classId);
     if (!classObj) return;
+
+    if (getVacationForDate(classObj.date)) {
+      showToast('Cerrado por vacaciones en esa fecha.', 'error');
+      return;
+    }
 
     const existingBooking = bookings.find(
       (b) => b.classId === classId && b.studentId === activeStudent.id
@@ -555,7 +648,7 @@ export default function App() {
       }
 
       if (classObj.is_cancelled) {
-        showToast('Esta clase se encuentra pausada/cancelada.', 'error');
+        showToast('Esta clase se encuentra cancelada.', 'error');
         return;
       }
 
@@ -816,7 +909,6 @@ export default function App() {
         }
       }
 
-      // Validar que no exista ya una clase en alguno de esos días y horarios
       const conflictingDates = datesToCreate.filter((d) =>
         classes.some((c) => c.date === d && c.time === classForm.time)
       );
@@ -882,7 +974,7 @@ export default function App() {
     setShowClassModal(true);
   };
 
-  // Pausar / Reactivar clase puntual con timestamp
+  // Cancelar / Reactivar clase puntual con timestamp
   const handleToggleCancelClass = async (classId) => {
     const targetClass = classes.find((c) => c.id === classId);
     if (!targetClass) return;
@@ -1385,6 +1477,7 @@ export default function App() {
   ).sort((a, b) => a.time.localeCompare(b.time) || a.title.localeCompare(b.title));
 
   const studentAllowed = canStudentOperate(activeStudent);
+  const activeVacationForSelectedDate = getVacationForDate(selectedDate);
   const servicesInSelectedPillar = services.filter((s) => s.pillar === classForm.pillar);
 
   return (
@@ -1523,7 +1616,7 @@ export default function App() {
                     {activeStudent && !studentAllowed && (
                       <p className="text-xs text-rose-700 font-medium mt-1.5">
                         {isPlanPaused(activeStudent)
-                          ? 'Tu plan se encuentra pausado/cancelado. No puedes reservar ni cancelar.'
+                          ? 'Tu plan está pausado/cancelado. No puedes reservar ni cancelar.'
                           : 'Tu plan está vencido. No puedes reservar ni cancelar turnos.'}
                       </p>
                     )}
@@ -1584,7 +1677,18 @@ export default function App() {
               </div>
             </div>
 
-            {studentFilteredClasses.length === 0 ? (
+            {activeVacationForSelectedDate ? (
+              <div className="bg-white rounded-3xl p-10 text-center border border-amber-200/90 shadow-2xs space-y-2">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
+                  <Palmtree className="w-4 h-4" /> Cerrado por vacaciones
+                </span>
+                <p className="text-sm text-stone-600">
+                  El estudio permanece <strong>cerrado por vacaciones</strong> del{' '}
+                  <strong>{formatDateDDMMYYYY(activeVacationForSelectedDate.startDate)}</strong> al{' '}
+                  <strong>{formatDateDDMMYYYY(activeVacationForSelectedDate.endDate)}</strong>.
+                </p>
+              </div>
+            ) : studentFilteredClasses.length === 0 ? (
               <div className="bg-white rounded-3xl p-10 text-center border border-stone-200/70">
                 <p className="text-stone-500 text-sm">
                   No hay actividades disponibles para el{' '}
@@ -1777,7 +1881,7 @@ export default function App() {
                   <div>
                     <h2 className="text-xl font-semibold">Calendario & Clases</h2>
                     <p className="text-sm text-stone-500">
-                      Gestioná tus servicios, programá horarios por categoría o editá/cerrá clases
+                      Gestioná tus servicios, programá horarios, bloqueá licencias o cancelá clases
                     </p>
                   </div>
 
@@ -1798,6 +1902,20 @@ export default function App() {
                       className="flex items-center gap-1.5 bg-[#5C7362] hover:bg-[#4B5F50] text-white shadow-xs px-4 py-2 rounded-xl text-xs font-semibold transition-all"
                     >
                       <Plus className="w-4 h-4" /> Programar Horarios
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setVacationForm({
+                          startDate: selectedDate,
+                          endDate: addDaysToISO(selectedDate, 7),
+                          cancelClasses: true
+                        });
+                        setShowVacationModal(true);
+                      }}
+                      className="flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all"
+                    >
+                      <Palmtree className="w-4 h-4" /> Licencia / Vacaciones
                     </button>
                   </div>
                 </div>
@@ -1863,6 +1981,7 @@ export default function App() {
                         const iso = toISODate(dayObj);
                         const isSelected = iso === selectedDate;
                         const isToday = iso === todayISO;
+                        const isVac = Boolean(getVacationForDate(iso));
                         const count = classes.filter((c) => c.date === iso).length;
                         const dayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
@@ -1873,6 +1992,8 @@ export default function App() {
                             className={`p-2 sm:p-3 rounded-2xl border text-center transition-all flex flex-col items-center justify-between min-h-[76px] ${
                               isSelected
                                 ? 'bg-[#5C7362] text-white border-[#5C7362] shadow-xs'
+                                : isVac
+                                ? 'bg-amber-50/90 border-amber-200 text-amber-900'
                                 : isToday
                                 ? 'bg-[#EDF3EE] border-[#5C7362]/40 text-[#2D332F]'
                                 : 'bg-[#F7F5F0]/60 border-stone-200/80 hover:border-stone-300'
@@ -1888,7 +2009,11 @@ export default function App() {
                             <span className="text-base sm:text-lg font-bold my-0.5">
                               {dayObj.getDate()}
                             </span>
-                            {count > 0 ? (
+                            {isVac ? (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-amber-100 text-amber-800">
+                                Vacaciones
+                              </span>
+                            ) : count > 0 ? (
                               <span
                                 className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
                                   isSelected
@@ -1922,6 +2047,7 @@ export default function App() {
                           const iso = toISODate(dayObj);
                           const isSelected = iso === selectedDate;
                           const isToday = iso === todayISO;
+                          const isVac = Boolean(getVacationForDate(iso));
                           const count = classes.filter((c) => c.date === iso).length;
 
                           return (
@@ -1931,6 +2057,8 @@ export default function App() {
                               className={`p-1.5 sm:p-2 rounded-xl border text-center transition-all flex flex-col items-center justify-center min-h-[54px] ${
                                 isSelected
                                   ? 'bg-[#5C7362] text-white border-[#5C7362]'
+                                  : isVac
+                                  ? 'bg-amber-50 border-amber-200 text-amber-900'
                                   : isToday
                                   ? 'bg-[#EDF3EE] border-[#5C7362]/40'
                                   : 'bg-[#F7F5F0]/50 border-stone-200/70 hover:border-stone-300'
@@ -1939,16 +2067,22 @@ export default function App() {
                               <span className="text-xs sm:text-sm font-semibold">
                                 {dayObj.getDate()}
                               </span>
-                              {count > 0 && (
-                                <span
-                                  className={`mt-0.5 text-[10px] px-1.5 rounded-full font-medium ${
-                                    isSelected
-                                      ? 'bg-white/25 text-white'
-                                      : 'bg-[#EDF3EE] text-[#4C6352]'
-                                  }`}
-                                >
-                                  {count}
+                              {isVac ? (
+                                <span className="mt-0.5 text-[9px] px-1 rounded-full font-semibold bg-amber-100 text-amber-800">
+                                  Lic.
                                 </span>
+                              ) : (
+                                count > 0 && (
+                                  <span
+                                    className={`mt-0.5 text-[10px] px-1.5 rounded-full font-medium ${
+                                      isSelected
+                                        ? 'bg-white/25 text-white'
+                                        : 'bg-[#EDF3EE] text-[#4C6352]'
+                                    }`}
+                                  >
+                                    {count}
+                                  </span>
+                                )
                               )}
                             </button>
                           );
@@ -1970,6 +2104,18 @@ export default function App() {
                       {dayClassesAdmin.length === 1 ? 'clase' : 'clases'}
                     </span>
                   </div>
+
+                  {getVacationForDate(selectedDate) && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 text-xs text-amber-900 flex items-center justify-between gap-2">
+                      <span>
+                        <strong>Licencia / Vacaciones activa:</strong> del{' '}
+                        <strong>{formatDateDDMMYYYY(getVacationForDate(selectedDate).startDate)}</strong>{' '}
+                        al{' '}
+                        <strong>{formatDateDDMMYYYY(getVacationForDate(selectedDate).endDate)}</strong>{' '}
+                        (se muestra <em>Cerrado por vacaciones</em> en Vista Alumno).
+                      </span>
+                    </div>
+                  )}
 
                   {dayClassesAdmin.length === 0 ? (
                     <div className="bg-white rounded-3xl p-8 text-center border border-stone-200/70 text-stone-500 text-sm">
@@ -2004,7 +2150,7 @@ export default function App() {
                                   </span>
                                   {cls.is_cancelled && (
                                     <span className="text-xs font-semibold px-2 py-0.5 bg-rose-100 text-rose-700 rounded-lg">
-                                      CERRADA / CANCELADA
+                                      CANCELADA
                                     </span>
                                   )}
                                 </div>
@@ -2016,8 +2162,7 @@ export default function App() {
                                 </h4>
                                 {cls.is_cancelled && cancelledAt && (
                                   <p className="text-[11px] text-rose-700 mt-1">
-                                    Cerrada/cancelada el:{' '}
-                                    <strong>{formatTimestamp(cancelledAt)}</strong>
+                                    Cancelada el: <strong>{formatTimestamp(cancelledAt)}</strong>
                                   </p>
                                 )}
                               </div>
@@ -2040,7 +2185,7 @@ export default function App() {
                                   }`}
                                 >
                                   <Ban className="w-3.5 h-3.5" />
-                                  {cls.is_cancelled ? 'Abrir Clase' : 'Cerrar / Pausar'}
+                                  {cls.is_cancelled ? 'Abrir Clase' : 'Cancelar'}
                                 </button>
 
                                 <button
@@ -3052,6 +3197,109 @@ export default function App() {
             Pagos
           </button>
         </nav>
+      )}
+
+      {/* Modal: Licencia / Vacaciones */}
+      {showVacationModal && (
+        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto space-y-4">
+            <div className="flex justify-between items-center">
+              <h3 className="font-semibold text-lg flex items-center gap-2">
+                <Palmtree className="w-5 h-5 text-[#5C7362]" /> Licencia / Vacaciones
+              </h3>
+              <button onClick={() => setShowVacationModal(false)}>
+                <XCircle className="w-5 h-5 text-stone-400" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveVacationPeriod} className="space-y-3.5 text-sm border-b border-stone-100 pb-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">
+                    Desde ({formatDateDDMMYYYY(vacationForm.startDate)})
+                  </label>
+                  <input
+                    required
+                    type="date"
+                    value={vacationForm.startDate}
+                    onChange={(e) =>
+                      setVacationForm({ ...vacationForm, startDate: e.target.value })
+                    }
+                    className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">
+                    Hasta ({formatDateDDMMYYYY(vacationForm.endDate)})
+                  </label>
+                  <input
+                    required
+                    type="date"
+                    value={vacationForm.endDate}
+                    onChange={(e) =>
+                      setVacationForm({ ...vacationForm, endDate: e.target.value })
+                    }
+                    className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs"
+                  />
+                </div>
+              </div>
+
+              <label className="flex items-center gap-2 cursor-pointer bg-stone-50 p-2.5 rounded-xl border border-stone-200">
+                <input
+                  type="checkbox"
+                  checked={vacationForm.cancelClasses}
+                  onChange={(e) =>
+                    setVacationForm({ ...vacationForm, cancelClasses: e.target.checked })
+                  }
+                  className="rounded accent-[#5C7362] w-4 h-4"
+                />
+                <span className="text-xs font-medium text-stone-700">
+                  Cancelar automáticamente las clases existentes en este rango de días
+                </span>
+              </label>
+
+              <button
+                type="submit"
+                className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl"
+              >
+                Bloquear Días por Vacaciones
+              </button>
+            </form>
+
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider">
+                Períodos Configurados ({vacationPeriods.length})
+              </p>
+              {vacationPeriods.length === 0 ? (
+                <p className="text-xs text-stone-400 italic">
+                  No hay licencias o vacaciones cargadas.
+                </p>
+              ) : (
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {vacationPeriods.map((vp) => (
+                    <div
+                      key={vp.id}
+                      className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200 flex items-center justify-between text-xs"
+                    >
+                      <span>
+                        Del <strong>{formatDateDDMMYYYY(vp.startDate)}</strong> al{' '}
+                        <strong>{formatDateDDMMYYYY(vp.endDate)}</strong>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveVacationPeriod(vp.id)}
+                        className="text-rose-600 hover:bg-rose-100 p-1 rounded-lg"
+                        title="Quitar período"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Modal: Confirmación al borrar cualquier registro */}
