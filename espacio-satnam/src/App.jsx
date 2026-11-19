@@ -29,6 +29,8 @@ import {
   BarChart3,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   UserCog,
   CalendarRange
 } from 'lucide-react';
@@ -229,6 +231,16 @@ export default function App() {
   const [calendarCursor, setCalendarCursor] = useState(new Date());
   const [searchTerm, setSearchTerm] = useState('');
 
+  // Dashboard: secciones desplegables y visión mensual
+  const [openClassesPanel, setOpenClassesPanel] = useState(false);
+  const [openBookingsPanel, setOpenBookingsPanel] = useState(false);
+  const [expandedDashboardClassId, setExpandedDashboardClassId] = useState(null);
+  const [dashboardScope, setDashboardScope] = useState('day'); // 'day' | 'month'
+  const [dashboardMonth, setDashboardMonth] = useState(() => toISODate(new Date()).slice(0, 7)); // 'YYYY-MM'
+
+  // Pagos: desplegables para Activos y Por Renovar
+  const [openPaymentsPanel, setOpenPaymentsPanel] = useState('renew'); // 'active' | 'renew' | null
+
   // Modal + Servicio (solo agregar)
   const [showAddServiceModal, setShowAddServiceModal] = useState(false);
   const [newServiceForm, setNewServiceForm] = useState({
@@ -392,6 +404,12 @@ export default function App() {
   const isPlanExpired = (student) => {
     if (!student || !student.expiryDate) return false;
     return student.expiryDate < todayISO || student.status === 'overdue';
+  };
+
+  const isPlanExpiringSoon = (student) => {
+    if (!student || isPlanPaused(student) || !student.expiryDate) return false;
+    const diff = Math.ceil((new Date(student.expiryDate) - new Date(todayISO)) / 86400000);
+    return diff <= 5;
   };
 
   const canStudentOperate = (student) => {
@@ -572,7 +590,6 @@ export default function App() {
   const applyAttendanceStatus = async (bookingId, status) => {
     const isAttendedBool = status === 'attended';
 
-    // Intentar actualizar con attendance_status si existe la columna en Supabase; si falla, actualizar attended
     const { error: statusErr } = await supabase
       .from('bookings')
       .update({ attended: isAttendedBool, attendance_status: status })
@@ -1186,23 +1203,45 @@ export default function App() {
     setCalendarCursor(next);
   };
 
-  // Métricas de Abonos (para Pagos & WhatsApp)
-  const activeStudentsCount = students.filter(
+  // Listados de Pagos: Activos vs Por Renovar (incluye vencidos o por vencer <= 5 días)
+  const activePaymentStudents = students.filter(
     (s) => !isPlanPaused(s) && !isPlanExpired(s)
-  ).length;
-  const overdueOrSoonCount = students.filter((s) => {
-    if (isPlanPaused(s)) return false;
-    const diff = Math.ceil((new Date(s.expiryDate) - new Date(todayISO)) / 86400000);
-    return diff <= 5;
-  }).length;
+  );
+  const renewPaymentStudents = students.filter(
+    (s) => !isPlanPaused(s) && (isPlanExpired(s) || isPlanExpiringSoon(s))
+  );
 
-  // Métricas de Clases y Asistencias del día (para Dashboard)
+  // Datos del día para Dashboard
+  const availableDayClasses = dayClassesAdmin.filter((c) => !c.is_cancelled);
   const dayClassIds = new Set(dayClassesAdmin.map((c) => c.id));
   const dayBookings = bookings.filter((b) => dayClassIds.has(b.classId));
-  const dayAttendedCount = dayBookings.filter(
-    (b) => b.attendanceStatus === 'attended' || (b.attendanceStatus !== 'no_show' && b.attended)
-  ).length;
-  const dayNoShowCount = dayBookings.filter((b) => b.attendanceStatus === 'no_show').length;
+
+  // Visión Mensual de estadísticas por clase y horario
+  const monthClasses = classes.filter((c) => String(c.date || '').startsWith(dashboardMonth));
+  const monthStatsBySlot = Object.values(
+    monthClasses.reduce((acc, cls) => {
+      const key = `${cls.title}__${cls.time}`;
+      if (!acc[key]) {
+        acc[key] = {
+          key,
+          title: cls.title,
+          time: cls.time,
+          sessionsCount: 0,
+          totalBookings: 0,
+          attended: 0,
+          noShow: 0
+        };
+      }
+      acc[key].sessionsCount += 1;
+      const clsBookings = bookings.filter((b) => b.classId === cls.id);
+      acc[key].totalBookings += clsBookings.length;
+      acc[key].attended += clsBookings.filter(
+        (b) => b.attendanceStatus === 'attended' || (b.attendanceStatus !== 'no_show' && b.attended)
+      ).length;
+      acc[key].noShow += clsBookings.filter((b) => b.attendanceStatus === 'no_show').length;
+      return acc;
+    }, {})
+  ).sort((a, b) => a.time.localeCompare(b.time) || a.title.localeCompare(b.title));
 
   const studentAllowed = canStudentOperate(activeStudent);
 
@@ -1286,7 +1325,6 @@ export default function App() {
         ) : role === 'student' ? (
           /* ================= VISTA ALUMNO SIMPLIFICADA ================= */
           <div className="space-y-6">
-            {/* Presentación */}
             <div className="bg-white/80 rounded-3xl px-5 py-4 border border-stone-200/70">
               <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
                 Un lugar creado para mejorar tu calidad de vida desde el{' '}
@@ -1296,7 +1334,6 @@ export default function App() {
               </p>
             </div>
 
-            {/* Tarjeta de Perfil del Alumno */}
             {students.length > 0 ? (
               <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-1 h-full bg-[#5C7362]" />
@@ -1364,7 +1401,6 @@ export default function App() {
               </div>
             )}
 
-            {/* Filtros por Fecha y los 3 Pilares */}
             <div className="space-y-3">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
@@ -1389,7 +1425,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* 4 botones limpios agrupados por pilares */}
               <div className="flex flex-wrap items-center gap-2">
                 {PILLARS.map((pil) => (
                   <button
@@ -1407,7 +1442,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Tarjetas de Clases */}
             {studentFilteredClasses.length === 0 ? (
               <div className="bg-white rounded-3xl p-10 text-center border border-stone-200/70">
                 <p className="text-stone-500 text-sm">
@@ -1528,7 +1562,6 @@ export default function App() {
         ) : (
           /* ================= MODO ESTUDIO (ADMIN) ================= */
           <div className="space-y-6">
-            {/* Navegación superior Modo Estudio */}
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="hidden md:flex items-center gap-1.5 bg-white p-1.5 rounded-2xl border border-stone-200/80 w-fit shadow-2xs">
                 <button
@@ -1631,7 +1664,7 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Controles del Calendario (Semanal / Mensual) */}
+                {/* Controles del Calendario */}
                 <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
@@ -1881,7 +1914,6 @@ export default function App() {
                               </div>
                             </div>
 
-                            {/* Personas registradas con abono + Asistió / No asistió */}
                             <div className="mt-4">
                               <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2.5">
                                 Personas registradas ({classBookings.length})
@@ -1973,160 +2005,364 @@ export default function App() {
               </div>
             )}
 
-            {/* PESTAÑA 2: DASHBOARD (Solo Clases y Asistencias) */}
+            {/* PESTAÑA 2: DASHBOARD (Desplegables + Asistieron/No asistieron por clase + Visión Mensual) */}
             {adminTab === 'dashboard' && (
               <div className="space-y-6">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <h2 className="text-xl font-semibold">Dashboard de Clases y Asistencias</h2>
+                    <h2 className="text-xl font-semibold">Dashboard</h2>
                     <p className="text-sm text-stone-500">
-                      Resumen de clases del día y detalle de quiénes asistieron y quiénes no
+                      Toca Clases del Día o Reservas del Día para ver el detalle sin saturar la vista
                     </p>
                   </div>
 
-                  <input
-                    type="date"
-                    value={selectedDate}
-                    onChange={(e) => setSelectedDate(e.target.value)}
-                    className="text-sm font-medium bg-white px-3 py-1.5 rounded-xl border border-stone-200/80 w-fit"
-                  />
-                </div>
-
-                {/* Tarjetas KPI exclusivas de Clases y Asistencias */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
-                  <div className="bg-white rounded-3xl p-4 border border-stone-200/70 shadow-2xs">
-                    <p className="text-xs text-stone-500 font-medium">Clases del Día</p>
-                    <p className="text-2xl font-bold text-[#2D332F] mt-1">
-                      {dayClassesAdmin.length}
-                    </p>
-                    <p className="text-[11px] text-stone-400 mt-1">
-                      {formatDateDDMMYYYY(selectedDate)}
-                    </p>
-                  </div>
-
-                  <div className="bg-white rounded-3xl p-4 border border-stone-200/70 shadow-2xs">
-                    <p className="text-xs text-stone-500 font-medium">Reservas del Día</p>
-                    <p className="text-2xl font-bold text-[#2D332F] mt-1">
-                      {dayBookings.length}
-                    </p>
-                    <p className="text-[11px] text-stone-400 mt-1">Inscripciones totales</p>
-                  </div>
-
-                  <div className="bg-white rounded-3xl p-4 border border-stone-200/70 shadow-2xs">
-                    <p className="text-xs text-stone-500 font-medium">Asistieron</p>
-                    <p className="text-2xl font-bold text-[#5C7362] mt-1">
-                      {dayAttendedCount}
-                    </p>
-                    <p className="text-[11px] text-stone-400 mt-1">Presentes en el día</p>
-                  </div>
-
-                  <div className="bg-white rounded-3xl p-4 border border-stone-200/70 shadow-2xs">
-                    <p className="text-xs text-stone-500 font-medium">No Asistieron</p>
-                    <p className="text-2xl font-bold text-rose-700 mt-1">{dayNoShowCount}</p>
-                    <p className="text-[11px] text-stone-400 mt-1">Ausentes registrados</p>
-                  </div>
-                </div>
-
-                {/* Listado por Clase: Asistieron vs No asistieron */}
-                <div className="space-y-4">
-                  <h3 className="font-semibold text-base">
-                    Detalle por Clase ({formatDateDDMMYYYY(selectedDate)})
-                  </h3>
-
-                  {dayClassesAdmin.length === 0 ? (
-                    <div className="bg-white rounded-3xl p-8 text-center border border-stone-200/70 text-stone-500 text-sm">
-                      No hay clases programadas en esta fecha.
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex items-center bg-white p-1 rounded-xl border border-stone-200/80">
+                      <button
+                        onClick={() => setDashboardScope('day')}
+                        className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                          dashboardScope === 'day'
+                            ? 'bg-[#5C7362] text-white'
+                            : 'text-stone-600'
+                        }`}
+                      >
+                        Vista Diaria
+                      </button>
+                      <button
+                        onClick={() => setDashboardScope('month')}
+                        className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                          dashboardScope === 'month'
+                            ? 'bg-[#5C7362] text-white'
+                            : 'text-stone-600'
+                        }`}
+                      >
+                        Visión Mensual
+                      </button>
                     </div>
-                  ) : (
-                    dayClassesAdmin.map((cls) => {
-                      const clsBookings = bookings.filter((b) => b.classId === cls.id);
-                      const attendedList = clsBookings
-                        .filter(
-                          (b) =>
-                            b.attendanceStatus === 'attended' ||
-                            (b.attendanceStatus !== 'no_show' && b.attended)
-                        )
-                        .map((b) => students.find((s) => s.id === b.studentId))
-                        .filter(Boolean);
 
-                      const noShowList = clsBookings
-                        .filter((b) => b.attendanceStatus === 'no_show')
-                        .map((b) => students.find((s) => s.id === b.studentId))
-                        .filter(Boolean);
-
-                      return (
-                        <div
-                          key={cls.id}
-                          className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-4"
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-stone-100">
-                            <div>
-                              <span className="text-xs font-semibold text-[#5C7362]">
-                                {cls.time} hs
-                              </span>{' '}
-                              <span className="font-semibold text-base">• {cls.title}</span>
-                            </div>
-                            <span className="text-xs text-stone-500">
-                              Total inscritos: {clsBookings.length}
-                            </span>
-                          </div>
-
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="p-3.5 rounded-2xl bg-[#EDF3EE]/60 border border-[#5C7362]/20">
-                              <p className="text-xs font-semibold text-[#4C6352] uppercase tracking-wider mb-2">
-                                Asistieron ({attendedList.length})
-                              </p>
-                              {attendedList.length === 0 ? (
-                                <p className="text-xs text-stone-400 italic">
-                                  Ningún alumno marcado como asistió.
-                                </p>
-                              ) : (
-                                <ul className="space-y-1.5 text-sm">
-                                  {attendedList.map((st) => (
-                                    <li
-                                      key={st.id}
-                                      className="flex items-center justify-between bg-white px-3 py-1.5 rounded-xl border border-stone-200/60"
-                                    >
-                                      <span className="font-medium">{st.name}</span>
-                                      <span className="text-xs font-semibold text-[#5C7362]">
-                                        {getStudentQuotaDisplay(st)}
-                                      </span>
-                                    </li>
-                                  ))}
-                                </ul>
-                              )}
-                            </div>
-
-                            <div className="p-3.5 rounded-2xl bg-rose-50/50 border border-rose-200/60">
-                              <p className="text-xs font-semibold text-rose-800 uppercase tracking-wider mb-2">
-                                No asistieron ({noShowList.length})
-                              </p>
-                              {noShowList.length === 0 ? (
-                                <p className="text-xs text-stone-400 italic">
-                                  Ningún alumno marcado como no asistió.
-                                </p>
-                              ) : (
-                                <ul className="space-y-1.5 text-sm">
-                                  {noShowList.map((st) => (
-                                    <li
-                                      key={st.id}
-                                      className="flex items-center justify-between bg-white px-3 py-1.5 rounded-xl border border-rose-200/60"
-                                    >
-                                      <span className="font-medium">{st.name}</span>
-                                      <span className="text-xs font-semibold text-rose-700">
-                                        {getStudentQuotaDisplay(st)}
-                                      </span>
-                                    </li>
-                                  ))}
-                                </ul>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
+                    {dashboardScope === 'day' ? (
+                      <input
+                        type="date"
+                        value={selectedDate}
+                        onChange={(e) => setSelectedDate(e.target.value)}
+                        className="text-sm font-medium bg-white px-3 py-1.5 rounded-xl border border-stone-200/80"
+                      />
+                    ) : (
+                      <input
+                        type="month"
+                        value={dashboardMonth}
+                        onChange={(e) => setDashboardMonth(e.target.value)}
+                        className="text-sm font-medium bg-white px-3 py-1.5 rounded-xl border border-stone-200/80"
+                      />
+                    )}
+                  </div>
                 </div>
+
+                {dashboardScope === 'day' ? (
+                  <>
+                    {/* Botones resumen tocables: Clases del Día y Reservas del Día */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <button
+                        type="button"
+                        onClick={() => setOpenClassesPanel((prev) => !prev)}
+                        className={`text-left bg-white rounded-3xl p-5 border transition-all shadow-2xs ${
+                          openClassesPanel
+                            ? 'border-[#5C7362] ring-1 ring-[#5C7362]/25'
+                            : 'border-stone-200/70 hover:border-stone-300'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold uppercase tracking-wider text-stone-500">
+                            Clases del Día ({formatDateDDMMYYYY(selectedDate)})
+                          </span>
+                          {openClassesPanel ? (
+                            <ChevronUp className="w-4 h-4 text-[#5C7362]" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4 text-[#5C7362]" />
+                          )}
+                        </div>
+                        <p className="text-2xl font-bold text-[#2D332F] mt-1">
+                          {availableDayClasses.length} disponibles
+                        </p>
+                        <p className="text-xs text-[#5C7362] font-medium mt-1">
+                          Toca para ver clases, cupos y asistencias
+                        </p>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setOpenBookingsPanel((prev) => !prev)}
+                        className={`text-left bg-white rounded-3xl p-5 border transition-all shadow-2xs ${
+                          openBookingsPanel
+                            ? 'border-[#5C7362] ring-1 ring-[#5C7362]/25'
+                            : 'border-stone-200/70 hover:border-stone-300'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold uppercase tracking-wider text-stone-500">
+                            Reservas del Día ({formatDateDDMMYYYY(selectedDate)})
+                          </span>
+                          {openBookingsPanel ? (
+                            <ChevronUp className="w-4 h-4 text-[#5C7362]" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4 text-[#5C7362]" />
+                          )}
+                        </div>
+                        <p className="text-2xl font-bold text-[#5C7362] mt-1">
+                          {dayBookings.length} reservas
+                        </p>
+                        <p className="text-xs text-[#5C7362] font-medium mt-1">
+                          Toca para ver el listado de reservas del día
+                        </p>
+                      </button>
+                    </div>
+
+                    {/* Desplegable: Clases del Día -> Total inscritos / cupo disponible -> Alumnos que asistieron y no */}
+                    {openClassesPanel && (
+                      <div className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-4">
+                        <div className="flex items-center justify-between pb-2 border-b border-stone-100">
+                          <h3 className="font-semibold text-base">
+                            Clases Disponibles del Día ({formatDateDDMMYYYY(selectedDate)})
+                          </h3>
+                          <span className="text-xs text-stone-500">
+                            Toca una clase para ver asistieron y no asistieron
+                          </span>
+                        </div>
+
+                        {availableDayClasses.length === 0 ? (
+                          <p className="text-sm text-stone-500 py-3">
+                            No hay clases disponibles en esta fecha.
+                          </p>
+                        ) : (
+                          <div className="space-y-3">
+                            {availableDayClasses.map((cls) => {
+                              const clsBookings = bookings.filter((b) => b.classId === cls.id);
+                              const freeSpots = Math.max(0, cls.capacity - clsBookings.length);
+                              const isExpanded = expandedDashboardClassId === cls.id;
+
+                              const attendedList = clsBookings
+                                .filter(
+                                  (b) =>
+                                    b.attendanceStatus === 'attended' ||
+                                    (b.attendanceStatus !== 'no_show' && b.attended)
+                                )
+                                .map((b) => students.find((s) => s.id === b.studentId))
+                                .filter(Boolean);
+
+                              const noShowList = clsBookings
+                                .filter((b) => b.attendanceStatus === 'no_show')
+                                .map((b) => students.find((s) => s.id === b.studentId))
+                                .filter(Boolean);
+
+                              return (
+                                <div
+                                  key={cls.id}
+                                  className="rounded-2xl border border-stone-200/80 bg-[#F7F5F0]/50 overflow-hidden"
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setExpandedDashboardClassId(isExpanded ? null : cls.id)
+                                    }
+                                    className="w-full p-4 text-left flex flex-wrap items-center justify-between gap-2 hover:bg-stone-100/60 transition-colors"
+                                  >
+                                    <div>
+                                      <p className="font-semibold text-sm text-[#2D332F]">
+                                        {cls.time} hs • {cls.title}
+                                      </p>
+                                      <p className="text-xs text-stone-500 mt-0.5">
+                                        Total inscritos: <strong>{clsBookings.length}</strong> /{' '}
+                                        Cupo disponible: <strong>{freeSpots}</strong>
+                                      </p>
+                                    </div>
+
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs font-medium text-[#5C7362] bg-[#EDF3EE] px-2.5 py-1 rounded-xl">
+                                        {isExpanded ? 'Ocultar asistencia' : 'Ver asistencia'}
+                                      </span>
+                                      {isExpanded ? (
+                                        <ChevronUp className="w-4 h-4 text-stone-500" />
+                                      ) : (
+                                        <ChevronDown className="w-4 h-4 text-stone-500" />
+                                      )}
+                                    </div>
+                                  </button>
+
+                                  {isExpanded && (
+                                    <div className="px-4 pb-4 pt-2 border-t border-stone-200/70 bg-white grid grid-cols-1 md:grid-cols-2 gap-3">
+                                      <div className="p-3 rounded-xl bg-[#EDF3EE]/60 border border-[#5C7362]/20">
+                                        <p className="text-xs font-semibold text-[#4C6352] uppercase tracking-wider mb-2">
+                                          Asistieron ({attendedList.length})
+                                        </p>
+                                        {attendedList.length === 0 ? (
+                                          <p className="text-xs text-stone-400 italic">
+                                            Sin registros de asistencia.
+                                          </p>
+                                        ) : (
+                                          <ul className="space-y-1 text-xs">
+                                            {attendedList.map((st) => (
+                                              <li
+                                                key={st.id}
+                                                className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-stone-200/60"
+                                              >
+                                                <span className="font-medium">{st.name}</span>
+                                                <span className="font-semibold text-[#5C7362]">
+                                                  {getStudentQuotaDisplay(st)}
+                                                </span>
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        )}
+                                      </div>
+
+                                      <div className="p-3 rounded-xl bg-rose-50/50 border border-rose-200/60">
+                                        <p className="text-xs font-semibold text-rose-800 uppercase tracking-wider mb-2">
+                                          No Asistieron ({noShowList.length})
+                                        </p>
+                                        {noShowList.length === 0 ? (
+                                          <p className="text-xs text-stone-400 italic">
+                                            Sin registros de inasistencia.
+                                          </p>
+                                        ) : (
+                                          <ul className="space-y-1 text-xs">
+                                            {noShowList.map((st) => (
+                                              <li
+                                                key={st.id}
+                                                className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-rose-200/60"
+                                              >
+                                                <span className="font-medium">{st.name}</span>
+                                                <span className="font-semibold text-rose-700">
+                                                  {getStudentQuotaDisplay(st)}
+                                                </span>
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Desplegable: Reservas del Día */}
+                    {openBookingsPanel && (
+                      <div className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-3">
+                        <div className="flex items-center justify-between pb-2 border-b border-stone-100">
+                          <h3 className="font-semibold text-base">
+                            Listado de Reservas del Día ({formatDateDDMMYYYY(selectedDate)})
+                          </h3>
+                          <span className="text-xs text-stone-500">
+                            {dayBookings.length} total
+                          </span>
+                        </div>
+
+                        {dayBookings.length === 0 ? (
+                          <p className="text-sm text-stone-500 py-3">
+                            No hay reservas registradas en esta fecha.
+                          </p>
+                        ) : (
+                          <div className="space-y-2">
+                            {dayBookings.map((b) => {
+                              const st = students.find((s) => s.id === b.studentId);
+                              const cls = classes.find((c) => c.id === b.classId);
+                              if (!st || !cls) return null;
+
+                              return (
+                                <div
+                                  key={b.id}
+                                  className="p-3 rounded-2xl bg-[#F7F5F0]/70 border border-stone-200/70 flex flex-wrap items-center justify-between gap-2 text-sm"
+                                >
+                                  <div>
+                                    <span className="font-semibold">{st.name}</span>{' '}
+                                    <span className="text-xs font-semibold text-[#5C7362]">
+                                      ({getStudentQuotaDisplay(st)})
+                                    </span>
+                                    <p className="text-xs text-stone-500">
+                                      {cls.time} hs • {cls.title}
+                                    </p>
+                                  </div>
+                                  <span className="text-xs font-medium px-2.5 py-1 rounded-xl bg-white border border-stone-200 text-stone-600">
+                                    {b.attendanceStatus === 'no_show'
+                                      ? 'No asistió'
+                                      : b.attendanceStatus === 'attended' || b.attended
+                                      ? 'Asistió'
+                                      : 'Pendiente'}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  /* Visión Mensual: solo estadísticas de asistencias por clase y horarios */
+                  <div className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-4">
+                    <div className="flex items-center justify-between pb-2 border-b border-stone-100">
+                      <div>
+                        <h3 className="font-semibold text-base">
+                          Estadísticas Mensuales de Asistencias por Clase y Horario
+                        </h3>
+                        <p className="text-xs text-stone-500">
+                          Período: <strong>{dashboardMonth}</strong>
+                        </p>
+                      </div>
+                    </div>
+
+                    {monthStatsBySlot.length === 0 ? (
+                      <p className="text-sm text-stone-500 py-4 text-center">
+                        No hay clases o estadísticas registradas para el mes seleccionado.
+                      </p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse text-sm">
+                          <thead>
+                            <tr className="bg-[#F7F5F0] text-xs uppercase tracking-wider text-stone-500">
+                              <th className="py-3 px-3.5 font-medium">Clase</th>
+                              <th className="py-3 px-3.5 font-medium">Horario</th>
+                              <th className="py-3 px-3.5 font-medium">Reservas</th>
+                              <th className="py-3 px-3.5 font-medium">Asistencias</th>
+                              <th className="py-3 px-3.5 font-medium">No asistieron</th>
+                              <th className="py-3 px-3.5 font-medium">% Asistencia</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-stone-100">
+                            {monthStatsBySlot.map((row) => {
+                              const pct =
+                                row.totalBookings > 0
+                                  ? Math.round((row.attended / row.totalBookings) * 100)
+                                  : 0;
+                              return (
+                                <tr key={row.key} className="hover:bg-stone-50/60">
+                                  <td className="py-3 px-3.5 font-semibold">{row.title}</td>
+                                  <td className="py-3 px-3.5 text-xs text-stone-600">
+                                    {row.time} hs
+                                  </td>
+                                  <td className="py-3 px-3.5 text-xs font-medium">
+                                    {row.totalBookings}
+                                  </td>
+                                  <td className="py-3 px-3.5 text-xs font-semibold text-[#5C7362]">
+                                    {row.attended}
+                                  </td>
+                                  <td className="py-3 px-3.5 text-xs font-semibold text-rose-700">
+                                    {row.noShow}
+                                  </td>
+                                  <td className="py-3 px-3.5 text-xs font-bold">{pct}%</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -2226,105 +2462,169 @@ export default function App() {
               </div>
             )}
 
-            {/* PESTAÑA 4: PAGOS Y WHATSAPP (Incluye métricas de Abonos Activos y Por Renovar) */}
+            {/* PESTAÑA 4: PAGOS Y WHATSAPP (Desplegables Activos y Por Renovar) */}
             {adminTab === 'payments' && (
               <div className="space-y-5">
                 <div>
                   <h2 className="text-xl font-semibold">Pagos, Fechas y WhatsApp</h2>
                   <p className="text-sm text-stone-500">
-                    Control de abonos activos y por renovar, recordatorios, renovaciones, pausas y fechas
+                    Ingresa a Activos o Por Renovar para ver el listado y gestionar cada alumno
                   </p>
                 </div>
 
-                {/* Resumen de Abonos */}
-                <div className="grid grid-cols-2 gap-3.5">
-                  <div className="bg-white rounded-3xl p-4 border border-stone-200/70 shadow-2xs">
-                    <p className="text-xs text-stone-500 font-medium">Abonos Activos</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setOpenPaymentsPanel((prev) => (prev === 'active' ? null : 'active'))
+                    }
+                    className={`text-left bg-white rounded-3xl p-5 border transition-all shadow-2xs ${
+                      openPaymentsPanel === 'active'
+                        ? 'border-[#5C7362] ring-1 ring-[#5C7362]/25'
+                        : 'border-stone-200/70 hover:border-stone-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold uppercase tracking-wider text-stone-500">
+                        Activos
+                      </span>
+                      {openPaymentsPanel === 'active' ? (
+                        <ChevronUp className="w-4 h-4 text-[#5C7362]" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-[#5C7362]" />
+                      )}
+                    </div>
                     <p className="text-2xl font-bold text-[#5C7362] mt-1">
-                      {activeStudentsCount}
+                      {activePaymentStudents.length}
                     </p>
-                    <p className="text-[11px] text-stone-400 mt-1">
-                      De {students.length} registrados
+                    <p className="text-xs text-[#5C7362] font-medium mt-1">
+                      Toca para ver el listado de alumnos activos
                     </p>
-                  </div>
+                  </button>
 
-                  <div className="bg-white rounded-3xl p-4 border border-stone-200/70 shadow-2xs">
-                    <p className="text-xs text-stone-500 font-medium">Abonos por Renovar</p>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setOpenPaymentsPanel((prev) => (prev === 'renew' ? null : 'renew'))
+                    }
+                    className={`text-left bg-white rounded-3xl p-5 border transition-all shadow-2xs ${
+                      openPaymentsPanel === 'renew'
+                        ? 'border-[#5C7362] ring-1 ring-[#5C7362]/25'
+                        : 'border-stone-200/70 hover:border-stone-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold uppercase tracking-wider text-stone-500">
+                        Por Renovar
+                      </span>
+                      {openPaymentsPanel === 'renew' ? (
+                        <ChevronUp className="w-4 h-4 text-[#5C7362]" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-[#5C7362]" />
+                      )}
+                    </div>
                     <p className="text-2xl font-bold text-amber-700 mt-1">
-                      {overdueOrSoonCount}
+                      {renewPaymentStudents.length}
                     </p>
-                    <p className="text-[11px] text-stone-400 mt-1">Vencidos o ≤ 5 días</p>
-                  </div>
+                    <p className="text-xs text-stone-500 mt-1">
+                      Toca para ver vencidos o por vencer (≤ 5d)
+                    </p>
+                  </button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {students.map((st) => {
-                    const paused = isPlanPaused(st);
+                {openPaymentsPanel && (
+                  <div className="space-y-3">
+                    <h3 className="font-semibold text-base">
+                      {openPaymentsPanel === 'active'
+                        ? `Listado de Alumnos Activos (${activePaymentStudents.length})`
+                        : `Listado Por Renovar (${renewPaymentStudents.length})`}
+                    </h3>
 
-                    return (
-                      <div
-                        key={st.id}
-                        className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs flex flex-col justify-between gap-4"
-                      >
-                        <div className="flex justify-between items-start gap-2">
-                          <div>
-                            <h3 className="font-semibold text-base">{st.name}</h3>
-                            <p className="text-xs text-[#5C7362] font-medium mt-0.5">{st.plan}</p>
-                            <p className="text-xs text-stone-500 mt-1">
-                              Inicio: <strong>{formatDateDDMMYYYY(getStudentStartDate(st))}</strong> •
-                              Vence: <strong>{formatDateDDMMYYYY(st.expiryDate)}</strong>
-                            </p>
-                          </div>
-                          {getStatusBadge(st)}
-                        </div>
-
-                        <div className="space-y-2 pt-3 border-t border-stone-100">
-                          <div className="flex items-center gap-2">
-                            <a
-                              href={getWhatsAppReminderUrl(st)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex-1 flex items-center justify-center gap-1.5 bg-[#25D366] hover:bg-[#1EBE5D] text-white py-2 px-3 rounded-xl text-xs font-semibold shadow-2xs transition-all"
-                            >
-                              <MessageCircle className="w-4 h-4" />
-                              Recordatorio WhatsApp
-                            </a>
-
-                            <button
-                              onClick={() => handleRenewPlan(st.id)}
-                              className="flex items-center justify-center gap-1 bg-[#EDF3EE] hover:bg-[#dce8de] text-[#4C6352] py-2 px-3 rounded-xl text-xs font-semibold transition-all"
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              Renovar Plan
-                            </button>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => handleTogglePausePlan(st)}
-                              className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-semibold border transition-all ${
-                                paused
-                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
-                                  : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
-                              }`}
-                            >
-                              <Ban className="w-3.5 h-3.5" />
-                              {paused ? 'Reactivar Plan' : 'Pausar / Cancelar Plan'}
-                            </button>
-
-                            <button
-                              onClick={() => handleOpenEditDates(st)}
-                              className="flex items-center justify-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 py-2 px-3 rounded-xl text-xs font-semibold transition-all"
-                            >
-                              <CalendarRange className="w-3.5 h-3.5" />
-                              Modificar Fechas
-                            </button>
-                          </div>
-                        </div>
+                    {(openPaymentsPanel === 'active'
+                      ? activePaymentStudents
+                      : renewPaymentStudents
+                    ).length === 0 ? (
+                      <div className="bg-white rounded-3xl p-8 text-center border border-stone-200/70 text-stone-500 text-sm">
+                        No hay alumnos en este grupo actualmente.
                       </div>
-                    );
-                  })}
-                </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {(openPaymentsPanel === 'active'
+                          ? activePaymentStudents
+                          : renewPaymentStudents
+                        ).map((st) => {
+                          const paused = isPlanPaused(st);
+
+                          return (
+                            <div
+                              key={st.id}
+                              className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs flex flex-col justify-between gap-4"
+                            >
+                              <div className="flex justify-between items-start gap-2">
+                                <div>
+                                  <h4 className="font-semibold text-base">{st.name}</h4>
+                                  <p className="text-xs text-[#5C7362] font-medium mt-0.5">
+                                    {st.plan}
+                                  </p>
+                                  <p className="text-xs text-stone-500 mt-1">
+                                    Inicio:{' '}
+                                    <strong>{formatDateDDMMYYYY(getStudentStartDate(st))}</strong> •
+                                    Vence: <strong>{formatDateDDMMYYYY(st.expiryDate)}</strong>
+                                  </p>
+                                </div>
+                                {getStatusBadge(st)}
+                              </div>
+
+                              <div className="space-y-2 pt-3 border-t border-stone-100">
+                                <div className="flex items-center gap-2">
+                                  <a
+                                    href={getWhatsAppReminderUrl(st)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex-1 flex items-center justify-center gap-1.5 bg-[#25D366] hover:bg-[#1EBE5D] text-white py-2 px-3 rounded-xl text-xs font-semibold shadow-2xs transition-all"
+                                  >
+                                    <MessageCircle className="w-4 h-4" />
+                                    Recordatorio WhatsApp
+                                  </a>
+
+                                  <button
+                                    onClick={() => handleRenewPlan(st.id)}
+                                    className="flex items-center justify-center gap-1 bg-[#EDF3EE] hover:bg-[#dce8de] text-[#4C6352] py-2 px-3 rounded-xl text-xs font-semibold transition-all"
+                                  >
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    Renovar Plan
+                                  </button>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => handleTogglePausePlan(st)}
+                                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-semibold border transition-all ${
+                                      paused
+                                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                                        : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                                    }`}
+                                  >
+                                    <Ban className="w-3.5 h-3.5" />
+                                    {paused ? 'Reactivar Plan' : 'Pausar / Cancelar Plan'}
+                                  </button>
+
+                                  <button
+                                    onClick={() => handleOpenEditDates(st)}
+                                    className="flex items-center justify-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 py-2 px-3 rounded-xl text-xs font-semibold transition-all"
+                                  >
+                                    <CalendarRange className="w-3.5 h-3.5" />
+                                    Modificar Fechas
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -2791,7 +3091,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal: Crear / Editar Alumno (en edición las fechas quedan bloqueadas; se modifican en Pagos) */}
+      {/* Modal: Crear / Editar Alumno */}
       {showStudentModal && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl">
