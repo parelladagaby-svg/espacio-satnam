@@ -152,7 +152,6 @@ function SatNamLogo({ className = 'w-11 h-11' }) {
 
 export default function App() {
   const [role, setRole] = useState('student');
-  // 'schedule' | 'attendance' | 'dashboard' | 'estetica' | 'students' | 'payments'
   const [adminTab, setAdminTab] = useState('schedule');
   const [notification, setNotification] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -180,7 +179,6 @@ export default function App() {
     }
   });
 
-  // planMetaMap[studentId] = { startDate, isPaused, absenceReason: 'none' | 'vacation_pause' | 'not_renewed' }
   const [planMetaMap, setPlanMetaMap] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('satnam_plan_meta_v2') || '{}');
@@ -205,7 +203,6 @@ export default function App() {
     }
   });
 
-  // Lista de espera: { [classId]: [studentId, ...] }
   const [waitlistMap, setWaitlistMap] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('satnam_waitlist_v1') || '{}');
@@ -227,34 +224,29 @@ export default function App() {
     endDate: addDaysToISO(toISODate(new Date()), 7)
   });
 
-  // Vista Alumno
   const [activeStudentId, setActiveStudentId] = useState('');
   const [selectedDate, setSelectedDate] = useState(toISODate(new Date()));
-  const [studentRangeMode, setStudentRangeMode] = useState('day'); // 'day' | 'week'
+  const [studentRangeMode, setStudentRangeMode] = useState('day');
   const [pillarFilter, setPillarFilter] = useState('Todas');
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
   const [profileForm, setProfileForm] = useState({ name: '', phone: '' });
 
-  // Vista Admin
   const [calendarView, setCalendarView] = useState('week');
   const [calendarCursor, setCalendarCursor] = useState(new Date());
   const [attendanceServiceFilter, setAttendanceServiceFilter] = useState('ALL');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Dashboard
   const [openClassesPanel, setOpenClassesPanel] = useState(false);
   const [openBookingsPanel, setOpenBookingsPanel] = useState(false);
   const [expandedDashboardClassId, setExpandedDashboardClassId] = useState(null);
-  const [dashboardScope, setDashboardScope] = useState('day'); // 'day' | 'month'
+  const [dashboardScope, setDashboardScope] = useState('day');
   const [dashboardMonth, setDashboardMonth] = useState(() => toISODate(new Date()).slice(0, 7));
 
-  // Pagos & Comunicaciones
   const [openPaymentsPanel, setOpenPaymentsPanel] = useState('renew');
   const [showPlanManagerModal, setShowPlanManagerModal] = useState(false);
   const [editingPlanId, setEditingPlanId] = useState(null);
   const [planForm, setPlanForm] = useState({ name: '', credits: 4, isUnlimited: false });
 
-  // Modales Servicios y Clases
   const [showServiceModal, setShowServiceModal] = useState(false);
   const [editingServiceId, setEditingServiceId] = useState(null);
   const [serviceForm, setServiceForm] = useState({
@@ -278,7 +270,6 @@ export default function App() {
     weeksCount: 4
   });
 
-  // Modal Alumno
   const [showStudentModal, setShowStudentModal] = useState(false);
   const [editingStudentId, setEditingStudentId] = useState(null);
   const [studentForm, setStudentForm] = useState({
@@ -291,7 +282,6 @@ export default function App() {
     absenceReason: 'none'
   });
 
-  // Modal Unificado Renovar / Editar Fechas
   const [showRenewDatesModal, setShowRenewDatesModal] = useState(false);
   const [renewDatesStudentId, setRenewDatesStudentId] = useState(null);
   const [renewDatesForm, setRenewDatesForm] = useState({
@@ -502,7 +492,6 @@ export default function App() {
     return `${currentNumber}/${total}`;
   };
 
-  // Licencia / Vacaciones: siempre cancela clases del rango y al borrar reactiva clases del rango
   const handleSaveVacationPeriod = async (e) => {
     e.preventDefault();
     if (!vacationForm.startDate || !vacationForm.endDate) return;
@@ -576,7 +565,6 @@ export default function App() {
     showToast('Período eliminado y clases reactivadas');
   };
 
-  // Perfil Alumno
   const handleOpenEditProfile = () => {
     if (!activeStudent) return;
     setProfileForm({ name: activeStudent.name, phone: activeStudent.phone });
@@ -608,7 +596,6 @@ export default function App() {
     showToast('Perfil actualizado correctamente');
   };
 
-  // Lista de espera
   const handleToggleWaitlist = (classId) => {
     if (!activeStudent) {
       showToast('Selecciona un perfil primero', 'error');
@@ -632,7 +619,6 @@ export default function App() {
     showToast(exists ? 'Saliste de la lista de espera' : 'Te sumaste a la lista de espera');
   };
 
-  // Reservar o Cancelar turno (Alumno)
   const handleToggleBooking = async (classId) => {
     if (!activeStudent) {
       showToast('Primero solicita tu alta en el espacio', 'error');
@@ -749,7 +735,6 @@ export default function App() {
     }
   };
 
-  // Asistencia + descuento automático cuando se marca "No asistió"
   const applyAttendanceStatus = async (bookingId, status) => {
     const booking = bookings.find((b) => b.id === bookingId);
     if (!booking) return;
@@ -778,9 +763,9 @@ export default function App() {
     if (st && hasActiveSubscriptionPlan(st) && !isUnlimitedPlan(st.plan)) {
       let delta = 0;
       if (prevStatus !== 'no_show' && status === 'no_show') {
-        delta = -1; // Descuenta la clase al marcar que no asistió
+        delta = -1;
       } else if (prevStatus === 'no_show' && status !== 'no_show') {
-        delta = 1; // Reintegra si se corrige un no asistió previo
+        delta = 1;
       }
 
       if (delta !== 0) {
@@ -810,7 +795,6 @@ export default function App() {
     }
   };
 
-  // Servicios
   const handleSaveService = (e) => {
     e.preventDefault();
     const cleanLabel = serviceForm.label.trim();
@@ -875,7 +859,6 @@ export default function App() {
     });
   };
 
-  // Programar Horarios (sin selector de categoría; lista directa de servicios)
   const handleOpenNewClassModal = () => {
     const firstSrv = services[0];
     setEditingClassId(null);
@@ -1056,7 +1039,6 @@ export default function App() {
     });
   };
 
-  // Alumnos
   const handleOpenNewStudent = () => {
     const start = toISODate(new Date());
     const defaultPlan = plans.find((p) => !p.isNone)?.name || plans[0]?.name || '';
@@ -1238,7 +1220,6 @@ export default function App() {
     }
   };
 
-  // Pausar / Reactivar Plan
   const handleTogglePausePlan = async (student) => {
     const currentlyPaused = isPlanPaused(student);
     const nextPaused = !currentlyPaused;
@@ -1265,7 +1246,6 @@ export default function App() {
     }
   };
 
-  // Unificado: Abrir modal de Renovar / Editar Fechas
   const handleOpenRenewOrDates = (student) => {
     const startNow = toISODate(new Date());
     setRenewDatesStudentId(student.id);
@@ -1331,7 +1311,6 @@ export default function App() {
     showToast('Plan renovado y fechas actualizadas');
   };
 
-  // Crear o editar planes
   const handleSavePlanDefinition = (e) => {
     e.preventDefault();
     const cleanName = planForm.name.trim();
@@ -1389,7 +1368,6 @@ export default function App() {
     return 'cuerpo';
   };
 
-  // Rango de fechas en Vista Alumno (Día o Semana)
   const getStudentVisibleDates = () => {
     if (studentRangeMode === 'day') return [selectedDate];
     const start = new Date(`${selectedDate}T00:00:00`);
@@ -1407,7 +1385,6 @@ export default function App() {
   const studentHasPlan = hasActiveSubscriptionPlan(activeStudent);
   const visibleDatesStudent = getStudentVisibleDates();
 
-  // Filtrar clases en Vista Alumno evitando nombres duplicados en mismo día y hora
   const studentFilteredClasses = (() => {
     const raw = classes
       .filter((c) => visibleDatesStudent.includes(c.date))
@@ -1593,7 +1570,6 @@ export default function App() {
     }, {})
   ).sort((a, b) => a.time.localeCompare(b.time) || a.title.localeCompare(b.title));
 
-  // Datos para Dashboard de Estética
   const esteticaClasses = classes
     .filter((c) => c.category === 'Estetica' || getPillarForCategory(c.category) === 'estetica')
     .sort((a, b) => b.date.localeCompare(a.date));
@@ -1760,7 +1736,6 @@ export default function App() {
                       </span>
                       {activeStudent && getStatusBadge(activeStudent)}
 
-                      {/* Si el plan está vencido o pausado, no mostrar saldo */}
                       {activeStudent &&
                         studentAllowed &&
                         studentHasPlan &&
@@ -1837,7 +1812,6 @@ export default function App() {
                     </button>
                   </div>
 
-                  {/* Único selector de fecha sin duplicados */}
                   <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-stone-200/80 shadow-2xs w-fit">
                     <Calendar className="w-4 h-4 text-[#5C7362]" />
                     <input
@@ -1916,6 +1890,14 @@ export default function App() {
                   const dateBeyondExpiry =
                     studentHasPlan && activeStudent?.expiryDate && cls.date > activeStudent.expiryDate;
 
+                  const srvObj = services.find((s) => s.id === cls.category);
+                  const categoryLabel = (srvObj ? srvObj.label : cls.category || '')
+                    .trim()
+                    .toLowerCase();
+                  const classTitle = (cls.title || '').trim().toLowerCase();
+                  const hideDuplicateBadge =
+                    categoryLabel && classTitle && categoryLabel === classTitle;
+
                   return (
                     <div
                       key={cls.id}
@@ -1929,7 +1911,7 @@ export default function App() {
                     >
                       <div>
                         <div className="flex justify-between items-start gap-2 mb-2.5">
-                          <div>{getCategoryBadge(cls.category)}</div>
+                          <div>{!hideDuplicateBadge ? getCategoryBadge(cls.category) : null}</div>
                           {cls.is_cancelled ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-100 text-rose-700">
                               <Ban className="w-3.5 h-3.5" /> Clase cancelada
@@ -2087,7 +2069,6 @@ export default function App() {
               </button>
             </div>
 
-            {/* PESTAÑA 1: CALENDARIO & CLASES */}
             {adminTab === 'schedule' && (
               <div className="space-y-5">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -2132,23 +2113,16 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Calendario */}
                 <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleNavigateCalendar(-1)}
-                        className="p-1.5 rounded-xl border border-stone-200 hover:bg-stone-50"
-                      >
+                      <button onClick={() => handleNavigateCalendar(-1)} className="p-1.5 rounded-xl border border-stone-200 hover:bg-stone-50">
                         <ChevronLeft className="w-4 h-4" />
                       </button>
                       <span className="font-semibold text-sm sm:text-base min-w-[140px] text-center">
                         {MONTH_NAMES[calendarCursor.getMonth()]} {calendarCursor.getFullYear()}
                       </span>
-                      <button
-                        onClick={() => handleNavigateCalendar(1)}
-                        className="p-1.5 rounded-xl border border-stone-200 hover:bg-stone-50"
-                      >
+                      <button onClick={() => handleNavigateCalendar(1)} className="p-1.5 rounded-xl border border-stone-200 hover:bg-stone-50">
                         <ChevronRight className="w-4 h-4" />
                       </button>
                       <button
@@ -2233,13 +2207,7 @@ export default function App() {
                   ) : (
                     <div>
                       <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold text-stone-400 mb-1.5">
-                        <span>Lun</span>
-                        <span>Mar</span>
-                        <span>Mié</span>
-                        <span>Jue</span>
-                        <span>Vie</span>
-                        <span>Sáb</span>
-                        <span>Dom</span>
+                        <span>Lun</span><span>Mar</span><span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span><span>Dom</span>
                       </div>
                       <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
                         {getMonthGridDays(calendarCursor).map((dayObj, idx) => {
@@ -2288,7 +2256,6 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Clases del día */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <h3 className="font-semibold text-base">
@@ -2395,7 +2362,6 @@ export default function App() {
               </div>
             )}
 
-            {/* PESTAÑA 2: ASISTENCIA */}
             {adminTab === 'attendance' && (
               <div className="space-y-5">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -2413,9 +2379,7 @@ export default function App() {
                   >
                     <option value="ALL">Todos los servicios</option>
                     {services.map((srv) => (
-                      <option key={srv.id} value={srv.id}>
-                        {srv.label}
-                      </option>
+                      <option key={srv.id} value={srv.id}>{srv.label}</option>
                     ))}
                   </select>
                 </div>
@@ -2650,7 +2614,6 @@ export default function App() {
               </div>
             )}
 
-            {/* PESTAÑA 3: DASHBOARD */}
             {adminTab === 'dashboard' && (
               <div className="space-y-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2921,7 +2884,6 @@ export default function App() {
               </div>
             )}
 
-            {/* PESTAÑA 4: DASHBOARD DE ESTÉTICA */}
             {adminTab === 'estetica' && (
               <div className="space-y-5">
                 <div>
@@ -2994,7 +2956,6 @@ export default function App() {
               </div>
             )}
 
-            {/* PESTAÑA 5: ALUMNOS */}
             {adminTab === 'students' && (
               <div className="space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -3096,7 +3057,6 @@ export default function App() {
               </div>
             )}
 
-            {/* PESTAÑA 6: PAGOS & COMUNICACIONES */}
             {adminTab === 'payments' && (
               <div className="space-y-5">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -3203,7 +3163,6 @@ export default function App() {
                                     Recordatorio WhatsApp
                                   </a>
 
-                                  {/* Botón unificado para Renovar y/o Modificar Fechas */}
                                   <button
                                     type="button"
                                     onClick={() => handleOpenRenewOrDates(st)}
@@ -3240,7 +3199,6 @@ export default function App() {
         )}
       </main>
 
-      {/* Pie de página fijo con Copyright */}
       <footer className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-[#E5E0D8] py-2 px-4 text-center z-30">
         <p className="text-xs text-stone-600 tracking-wide">
           © {new Date().getFullYear()}{' '}
@@ -3249,7 +3207,6 @@ export default function App() {
         </p>
       </footer>
 
-      {/* Navegación móvil inferior Modo Estudio */}
       {role === 'admin' && (
         <nav className="md:hidden fixed bottom-8 left-0 right-0 bg-white border-t border-stone-200 flex justify-around py-2 px-1 z-40">
           <button onClick={() => setAdminTab('schedule')} className={`flex flex-col items-center gap-0.5 text-[10px] font-medium ${adminTab === 'schedule' ? 'text-[#5C7362]' : 'text-stone-400'}`}>
@@ -3273,7 +3230,6 @@ export default function App() {
         </nav>
       )}
 
-      {/* Modal: Confirmación de borrado */}
       {pendingDeleteConfirm && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl text-center">
@@ -3293,7 +3249,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal: Confirmación al editar asistencia */}
       {pendingAttendanceEdit && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl text-center">
@@ -3322,7 +3277,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal: PIN */}
       {showPinModal && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-xs w-full p-6 shadow-xl text-center">
@@ -3363,7 +3317,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal: Editar Perfil Alumno */}
       {showEditProfileModal && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl">
@@ -3389,7 +3342,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal: Licencia / Vacaciones */}
       {showVacationModal && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto space-y-4">
@@ -3451,7 +3403,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal: Gestionar Servicios */}
       {showServiceModal && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto space-y-5">
@@ -3533,7 +3484,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal: Programar Horarios (solo lista servicios, sin categoría) */}
       {showClassModal && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
@@ -3665,7 +3615,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal: Crear / Editar Alumno (incluye estado de suspensión por vacaciones / no renovó) */}
       {showStudentModal && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
@@ -3759,7 +3708,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal Unificado: Renovar / Modificar Fechas */}
       {showRenewDatesModal && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl">
@@ -3806,7 +3754,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal: Crear / Editar Planes */}
       {showPlanManagerModal && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto space-y-4">
