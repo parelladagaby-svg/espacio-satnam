@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import {
   Calendar,
@@ -45,10 +45,8 @@ const supabaseUrl = 'https://miwktvtdygetyzqvccal.supabase.co';
 const supabaseKey = 'sb_publishable_45-FeV94kQsHYfau3pJPjg_DOo7R6yx';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// PIN de acceso al Modo Estudio
 const ADMIN_PIN = '1008';
 
-// 3 Pilares para agrupar servicios en la Vista de Alumno
 const PILLARS = [
   { id: 'Todas', label: 'Todas' },
   { id: 'cuerpo', label: 'Cuerpo & Movimiento' },
@@ -99,6 +97,17 @@ const MONTH_NAMES = [
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
 ];
 
+const DAY_SHORT_NAMES = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+
+const readLocalJSON = (key, fallback) => {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
 const formatDateDDMMYYYY = (dateStr) => {
   if (!dateStr) return '';
   const clean = String(dateStr).split('T')[0];
@@ -107,10 +116,7 @@ const formatDateDDMMYYYY = (dateStr) => {
   return `${day}-${month}-${year}`;
 };
 
-const formatPriceARS = (value) => {
-  const num = Number(value || 0);
-  return `$ ${num.toLocaleString('es-AR')}`;
-};
+const formatPriceARS = (value) => `$ ${Number(value || 0).toLocaleString('es-AR')}`;
 
 const formatTimestamp = (isoStr) => {
   if (!isoStr) return '';
@@ -136,6 +142,30 @@ const addDaysToISO = (isoDate, days) => {
   if (Number.isNaN(base.getTime())) return isoDate;
   base.setDate(base.getDate() + Number(days || 0));
   return toISODate(base);
+};
+
+const getWeekDays = (cursor) => {
+  const start = new Date(cursor);
+  const day = start.getDay();
+  const diff = start.getDate() - day + (day === 0 ? -6 : 1);
+  start.setDate(diff);
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    return d;
+  });
+};
+
+const getMonthGridDays = (cursor) => {
+  const year = cursor.getFullYear();
+  const month = cursor.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  const startOffset = (firstDay.getDay() + 6) % 7;
+  const days = [];
+  for (let i = 0; i < startOffset; i++) days.push(null);
+  for (let d = 1; d <= lastDay.getDate(); d++) days.push(new Date(year, month, d));
+  return days;
 };
 
 function SatNamLogo({ className = 'w-11 h-11' }) {
@@ -166,55 +196,13 @@ export default function App() {
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
 
-  const [services, setServices] = useState(() => {
-    const saved = localStorage.getItem('satnam_services_v3');
-    return saved ? JSON.parse(saved) : INITIAL_SERVICES;
-  });
-
-  const [plans, setPlans] = useState(() => {
-    const saved = localStorage.getItem('satnam_plans_v2');
-    return saved ? JSON.parse(saved) : INITIAL_PLANS;
-  });
-
-  const [vacationPeriods, setVacationPeriods] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('satnam_vacations_v1') || '[]');
-    } catch {
-      return [];
-    }
-  });
-
-  const [planMetaMap, setPlanMetaMap] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('satnam_plan_meta_v2') || '{}');
-    } catch {
-      return {};
-    }
-  });
-
-  const [cancelledTimestamps, setCancelledTimestamps] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('satnam_cancelled_ts_v1') || '{}');
-    } catch {
-      return {};
-    }
-  });
-
-  const [attendanceMap, setAttendanceMap] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('satnam_attendance_v1') || '{}');
-    } catch {
-      return {};
-    }
-  });
-
-  const [waitlistMap, setWaitlistMap] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem('satnam_waitlist_v1') || '{}');
-    } catch {
-      return {};
-    }
-  });
+  const [services, setServices] = useState(() => readLocalJSON('satnam_services_v3', INITIAL_SERVICES));
+  const [plans, setPlans] = useState(() => readLocalJSON('satnam_plans_v2', INITIAL_PLANS));
+  const [vacationPeriods, setVacationPeriods] = useState(() => readLocalJSON('satnam_vacations_v1', []));
+  const [planMetaMap, setPlanMetaMap] = useState(() => readLocalJSON('satnam_plan_meta_v2', {}));
+  const [cancelledTimestamps, setCancelledTimestamps] = useState(() => readLocalJSON('satnam_cancelled_ts_v1', {}));
+  const [attendanceMap, setAttendanceMap] = useState(() => readLocalJSON('satnam_attendance_v1', {}));
+  const [waitlistMap, setWaitlistMap] = useState(() => readLocalJSON('satnam_waitlist_v1', {}));
 
   const [students, setStudents] = useState([]);
   const [classes, setClasses] = useState([]);
@@ -229,7 +217,6 @@ export default function App() {
     endDate: addDaysToISO(toISODate(new Date()), 7)
   });
 
-  // Vista Alumno + Calendario interactivo de fechas
   const [activeStudentId, setActiveStudentId] = useState('');
   const [selectedDate, setSelectedDate] = useState(toISODate(new Date()));
   const [studentCalendarMonth, setStudentCalendarMonth] = useState(() => new Date());
@@ -237,20 +224,17 @@ export default function App() {
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
   const [profileForm, setProfileForm] = useState({ name: '', phone: '' });
 
-  // Vista Admin
   const [calendarView, setCalendarView] = useState('week');
   const [calendarCursor, setCalendarCursor] = useState(new Date());
   const [attendanceServiceFilter, setAttendanceServiceFilter] = useState('ALL');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Dashboard
   const [openClassesPanel, setOpenClassesPanel] = useState(false);
   const [openBookingsPanel, setOpenBookingsPanel] = useState(false);
   const [expandedDashboardClassId, setExpandedDashboardClassId] = useState(null);
   const [dashboardScope, setDashboardScope] = useState('day');
   const [dashboardMonth, setDashboardMonth] = useState(() => toISODate(new Date()).slice(0, 7));
 
-  // Pagos & Comunicaciones + Planes con precio $$
   const [openPaymentsPanel, setOpenPaymentsPanel] = useState('renew');
   const [showPlanManagerModal, setShowPlanManagerModal] = useState(false);
   const [editingPlanId, setEditingPlanId] = useState(null);
@@ -261,7 +245,6 @@ export default function App() {
     isUnlimited: false
   });
 
-  // Modales Servicios y Clases
   const [showServiceModal, setShowServiceModal] = useState(false);
   const [editingServiceId, setEditingServiceId] = useState(null);
   const [serviceForm, setServiceForm] = useState({
@@ -305,141 +288,20 @@ export default function App() {
     resetCredits: true
   });
 
+  const todayISO = toISODate(new Date());
+
   const showToast = (message, type = 'success') => {
     setNotification({ message, type });
     setTimeout(() => setNotification(null), 3500);
   };
 
-  const saveServices = (next) => {
-    setServices(next);
-    localStorage.setItem('satnam_services_v3', JSON.stringify(next));
+  const persistState = (setter, key, value) => {
+    setter(value);
+    localStorage.setItem(key, JSON.stringify(value));
   };
 
-  const savePlans = (next) => {
-    setPlans(next);
-    localStorage.setItem('satnam_plans_v2', JSON.stringify(next));
-  };
-
-  const saveVacationPeriods = (next) => {
-    setVacationPeriods(next);
-    localStorage.setItem('satnam_vacations_v1', JSON.stringify(next));
-  };
-
-  const savePlanMeta = (next) => {
-    setPlanMetaMap(next);
-    localStorage.setItem('satnam_plan_meta_v2', JSON.stringify(next));
-  };
-
-  const saveCancelledTimestamps = (next) => {
-    setCancelledTimestamps(next);
-    localStorage.setItem('satnam_cancelled_ts_v1', JSON.stringify(next));
-  };
-
-  const saveAttendanceMap = (next) => {
-    setAttendanceMap(next);
-    localStorage.setItem('satnam_attendance_v1', JSON.stringify(next));
-  };
-
-  const saveWaitlistMap = (next) => {
-    setWaitlistMap(next);
-    localStorage.setItem('satnam_waitlist_v1', JSON.stringify(next));
-  };
-
-  const todayISO = toISODate(new Date());
-
-  const getVacationForDate = (isoDate) => {
-    if (!isoDate) return null;
-    return vacationPeriods.find((vp) => isoDate >= vp.startDate && isoDate <= vp.endDate) || null;
-  };
-
-  const handleSelectAdminMode = () => {
-    if (isAdminUnlocked) setRole('admin');
-    else {
-      setPinInput('');
-      setPinError(false);
-      setShowPinModal(true);
-    }
-  };
-
-  const handleVerifyPin = (e) => {
-    e.preventDefault();
-    if (pinInput === ADMIN_PIN) {
-      setIsAdminUnlocked(true);
-      setShowPinModal(false);
-      setRole('admin');
-      setPinInput('');
-      setPinError(false);
-      showToast('Acceso concedido al Modo Estudio');
-    } else {
-      setPinError(true);
-      setPinInput('');
-    }
-  };
-
-  const fetchAllData = async () => {
-    setLoading(true);
-    try {
-      const [studentsRes, classesRes, bookingsRes] = await Promise.all([
-        supabase.from('students').select('*').order('name', { ascending: true }),
-        supabase.from('classes').select('*').order('time', { ascending: true }),
-        supabase.from('bookings').select('*')
-      ]);
-
-      if (studentsRes.error) throw studentsRes.error;
-      if (classesRes.error) throw classesRes.error;
-      if (bookingsRes.error) throw bookingsRes.error;
-
-      const loadedStudents = studentsRes.data.map((s) => ({
-        id: s.id,
-        name: s.name,
-        phone: s.phone || '',
-        plan: s.plan,
-        status: s.status,
-        expiryDate: s.expiry_date,
-        credits: s.credits
-      }));
-
-      setStudents(loadedStudents);
-      if (loadedStudents.length > 0 && !activeStudentId) {
-        setActiveStudentId(loadedStudents[0].id);
-      }
-
-      setClasses(classesRes.data);
-
-      const savedAtt = (() => {
-        try {
-          return JSON.parse(localStorage.getItem('satnam_attendance_v1') || '{}');
-        } catch {
-          return {};
-        }
-      })();
-
-      setBookings(
-        bookingsRes.data.map((b) => {
-          const fromDbStatus = b.attendance_status || (b.attended ? 'attended' : null);
-          const resolvedStatus = savedAtt[b.id] || fromDbStatus;
-          return {
-            id: b.id,
-            classId: b.class_id,
-            studentId: b.student_id,
-            attended: resolvedStatus === 'attended',
-            attendanceStatus: resolvedStatus
-          };
-        })
-      );
-    } catch (error) {
-      console.error('Error cargando datos:', error);
-      showToast('Error al sincronizar con la nube', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchAllData();
-  }, []);
-
-  const activeStudent = students.find((s) => s.id === activeStudentId) || students[0];
+  const getVacationForDate = (isoDate) =>
+    isoDate ? vacationPeriods.find((vp) => isoDate >= vp.startDate && isoDate <= vp.endDate) || null : null;
 
   const getPlanConfig = (planName) =>
     plans.find((p) => p.name === planName) || {
@@ -488,24 +350,128 @@ export default function App() {
     return diff <= 5;
   };
 
-  const canStudentOperate = (student) => {
-    if (!student) return false;
-    return !isPlanPaused(student) && !isPlanExpired(student);
+  const canStudentOperate = (student) => Boolean(student && !isPlanPaused(student) && !isPlanExpired(student));
+
+  const isDateBlockedForStudent = (student, isoDate) => {
+    if (!student || !isoDate) return false;
+    if (!canStudentOperate(student) && isoDate > todayISO) return true;
+    if (canStudentOperate(student) && hasActiveSubscriptionPlan(student) && student.expiryDate && isoDate > student.expiryDate) {
+      return true;
+    }
+    return false;
   };
 
-  const getStudentStartDate = (student) => {
-    if (!student) return '';
-    return planMetaMap[student.id]?.startDate || addDaysToISO(student.expiryDate, -30);
-  };
+  const getStudentStartDate = (student) =>
+    student ? planMetaMap[student.id]?.startDate || addDaysToISO(student.expiryDate, -30) : '';
 
   const getStudentQuotaDisplay = (student) => {
     if (!student) return '';
     if (!hasActiveSubscriptionPlan(student)) return 'Sin plan';
     if (isUnlimitedPlan(student.plan)) return 'Pase Libre';
     const total = getDefaultCreditsForPlan(student.plan);
-    const used = Math.max(0, total - student.credits);
-    const currentNumber = used > 0 ? used : 1;
-    return `${currentNumber}/${total}`;
+    const used = Math.max(0, total - Number(student.credits || 0));
+    return `${used}/${total}`;
+  };
+
+  const getAbsenceLabel = (student) => {
+    const reason = planMetaMap[student.id]?.absenceReason;
+    if (reason === 'vacation_pause') return 'Suspensión por vacaciones';
+    if (reason === 'not_renewed') return 'No renovó';
+    return null;
+  };
+
+  const getPillarForCategory = (categoryId) => {
+    const srv = services.find((s) => s.id === categoryId);
+    if (srv) return srv.pillar;
+    if (categoryId === 'Estetica' || categoryId === 'Bienestar') return 'estetica';
+    if (categoryId === 'Coaching' || categoryId === 'Constelaciones' || categoryId === 'Eventos')
+      return 'mente';
+    return 'cuerpo';
+  };
+
+  const fetchAllData = async () => {
+    setLoading(true);
+    try {
+      const [studentsRes, classesRes, bookingsRes] = await Promise.all([
+        supabase.from('students').select('*').order('name', { ascending: true }),
+        supabase.from('classes').select('*').order('time', { ascending: true }),
+        supabase.from('bookings').select('*')
+      ]);
+
+      if (studentsRes.error) throw studentsRes.error;
+      if (classesRes.error) throw classesRes.error;
+      if (bookingsRes.error) throw bookingsRes.error;
+
+      const loadedStudents = studentsRes.data.map((s) => ({
+        id: s.id,
+        name: s.name,
+        phone: s.phone || '',
+        plan: s.plan,
+        status: s.status,
+        expiryDate: s.expiry_date,
+        credits: s.credits
+      }));
+
+      setStudents(loadedStudents);
+      if (loadedStudents.length > 0 && !activeStudentId) {
+        setActiveStudentId(loadedStudents[0].id);
+      }
+
+      setClasses(classesRes.data);
+
+      const savedAtt = readLocalJSON('satnam_attendance_v1', {});
+      setBookings(
+        bookingsRes.data.map((b) => {
+          const fromDbStatus = b.attendance_status || (b.attended ? 'attended' : null);
+          const resolvedStatus = savedAtt[b.id] || fromDbStatus;
+          return {
+            id: b.id,
+            classId: b.class_id,
+            studentId: b.student_id,
+            attended: resolvedStatus === 'attended',
+            attendanceStatus: resolvedStatus
+          };
+        })
+      );
+    } catch (error) {
+      console.error('Error cargando datos:', error);
+      showToast('Error al sincronizar con la nube', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAllData();
+  }, []);
+
+  const activeStudent = students.find((s) => s.id === activeStudentId) || students[0];
+  const studentAllowed = canStudentOperate(activeStudent);
+  const studentHasPlan = hasActiveSubscriptionPlan(activeStudent);
+  const activeVacationForSelectedDate = getVacationForDate(selectedDate);
+
+  const handleSelectAdminMode = () => {
+    if (isAdminUnlocked) setRole('admin');
+    else {
+      setPinInput('');
+      setPinError(false);
+      setShowPinModal(true);
+    }
+  };
+
+  const handleVerifyPin = (e) => {
+    e.preventDefault();
+    if (pinInput === ADMIN_PIN) {
+      setIsAdminUnlocked(true);
+      setShowPinModal(false);
+      setRole('admin');
+      setPinInput('');
+      setPinError(false);
+      showToast('Acceso concedido al Modo Estudio');
+    } else {
+      setPinError(true);
+      setPinInput('');
+    }
   };
 
   const handleSaveVacationPeriod = async (e) => {
@@ -522,7 +488,7 @@ export default function App() {
       endDate: vacationForm.endDate
     };
 
-    saveVacationPeriods([...vacationPeriods, newPeriod]);
+    persistState(setVacationPeriods, 'satnam_vacations_v1', [...vacationPeriods, newPeriod]);
 
     const affectedClasses = classes.filter(
       (c) => c.date >= vacationForm.startDate && c.date <= vacationForm.endDate
@@ -531,9 +497,7 @@ export default function App() {
     if (affectedClasses.length > 0) {
       const nowISO = new Date().toISOString();
       const idsToCancel = affectedClasses.map((c) => c.id);
-
       await supabase.from('classes').update({ is_cancelled: true }).in('id', idsToCancel);
-
       setClasses((prev) =>
         prev.map((c) => (idsToCancel.includes(c.id) ? { ...c, is_cancelled: true } : c))
       );
@@ -542,7 +506,7 @@ export default function App() {
       idsToCancel.forEach((id) => {
         nextTs[id] = nowISO;
       });
-      saveCancelledTimestamps(nextTs);
+      persistState(setCancelledTimestamps, 'satnam_cancelled_ts_v1', nextTs);
     }
 
     setShowVacationModal(false);
@@ -552,7 +516,7 @@ export default function App() {
   const handleRemoveVacationPeriod = async (periodId) => {
     const target = vacationPeriods.find((vp) => vp.id === periodId);
     const remainingPeriods = vacationPeriods.filter((vp) => vp.id !== periodId);
-    saveVacationPeriods(remainingPeriods);
+    persistState(setVacationPeriods, 'satnam_vacations_v1', remainingPeriods);
 
     if (target) {
       const stillInOtherVacation = (iso) =>
@@ -565,7 +529,6 @@ export default function App() {
       if (classesToReactivate.length > 0) {
         const idsToReactivate = classesToReactivate.map((c) => c.id);
         await supabase.from('classes').update({ is_cancelled: false }).in('id', idsToReactivate);
-
         setClasses((prev) =>
           prev.map((c) => (idsToReactivate.includes(c.id) ? { ...c, is_cancelled: false } : c))
         );
@@ -574,7 +537,7 @@ export default function App() {
         idsToReactivate.forEach((id) => {
           delete nextTs[id];
         });
-        saveCancelledTimestamps(nextTs);
+        persistState(setCancelledTimestamps, 'satnam_cancelled_ts_v1', nextTs);
       }
     }
 
@@ -631,7 +594,7 @@ export default function App() {
       ? currentList.filter((id) => id !== activeStudent.id)
       : [...currentList, activeStudent.id];
 
-    saveWaitlistMap({ ...waitlistMap, [classId]: nextList });
+    persistState(setWaitlistMap, 'satnam_waitlist_v1', { ...waitlistMap, [classId]: nextList });
     showToast(exists ? 'Saliste de la lista de espera' : 'Te sumaste a la lista de espera');
   };
 
@@ -679,7 +642,7 @@ export default function App() {
       setBookings((prev) => prev.filter((b) => b.id !== existingBooking.id));
       const nextAtt = { ...attendanceMap };
       delete nextAtt[existingBooking.id];
-      saveAttendanceMap(nextAtt);
+      persistState(setAttendanceMap, 'satnam_attendance_v1', nextAtt);
 
       if (hasActiveSubscriptionPlan(activeStudent) && !isUnlimitedPlan(activeStudent.plan)) {
         const updatedCredits = activeStudent.credits + 1;
@@ -690,7 +653,7 @@ export default function App() {
       }
       showToast('Reserva cancelada correctamente');
     } else {
-      if (hasActiveSubscriptionPlan(activeStudent) && classObj.date > activeStudent.expiryDate) {
+      if (isDateBlockedForStudent(activeStudent, classObj.date)) {
         showToast(
           'Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el espacio para reactivar tu plan.',
           'error'
@@ -773,16 +736,13 @@ export default function App() {
       )
     );
 
-    saveAttendanceMap({ ...attendanceMap, [bookingId]: status });
+    persistState(setAttendanceMap, 'satnam_attendance_v1', { ...attendanceMap, [bookingId]: status });
 
     const st = students.find((s) => s.id === booking.studentId);
     if (st && hasActiveSubscriptionPlan(st) && !isUnlimitedPlan(st.plan)) {
       let delta = 0;
-      if (prevStatus !== 'no_show' && status === 'no_show') {
-        delta = -1;
-      } else if (prevStatus === 'no_show' && status !== 'no_show') {
-        delta = 1;
-      }
+      if (prevStatus !== 'no_show' && status === 'no_show') delta = -1;
+      else if (prevStatus === 'no_show' && status !== 'no_show') delta = 1;
 
       if (delta !== 0) {
         const nextCredits = Math.max(0, st.credits + delta);
@@ -828,7 +788,7 @@ export default function App() {
             }
           : s
       );
-      saveServices(updated);
+      persistState(setServices, 'satnam_services_v3', updated);
       setEditingServiceId(null);
       setServiceForm({ label: '', pillar: 'cuerpo', isClass: true, defaultCap: 10 });
       showToast('Servicio editado correctamente');
@@ -838,7 +798,7 @@ export default function App() {
         ? `${baseId}_${Date.now()}`
         : baseId;
 
-      saveServices([
+      persistState(setServices, 'satnam_services_v3', [
         ...services,
         {
           id: uniqueId,
@@ -1002,11 +962,10 @@ export default function App() {
   const handleOpenEditClass = (cls) => {
     setEditingClassId(cls.id);
     const matchingSrv = services.find((s) => s.id === cls.category) || services[0];
-    const isCustom = cls.title !== matchingSrv.label;
     setClassForm({
       category: matchingSrv.id,
       title: cls.title,
-      isCustomTitle: isCustom,
+      isCustomTitle: cls.title !== matchingSrv.label,
       instructor: cls.instructor || 'Patricia Aleman',
       time: cls.time,
       duration: cls.duration,
@@ -1034,10 +993,10 @@ export default function App() {
         prev.map((c) => (c.id === classId ? { ...c, is_cancelled: nextCancelledState } : c))
       );
 
-      const updatedTs = { ...cancelledTimestamps };
-      if (nextCancelledState) updatedTs[classId] = nowISO;
-      else delete updatedTs[classId];
-      saveCancelledTimestamps(updatedTs);
+      const nextTs = { ...cancelledTimestamps };
+      if (nextCancelledState) nextTs[classId] = nowISO;
+      else delete nextTs[classId];
+      persistState(setCancelledTimestamps, 'satnam_cancelled_ts_v1', nextTs);
 
       showToast(
         nextCancelledState ? `Clase cancelada (${formatTimestamp(nowISO)})` : 'Clase reactivada'
@@ -1093,6 +1052,8 @@ export default function App() {
 
     if (editingStudentId) {
       const nextStatus = pausedByReason ? 'paused' : 'active';
+      const nextCredits = isUnlimitedPlan(studentForm.plan) ? 99 : Number(studentForm.credits);
+
       const { error } = await supabase
         .from('students')
         .update({
@@ -1100,7 +1061,7 @@ export default function App() {
           phone: studentForm.phone.trim(),
           plan: studentForm.plan,
           status: nextStatus,
-          credits: isUnlimitedPlan(studentForm.plan) ? 99 : Number(studentForm.credits)
+          credits: nextCredits
         })
         .eq('id', editingStudentId);
 
@@ -1118,13 +1079,13 @@ export default function App() {
                 phone: studentForm.phone.trim(),
                 plan: studentForm.plan,
                 status: nextStatus,
-                credits: isUnlimitedPlan(studentForm.plan) ? 99 : Number(studentForm.credits)
+                credits: nextCredits
               }
             : s
         )
       );
 
-      savePlanMeta({
+      persistState(setPlanMetaMap, 'satnam_plan_meta_v2', {
         ...planMetaMap,
         [editingStudentId]: {
           ...(planMetaMap[editingStudentId] || {}),
@@ -1167,7 +1128,7 @@ export default function App() {
         credits: data.credits
       };
 
-      savePlanMeta({
+      persistState(setPlanMetaMap, 'satnam_plan_meta_v2', {
         ...planMetaMap,
         [created.id]: {
           startDate: studentForm.startDate,
@@ -1201,9 +1162,9 @@ export default function App() {
       if (!error) {
         setClasses((prev) => prev.filter((c) => c.id !== id));
         setBookings((prev) => prev.filter((b) => b.classId !== id));
-        const updatedTs = { ...cancelledTimestamps };
-        delete updatedTs[id];
-        saveCancelledTimestamps(updatedTs);
+        const nextTs = { ...cancelledTimestamps };
+        delete nextTs[id];
+        persistState(setCancelledTimestamps, 'satnam_cancelled_ts_v1', nextTs);
         showToast('Clase eliminada');
       } else {
         showToast('No se pudo eliminar la clase', 'error');
@@ -1216,17 +1177,20 @@ export default function App() {
         const remaining = students.filter((s) => s.id !== id);
         setStudents(remaining);
         setBookings((prev) => prev.filter((b) => b.studentId !== id));
-        const updatedMeta = { ...planMetaMap };
-        delete updatedMeta[id];
-        savePlanMeta(updatedMeta);
+        const nextMeta = { ...planMetaMap };
+        delete nextMeta[id];
+        persistState(setPlanMetaMap, 'satnam_plan_meta_v2', nextMeta);
         if (activeStudentId === id) setActiveStudentId(remaining[0]?.id || '');
         showToast('Alumno eliminado del registro');
       } else {
         showToast('No se pudo eliminar el alumno', 'error');
       }
     } else if (type === 'service') {
-      const updated = services.filter((s) => s.id !== id);
-      saveServices(updated);
+      persistState(
+        setServices,
+        'satnam_services_v3',
+        services.filter((s) => s.id !== id)
+      );
       if (editingServiceId === id) {
         setEditingServiceId(null);
         setServiceForm({ label: '', pillar: 'cuerpo', isClass: true, defaultCap: 10 });
@@ -1248,7 +1212,7 @@ export default function App() {
       setStudents((prev) =>
         prev.map((s) => (s.id === student.id ? { ...s, status: nextStatus } : s))
       );
-      savePlanMeta({
+      persistState(setPlanMetaMap, 'satnam_plan_meta_v2', {
         ...planMetaMap,
         [student.id]: {
           ...(planMetaMap[student.id] || { startDate: getStudentStartDate(student) }),
@@ -1312,7 +1276,7 @@ export default function App() {
       )
     );
 
-    savePlanMeta({
+    persistState(setPlanMetaMap, 'satnam_plan_meta_v2', {
       ...planMetaMap,
       [renewDatesStudentId]: {
         ...(planMetaMap[renewDatesStudentId] || {}),
@@ -1331,7 +1295,6 @@ export default function App() {
     e.preventDefault();
     const cleanName = planForm.name.trim();
     if (!cleanName) return;
-
     const cleanPrice = Math.max(0, Number(planForm.price) || 0);
 
     if (editingPlanId) {
@@ -1347,7 +1310,7 @@ export default function App() {
             }
           : p
       );
-      savePlans(updatedPlans);
+      persistState(setPlans, 'satnam_plans_v2', updatedPlans);
 
       if (prevPlan && prevPlan.name !== cleanName) {
         setStudents((prev) =>
@@ -1367,7 +1330,7 @@ export default function App() {
         credits: planForm.isUnlimited ? 99 : Number(planForm.credits) || 1,
         isNone: false
       };
-      savePlans([...plans, newPlan]);
+      persistState(setPlans, 'satnam_plans_v2', [...plans, newPlan]);
       setPlanForm({ name: '', credits: 4, price: 50000, isUnlimited: false });
       showToast('Nuevo plan creado y publicado');
     }
@@ -1377,63 +1340,6 @@ export default function App() {
     const cleanPhone = student.phone.replace(/\D/g, '');
     const message = `¡Hola ${student.name}! Te saludamos desde *Espacio Sat-Nam* 🪷. Te recordamos que tu plan (*${student.plan}*) vence el día *${formatDateDDMMYYYY(student.expiryDate)}*. Avísanos por aquí si deseas renovarlo para mantener tu lugar. ¡Sat Nam! ✨`;
     return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
-  };
-
-  const getPillarForCategory = (categoryId) => {
-    const srv = services.find((s) => s.id === categoryId);
-    if (srv) return srv.pillar;
-    if (categoryId === 'Estetica' || categoryId === 'Bienestar') return 'estetica';
-    if (categoryId === 'Coaching' || categoryId === 'Constelaciones' || categoryId === 'Eventos')
-      return 'mente';
-    return 'cuerpo';
-  };
-
-  const studentAllowed = canStudentOperate(activeStudent);
-  const studentHasPlan = hasActiveSubscriptionPlan(activeStudent);
-
-  const studentFilteredClasses = (() => {
-    const raw = classes
-      .filter((c) => c.date === selectedDate)
-      .filter((c) => {
-        if (!studentHasPlan) {
-          const srvObj = services.find((s) => s.id === c.category);
-          if (srvObj && srvObj.isClass) return false;
-        }
-        return true;
-      })
-      .filter((c) =>
-        pillarFilter === 'Todas' ? true : getPillarForCategory(c.category) === pillarFilter
-      )
-      .sort((a, b) => a.time.localeCompare(b.time));
-
-    const seen = new Set();
-    return raw.filter((cls) => {
-      const key = `${cls.date}__${cls.time}__${cls.title.toLowerCase().trim()}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  })();
-
-  const dayClassesAdmin = classes
-    .filter((c) => c.date === selectedDate)
-    .sort((a, b) => a.time.localeCompare(b.time));
-
-  const attendanceDayClasses = dayClassesAdmin.filter((c) =>
-    attendanceServiceFilter === 'ALL' ? true : c.category === attendanceServiceFilter
-  );
-
-  const filteredStudents = students.filter(
-    (s) =>
-      s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.plan.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  const getAbsenceLabel = (student) => {
-    const reason = planMetaMap[student.id]?.absenceReason;
-    if (reason === 'vacation_pause') return 'Suspensión por vacaciones';
-    if (reason === 'not_renewed') return 'No renovó';
-    return null;
   };
 
   const getStatusBadge = (student) => {
@@ -1466,9 +1372,7 @@ export default function App() {
         </span>
       );
     }
-    const diffDays = Math.ceil(
-      (new Date(student.expiryDate) - new Date(todayISO)) / (1000 * 60 * 60 * 24)
-    );
+    const diffDays = Math.ceil((new Date(student.expiryDate) - new Date(todayISO)) / 86400000);
     if (diffDays <= 5) {
       return (
         <span className="px-2.5 py-0.5 text-xs font-medium rounded-full bg-amber-100/80 text-amber-800">
@@ -1510,30 +1414,6 @@ export default function App() {
     }
   };
 
-  const getWeekDays = (cursor) => {
-    const start = new Date(cursor);
-    const day = start.getDay();
-    const diff = start.getDate() - day + (day === 0 ? -6 : 1);
-    start.setDate(diff);
-    return Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(start);
-      d.setDate(start.getDate() + i);
-      return d;
-    });
-  };
-
-  const getMonthGridDays = (cursor) => {
-    const year = cursor.getFullYear();
-    const month = cursor.getMonth();
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
-    const startOffset = (firstDay.getDay() + 6) % 7;
-    const days = [];
-    for (let i = 0; i < startOffset; i++) days.push(null);
-    for (let d = 1; d <= lastDay.getDate(); d++) days.push(new Date(year, month, d));
-    return days;
-  };
-
   const handleNavigateCalendar = (direction) => {
     const next = new Date(calendarCursor);
     if (calendarView === 'week') next.setDate(next.getDate() + direction * 7);
@@ -1541,30 +1421,74 @@ export default function App() {
     setCalendarCursor(next);
   };
 
-  const activePaymentStudents = students.filter(
-    (s) => hasActiveSubscriptionPlan(s) && !isPlanPaused(s) && !isPlanExpired(s)
-  );
-  const renewPaymentStudents = students.filter(
-    (s) => hasActiveSubscriptionPlan(s) && !isPlanPaused(s) && (isPlanExpired(s) || isPlanExpiringSoon(s))
+  const studentFilteredClasses = useMemo(() => {
+    const raw = classes
+      .filter((c) => c.date === selectedDate)
+      .filter((c) => {
+        if (!studentHasPlan) {
+          const srvObj = services.find((s) => s.id === c.category);
+          if (srvObj && srvObj.isClass) return false;
+        }
+        return true;
+      })
+      .filter((c) => (pillarFilter === 'Todas' ? true : getPillarForCategory(c.category) === pillarFilter))
+      .sort((a, b) => a.time.localeCompare(b.time));
+
+    const seen = new Set();
+    return raw.filter((cls) => {
+      const key = `${cls.date}__${cls.time}__${cls.title.toLowerCase().trim()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [classes, selectedDate, studentHasPlan, services, pillarFilter]);
+
+  const dayClassesAdmin = useMemo(
+    () => classes.filter((c) => c.date === selectedDate).sort((a, b) => a.time.localeCompare(b.time)),
+    [classes, selectedDate]
   );
 
-  const availableDayClasses = dayClassesAdmin.filter((c) => !c.is_cancelled);
-  const dayClassIds = new Set(dayClassesAdmin.map((c) => c.id));
-  const dayBookings = bookings.filter((b) => dayClassIds.has(b.classId));
+  const attendanceDayClasses = useMemo(
+    () =>
+      dayClassesAdmin.filter((c) =>
+        attendanceServiceFilter === 'ALL' ? true : c.category === attendanceServiceFilter
+      ),
+    [dayClassesAdmin, attendanceServiceFilter]
+  );
 
-  const monthClasses = classes.filter((c) => String(c.date || '').startsWith(dashboardMonth));
-  const monthStatsBySlot = Object.values(
-    monthClasses.reduce((acc, cls) => {
+  const filteredStudents = useMemo(
+    () =>
+      students.filter(
+        (s) =>
+          s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          s.plan.toLowerCase().includes(searchTerm.toLowerCase())
+      ),
+    [students, searchTerm]
+  );
+
+  const activePaymentStudents = useMemo(
+    () => students.filter((s) => hasActiveSubscriptionPlan(s) && !isPlanPaused(s) && !isPlanExpired(s)),
+    [students, plans, planMetaMap, todayISO]
+  );
+
+  const renewPaymentStudents = useMemo(
+    () =>
+      students.filter(
+        (s) => hasActiveSubscriptionPlan(s) && !isPlanPaused(s) && (isPlanExpired(s) || isPlanExpiringSoon(s))
+      ),
+    [students, plans, planMetaMap, todayISO]
+  );
+
+  const availableDayClasses = useMemo(() => dayClassesAdmin.filter((c) => !c.is_cancelled), [dayClassesAdmin]);
+  const dayClassIds = useMemo(() => new Set(dayClassesAdmin.map((c) => c.id)), [dayClassesAdmin]);
+  const dayBookings = useMemo(() => bookings.filter((b) => dayClassIds.has(b.classId)), [bookings, dayClassIds]);
+
+  const monthStatsBySlot = useMemo(() => {
+    const monthClasses = classes.filter((c) => String(c.date || '').startsWith(dashboardMonth));
+    const map = monthClasses.reduce((acc, cls) => {
       const key = `${cls.title}__${cls.time}`;
       if (!acc[key]) {
-        acc[key] = {
-          key,
-          title: cls.title,
-          time: cls.time,
-          totalBookings: 0,
-          attended: 0,
-          noShow: 0
-        };
+        acc[key] = { key, title: cls.title, time: cls.time, totalBookings: 0, attended: 0, noShow: 0 };
       }
       const clsBookings = bookings.filter((b) => b.classId === cls.id);
       acc[key].totalBookings += clsBookings.length;
@@ -1573,44 +1497,295 @@ export default function App() {
       ).length;
       acc[key].noShow += clsBookings.filter((b) => b.attendanceStatus === 'no_show').length;
       return acc;
-    }, {})
-  ).sort((a, b) => a.time.localeCompare(b.time) || a.title.localeCompare(b.title));
+    }, {});
+    return Object.values(map).sort((a, b) => a.time.localeCompare(b.time) || a.title.localeCompare(b.title));
+  }, [classes, bookings, dashboardMonth]);
 
-  const esteticaClasses = classes
-    .filter((c) => c.category === 'Estetica' || getPillarForCategory(c.category) === 'estetica')
-    .sort((a, b) => b.date.localeCompare(a.date));
+  const esteticaClientSummaries = useMemo(() => {
+    const estClasses = classes
+      .filter((c) => c.category === 'Estetica' || getPillarForCategory(c.category) === 'estetica')
+      .sort((a, b) => b.date.localeCompare(a.date));
 
-  const esteticaBookings = bookings.filter((b) =>
-    esteticaClasses.some((c) => c.id === b.classId)
+    const estBookings = bookings.filter((b) => estClasses.some((c) => c.id === b.classId));
+
+    return students
+      .map((st) => {
+        const stEstBookings = estBookings
+          .filter((b) => b.studentId === st.id)
+          .map((b) => ({ ...b, classObj: estClasses.find((item) => item.id === b.classId) }))
+          .filter((item) => item.classObj)
+          .sort((a, b) => b.classObj.date.localeCompare(a.classObj.date));
+
+        const lastEntry = stEstBookings[0];
+        return {
+          student: st,
+          lastDate: lastEntry?.classObj?.date || null,
+          lastTitle: lastEntry?.classObj?.title || 'Sin sesión previa',
+          suggestedDate: lastEntry ? addDaysToISO(lastEntry.classObj.date, 21) : addDaysToISO(todayISO, 7),
+          totalSessions: stEstBookings.length
+        };
+      })
+      .filter((item) => item.totalSessions > 0 || !hasActiveSubscriptionPlan(item.student));
+  }, [students, classes, bookings, services, plans, todayISO]);
+
+  const publishedPlansForStudents = useMemo(() => plans.filter((p) => !p.isNone), [plans]);
+  const weekDaysAdmin = useMemo(() => getWeekDays(calendarCursor), [calendarCursor]);
+  const monthDaysAdmin = useMemo(() => getMonthGridDays(calendarCursor), [calendarCursor]);
+  const monthDaysStudent = useMemo(() => getMonthGridDays(studentCalendarMonth), [studentCalendarMonth]);
+
+  const renderCalendarSelector = () => (
+    <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => handleNavigateCalendar(-1)} className="p-1.5 rounded-xl border border-stone-200 hover:bg-stone-50">
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <span className="font-semibold text-sm sm:text-base min-w-[140px] text-center">
+            {MONTH_NAMES[calendarCursor.getMonth()]} {calendarCursor.getFullYear()}
+          </span>
+          <button type="button" onClick={() => handleNavigateCalendar(1)} className="p-1.5 rounded-xl border border-stone-200 hover:bg-stone-50">
+            <ChevronRight className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const now = new Date();
+              setCalendarCursor(now);
+              setSelectedDate(toISODate(now));
+            }}
+            className="text-xs font-medium text-[#5C7362] bg-[#EDF3EE] px-2.5 py-1 rounded-lg ml-1"
+          >
+            Hoy
+          </button>
+        </div>
+
+        <div className="flex items-center bg-[#F7F5F0] p-1 rounded-xl border border-stone-200/70">
+          <button
+            type="button"
+            onClick={() => setCalendarView('week')}
+            className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+              calendarView === 'week' ? 'bg-[#5C7362] text-white shadow-2xs' : 'text-stone-600'
+            }`}
+          >
+            Semanal
+          </button>
+          <button
+            type="button"
+            onClick={() => setCalendarView('month')}
+            className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+              calendarView === 'month' ? 'bg-[#5C7362] text-white shadow-2xs' : 'text-stone-600'
+            }`}
+          >
+            Mensual
+          </button>
+        </div>
+      </div>
+
+      {calendarView === 'week' ? (
+        <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
+          {weekDaysAdmin.map((dayObj) => {
+            const iso = toISODate(dayObj);
+            const isSelected = iso === selectedDate;
+            const isToday = iso === todayISO;
+            const isVac = Boolean(getVacationForDate(iso));
+            const count = classes.filter((c) => c.date === iso).length;
+
+            return (
+              <button
+                type="button"
+                key={iso}
+                onClick={() => setSelectedDate(iso)}
+                className={`p-2 sm:p-3 rounded-2xl border text-center transition-all flex flex-col items-center justify-between min-h-[76px] ${
+                  isSelected
+                    ? 'bg-[#5C7362] text-white border-[#5C7362] shadow-xs'
+                    : isVac
+                    ? 'bg-amber-50/90 border-amber-200 text-amber-900'
+                    : isToday
+                    ? 'bg-[#EDF3EE] border-[#5C7362]/40 text-[#2D332F]'
+                    : 'bg-[#F7F5F0]/60 border-stone-200/80 hover:border-stone-300'
+                }`}
+              >
+                <span className={`text-[11px] font-medium ${isSelected ? 'text-white/80' : 'text-stone-500'}`}>
+                  {DAY_SHORT_NAMES[dayObj.getDay()]}
+                </span>
+                <span className="text-base sm:text-lg font-bold my-0.5">{dayObj.getDate()}</span>
+                {isVac ? (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-amber-100 text-amber-800">
+                    Vacaciones
+                  </span>
+                ) : count > 0 ? (
+                  <span
+                    className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
+                      isSelected ? 'bg-white/20 text-white' : 'bg-[#EDF3EE] text-[#4C6352]'
+                    }`}
+                  >
+                    {count} {count === 1 ? 'clase' : 'clases'}
+                  </span>
+                ) : (
+                  <span className="text-[10px] opacity-40">—</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <div>
+          <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold text-stone-400 mb-1.5">
+            <span>Lun</span><span>Mar</span><span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span><span>Dom</span>
+          </div>
+          <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
+            {monthDaysAdmin.map((dayObj, idx) => {
+              if (!dayObj) return <div key={`empty-${idx}`} className="p-2" />;
+              const iso = toISODate(dayObj);
+              const isSelected = iso === selectedDate;
+              const isToday = iso === todayISO;
+              const isVac = Boolean(getVacationForDate(iso));
+              const count = classes.filter((c) => c.date === iso).length;
+
+              return (
+                <button
+                  type="button"
+                  key={iso}
+                  onClick={() => setSelectedDate(iso)}
+                  className={`p-1.5 sm:p-2 rounded-xl border text-center transition-all flex flex-col items-center justify-center min-h-[54px] ${
+                    isSelected
+                      ? 'bg-[#5C7362] text-white border-[#5C7362]'
+                      : isVac
+                      ? 'bg-amber-50 border-amber-200 text-amber-900'
+                      : isToday
+                      ? 'bg-[#EDF3EE] border-[#5C7362]/40'
+                      : 'bg-[#F7F5F0]/50 border-stone-200/70 hover:border-stone-300'
+                  }`}
+                >
+                  <span className="text-xs sm:text-sm font-semibold">{dayObj.getDate()}</span>
+                  {isVac ? (
+                    <span className="mt-0.5 text-[9px] px-1 rounded-full font-semibold bg-amber-100 text-amber-800">
+                      Lic.
+                    </span>
+                  ) : (
+                    count > 0 && (
+                      <span
+                        className={`mt-0.5 text-[10px] px-1.5 rounded-full font-medium ${
+                          isSelected ? 'bg-white/25 text-white' : 'bg-[#EDF3EE] text-[#4C6352]'
+                        }`}
+                      >
+                        {count}
+                      </span>
+                    )
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
   );
 
-  const esteticaClientSummaries = students
-    .map((st) => {
-      const stEstBookings = esteticaBookings
-        .filter((b) => b.studentId === st.id)
-        .map((b) => {
-          const c = esteticaClasses.find((item) => item.id === b.classId);
-          return { ...b, classObj: c };
+  const renderAttendanceBoard = (dayList) => (
+    <div className="space-y-4">
+      <h3 className="font-semibold text-base">
+        Planilla del día: <span className="text-[#5C7362]">{formatDateDDMMYYYY(selectedDate)}</span>
+      </h3>
+
+      {dayList.length === 0 ? (
+        <div className="bg-white rounded-3xl p-8 text-center border border-stone-200/70 text-stone-500 text-sm">
+          No hay clases para tomar asistencia en esta fecha o filtro.
+        </div>
+      ) : (
+        dayList.map((cls) => {
+          const classBookings = bookings.filter((b) => b.classId === cls.id);
+          const pendingCount = classBookings.filter((b) => !b.attendanceStatus && !b.attended).length;
+
+          return (
+            <div key={cls.id} className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-stone-100">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2 mb-1">
+                    {getCategoryBadge(cls.category)}
+                    <span className="text-xs font-medium px-2.5 py-0.5 rounded-lg bg-[#EDF3EE] text-[#4C6352]">
+                      {cls.time} hs
+                    </span>
+                    {cls.is_cancelled && (
+                      <span className="text-xs font-semibold px-2 py-0.5 bg-rose-100 text-rose-700 rounded-lg">
+                        CANCELADA
+                      </span>
+                    )}
+                  </div>
+                  <h4 className="font-semibold text-base">{cls.title}</h4>
+                </div>
+
+                <span className="text-xs text-stone-500">
+                  Inscritos: <strong>{classBookings.length}</strong> • Pendientes: <strong>{pendingCount}</strong>
+                </span>
+              </div>
+
+              {classBookings.length === 0 ? (
+                <p className="text-xs text-stone-400 italic">No hay alumnos registrados en esta clase.</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {classBookings.map((booking) => {
+                    const st = students.find((s) => s.id === booking.studentId);
+                    if (!st) return null;
+                    const isNoShow = booking.attendanceStatus === 'no_show';
+                    const isAttended = booking.attendanceStatus === 'attended' || (!isNoShow && booking.attended);
+
+                    return (
+                      <div
+                        key={booking.id}
+                        className={`p-3 rounded-2xl border flex items-center justify-between gap-2 transition-all ${
+                          isAttended
+                            ? 'bg-[#EDF3EE] text-[#4C6352] border-[#5C7362]/30'
+                            : isNoShow
+                            ? 'bg-rose-50/70 text-rose-900 border-rose-200'
+                            : 'bg-[#F7F5F0] border-stone-200/80'
+                        }`}
+                      >
+                        <div>
+                          <p className="text-sm font-semibold">
+                            {st.name}: <span className="text-[#5C7362]">{getStudentQuotaDisplay(st)}</span>
+                          </p>
+                          <p className="text-[11px] text-stone-500">{st.plan}</p>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleRequestAttendanceChange(booking, 'attended', st.name)}
+                            className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-xl transition-all ${
+                              isAttended
+                                ? 'bg-[#5C7362] text-white'
+                                : 'bg-white text-stone-600 border border-stone-200 hover:bg-[#EDF3EE]'
+                            }`}
+                          >
+                            <UserCheck className="w-3.5 h-3.5" />
+                            Asistió
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleRequestAttendanceChange(booking, 'no_show', st.name)}
+                            className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-xl transition-all ${
+                              isNoShow
+                                ? 'bg-rose-600 text-white'
+                                : 'bg-white text-stone-600 border border-stone-200 hover:bg-rose-50'
+                            }`}
+                          >
+                            <UserX className="w-3.5 h-3.5" />
+                            No asistió
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
         })
-        .filter((item) => item.classObj)
-        .sort((a, b) => b.classObj.date.localeCompare(a.classObj.date));
-
-      const lastEntry = stEstBookings[0];
-      const suggestedDate = lastEntry
-        ? addDaysToISO(lastEntry.classObj.date, 21)
-        : addDaysToISO(todayISO, 7);
-
-      return {
-        student: st,
-        lastDate: lastEntry?.classObj?.date || null,
-        lastTitle: lastEntry?.classObj?.title || 'Sin sesión previa',
-        suggestedDate,
-        totalSessions: stEstBookings.length
-      };
-    })
-    .filter((item) => item.totalSessions > 0 || !hasActiveSubscriptionPlan(item.student));
-
-  const publishedPlansForStudents = plans.filter((p) => !p.isNone);
+      )}
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-[#F7F5F0] text-[#2D332F] font-sans pb-24 md:pb-14 flex flex-col">
@@ -1645,6 +1820,7 @@ export default function App() {
 
           <div className="flex items-center gap-2">
             <button
+              type="button"
               onClick={fetchAllData}
               title="Actualizar datos"
               className="p-2 rounded-xl text-stone-500 hover:bg-black/[0.04] transition-colors"
@@ -1654,28 +1830,22 @@ export default function App() {
 
             <div className="flex items-center bg-black/[0.04] p-1 rounded-xl border border-black/[0.05]">
               <button
+                type="button"
                 onClick={() => setRole('student')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                  role === 'student'
-                    ? 'bg-[#5C7362] text-white shadow-xs'
-                    : 'text-stone-600 hover:text-stone-900'
+                  role === 'student' ? 'bg-[#5C7362] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
                 }`}
               >
                 Vista Alumno
               </button>
               <button
+                type="button"
                 onClick={handleSelectAdminMode}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1 ${
-                  role === 'admin'
-                    ? 'bg-[#5C7362] text-white shadow-xs'
-                    : 'text-stone-600 hover:text-stone-900'
+                  role === 'admin' ? 'bg-[#5C7362] text-white shadow-xs' : 'text-stone-600 hover:text-stone-900'
                 }`}
               >
-                {isAdminUnlocked ? (
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                ) : (
-                  <Lock className="w-3.5 h-3.5" />
-                )}
+                {isAdminUnlocked ? <ShieldCheck className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
                 Modo Estudio
               </button>
             </div>
@@ -1685,18 +1855,15 @@ export default function App() {
 
       <main className="max-w-5xl mx-auto px-4 pt-6 flex-1 w-full">
         {loading && students.length === 0 && classes.length === 0 ? (
-          <div className="text-center py-16 text-stone-500">
-            Conectando con la agenda de Espacio Sat-Nam...
-          </div>
+          <div className="text-center py-16 text-stone-500">Conectando con la agenda de Espacio Sat-Nam...</div>
         ) : role === 'student' ? (
-          /* ================= VISTA ALUMNO ================= */
           <div className="space-y-6">
             <div className="bg-white/80 rounded-3xl px-5 py-4 border border-stone-200/70">
               <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
                 Un lugar creado para mejorar tu calidad de vida desde el{' '}
-                <strong className="font-medium text-stone-800">bienestar integral</strong>: Yoga
-                Terapia y Restaurativo, Spinning, Pilates y Circuito, Coaching y PNL para
-                acompañar tus procesos de cambio, Constelaciones, y Estética y Cosmiatría.
+                <strong className="font-medium text-stone-800">bienestar integral</strong>: Yoga Terapia y
+                Restaurativo, Spinning, Pilates y Circuito, Coaching y PNL para acompañar tus procesos de cambio,
+                Constelaciones, y Estética y Cosmiatría.
               </p>
             </div>
 
@@ -1709,28 +1876,25 @@ export default function App() {
                   </div>
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs text-stone-400 uppercase tracking-wider font-medium">
-                        Hola,
-                      </span>
+                      <span className="text-xs text-stone-400 uppercase tracking-wider font-medium">Hola,</span>
                       <select
                         value={activeStudentId}
                         onChange={(e) => {
                           const nextId = e.target.value;
                           setActiveStudentId(nextId);
                           const chosen = students.find((x) => x.id === nextId);
-                          if (chosen && !canStudentOperate(chosen) && selectedDate > todayISO) {
+                          if (chosen && isDateBlockedForStudent(chosen, selectedDate)) {
                             setSelectedDate(todayISO);
                           }
                         }}
                         className="text-sm font-semibold bg-[#F7F5F0] border border-stone-200 rounded-xl px-2.5 py-1 focus:outline-none focus:border-[#5C7362]"
                       >
                         {students.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.name}
-                          </option>
+                          <option key={s.id} value={s.id}>{s.name}</option>
                         ))}
                       </select>
                       <button
+                        type="button"
                         onClick={handleOpenEditProfile}
                         className="inline-flex items-center gap-1 text-xs font-medium text-[#5C7362] bg-[#EDF3EE] hover:bg-[#dce8de] px-2.5 py-1 rounded-xl transition-colors"
                       >
@@ -1749,16 +1913,15 @@ export default function App() {
                         studentHasPlan &&
                         !isUnlimitedPlan(activeStudent.plan) && (
                           <span className="text-xs text-stone-600">
-                            • Saldo: <strong>{activeStudent.credits}</strong> disponibles (
-                            {getStudentQuotaDisplay(activeStudent)})
+                            • Saldo: <strong>{activeStudent.credits}</strong> disponibles ({getStudentQuotaDisplay(activeStudent)})
                           </span>
                         )}
                     </div>
 
                     {activeStudent && !studentAllowed && (
                       <p className="text-xs text-rose-700 font-medium mt-1.5">
-                        Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el
-                        espacio para reactivar tu plan.
+                        Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el espacio para
+                        reactivar tu plan.
                       </p>
                     )}
 
@@ -1773,9 +1936,7 @@ export default function App() {
                 {activeStudent && studentHasPlan && (
                   <div className="text-xs text-stone-500 sm:text-right border-t sm:border-t-0 pt-2.5 sm:pt-0 border-stone-100 pl-2 sm:pl-0">
                     Vencimiento:
-                    <span className="block font-semibold text-sm">
-                      {formatDateDDMMYYYY(activeStudent?.expiryDate)}
-                    </span>
+                    <span className="block font-semibold text-sm">{formatDateDDMMYYYY(activeStudent?.expiryDate)}</span>
                   </div>
                 )}
               </div>
@@ -1785,7 +1946,7 @@ export default function App() {
               </div>
             )}
 
-            {/* Planes y Precios publicados en la página de inicio del alumno */}
+            {/* Planes y Precios publicados */}
             <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-3">
               <div className="flex items-center justify-between">
                 <h2 className="text-base font-semibold">Planes y Precios</h2>
@@ -1811,25 +1972,20 @@ export default function App() {
               </div>
             </div>
 
-            {/* Calendario interactivo para seleccionar fecha y ver clases */}
+            {/* Calendario interactivo para elegir fecha */}
             <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
                   <h2 className="text-xl font-semibold">Agenda y Reservas</h2>
-                  <p className="text-sm text-stone-500">
-                    Entrá a una fecha en el calendario para ver sus clases y reservar
-                  </p>
+                  <p className="text-sm text-stone-500">Entrá a una fecha en el calendario para ver sus clases</p>
                 </div>
 
                 <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-stone-200/80 shadow-2xs w-fit">
                   <Calendar className="w-4 h-4 text-[#5C7362]" />
-                  <span className="text-xs font-semibold text-[#2D332F]">
-                    Fecha seleccionada: {formatDateDDMMYYYY(selectedDate)}
-                  </span>
+                  <span className="text-xs font-semibold text-[#2D332F]">{formatDateDDMMYYYY(selectedDate)}</span>
                 </div>
               </div>
 
-              {/* Calendario mensual interactivo */}
               <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-3">
                 <div className="flex items-center justify-between">
                   <button
@@ -1864,14 +2020,12 @@ export default function App() {
                 </div>
 
                 <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
-                  {getMonthGridDays(studentCalendarMonth).map((dayObj, idx) => {
+                  {monthDaysStudent.map((dayObj, idx) => {
                     if (!dayObj) return <div key={`st-empty-${idx}`} className="p-2" />;
                     const iso = toISODate(dayObj);
                     const isSelected = iso === selectedDate;
                     const isVac = Boolean(getVacationForDate(iso));
-                    const isBlockedFuture =
-                      (!studentAllowed && iso > todayISO) ||
-                      (studentAllowed && studentHasPlan && activeStudent?.expiryDate && iso > activeStudent.expiryDate);
+                    const isBlocked = isDateBlockedForStudent(activeStudent, iso);
                     const dayClassesCount = classes.filter((c) => c.date === iso).length;
 
                     return (
@@ -1879,7 +2033,7 @@ export default function App() {
                         type="button"
                         key={iso}
                         onClick={() => {
-                          if (isBlockedFuture) {
+                          if (isBlocked) {
                             showToast(
                               'Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el espacio para reactivar tu plan.',
                               'error'
@@ -1891,7 +2045,7 @@ export default function App() {
                         className={`p-1.5 sm:p-2 rounded-xl border text-center transition-all flex flex-col items-center justify-center min-h-[54px] ${
                           isSelected
                             ? 'bg-[#5C7362] text-white border-[#5C7362]'
-                            : isBlockedFuture
+                            : isBlocked
                             ? 'bg-stone-100/70 text-stone-400 border-stone-200/50'
                             : isVac
                             ? 'bg-amber-50 border-amber-200 text-amber-900'
@@ -1920,10 +2074,10 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Filtro por categorías */}
               <div className="flex flex-wrap items-center gap-2">
                 {PILLARS.map((pil) => (
                   <button
+                    type="button"
                     key={pil.id}
                     onClick={() => setPillarFilter(pil.id)}
                     className={`px-4 py-2 rounded-xl text-xs font-medium transition-all border ${
@@ -1938,44 +2092,37 @@ export default function App() {
               </div>
             </div>
 
-            {getVacationForDate(selectedDate) ? (
+            {activeVacationForSelectedDate ? (
               <div className="bg-white rounded-3xl p-10 text-center border border-amber-200/90 shadow-2xs space-y-2">
                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
                   <Palmtree className="w-4 h-4" /> Cerrado por vacaciones
                 </span>
                 <p className="text-sm text-stone-600">
                   El estudio se encuentra <strong>cerrado por vacaciones</strong> del{' '}
-                  <strong>{formatDateDDMMYYYY(getVacationForDate(selectedDate).startDate)}</strong> al{' '}
-                  <strong>{formatDateDDMMYYYY(getVacationForDate(selectedDate).endDate)}</strong>.
+                  <strong>{formatDateDDMMYYYY(activeVacationForSelectedDate.startDate)}</strong> al{' '}
+                  <strong>{formatDateDDMMYYYY(activeVacationForSelectedDate.endDate)}</strong>.
                 </p>
               </div>
             ) : studentFilteredClasses.length === 0 ? (
               <div className="bg-white rounded-3xl p-10 text-center border border-stone-200/70">
                 <p className="text-stone-500 text-sm">
-                  No hay actividades disponibles para el <strong>{formatDateDDMMYYYY(selectedDate)}</strong> en esta categoría.
+                  No hay actividades disponibles para el <strong>{formatDateDDMMYYYY(selectedDate)}</strong> en esta
+                  categoría.
                 </p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {studentFilteredClasses.map((cls) => {
                   const classBookings = bookings.filter((b) => b.classId === cls.id);
-                  const isBooked = activeStudent
-                    ? classBookings.some((b) => b.studentId === activeStudent.id)
-                    : false;
+                  const isBooked = activeStudent ? classBookings.some((b) => b.studentId === activeStudent.id) : false;
                   const isFull = classBookings.length >= cls.capacity;
-                  const onWaitlist = activeStudent
-                    ? (waitlistMap[cls.id] || []).includes(activeStudent.id)
-                    : false;
-                  const dateBeyondExpiry =
-                    studentHasPlan && activeStudent?.expiryDate && cls.date > activeStudent.expiryDate;
+                  const onWaitlist = activeStudent ? (waitlistMap[cls.id] || []).includes(activeStudent.id) : false;
+                  const dateBlocked = isDateBlockedForStudent(activeStudent, cls.date);
 
                   const srvObj = services.find((s) => s.id === cls.category);
-                  const categoryLabel = (srvObj ? srvObj.label : cls.category || '')
-                    .trim()
-                    .toLowerCase();
+                  const categoryLabel = (srvObj ? srvObj.label : cls.category || '').trim().toLowerCase();
                   const classTitle = (cls.title || '').trim().toLowerCase();
-                  const hideDuplicateBadge =
-                    categoryLabel && classTitle && categoryLabel === classTitle;
+                  const hideDuplicateBadge = Boolean(categoryLabel && classTitle && categoryLabel === classTitle);
 
                   return (
                     <div
@@ -2021,9 +2168,7 @@ export default function App() {
                       <div className="mt-5 pt-4 border-t border-stone-100 flex items-center justify-between gap-2">
                         <div>
                           {cls.is_cancelled ? (
-                            <span className="text-xs text-stone-500 font-medium">
-                              No disponible por hoy
-                            </span>
+                            <span className="text-xs text-stone-500 font-medium">No disponible por hoy</span>
                           ) : (
                             <span
                               className={`text-xs font-medium px-2.5 py-1 rounded-xl ${
@@ -2039,10 +2184,11 @@ export default function App() {
                           <div className="flex items-center gap-2">
                             {isFull && !isBooked ? (
                               <button
+                                type="button"
                                 onClick={() => handleToggleWaitlist(cls.id)}
-                                disabled={!studentAllowed || dateBeyondExpiry}
+                                disabled={!studentAllowed || dateBlocked}
                                 className={`inline-flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
-                                  !studentAllowed || dateBeyondExpiry
+                                  !studentAllowed || dateBlocked
                                     ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
                                     : onWaitlist
                                     ? 'bg-amber-100 text-amber-800 border border-amber-300'
@@ -2054,10 +2200,11 @@ export default function App() {
                               </button>
                             ) : (
                               <button
+                                type="button"
                                 onClick={() => handleToggleBooking(cls.id)}
-                                disabled={!studentAllowed || (!isBooked && dateBeyondExpiry)}
+                                disabled={!studentAllowed || (!isBooked && dateBlocked)}
                                 className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-                                  !studentAllowed || (!isBooked && dateBeyondExpiry)
+                                  !studentAllowed || (!isBooked && dateBlocked)
                                     ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
                                     : isBooked
                                     ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200/80'
@@ -2077,61 +2224,33 @@ export default function App() {
             )}
           </div>
         ) : (
-          /* ================= MODO ESTUDIO (ADMIN) ================= */
+          /* ================= MODO ESTUDIO ================= */
           <div className="space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="hidden md:flex items-center gap-1.5 bg-white p-1.5 rounded-2xl border border-stone-200/80 w-fit shadow-2xs">
-                <button
-                  onClick={() => setAdminTab('schedule')}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                    adminTab === 'schedule' ? 'bg-[#5C7362] text-white shadow-xs' : 'text-stone-600 hover:bg-stone-50'
-                  }`}
-                >
-                  <Calendar className="w-4 h-4" /> Calendario & Clases
-                </button>
-                <button
-                  onClick={() => setAdminTab('attendance')}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                    adminTab === 'attendance' ? 'bg-[#5C7362] text-white shadow-xs' : 'text-stone-600 hover:bg-stone-50'
-                  }`}
-                >
-                  <ClipboardCheck className="w-4 h-4" /> Asistencia
-                </button>
-                <button
-                  onClick={() => setAdminTab('dashboard')}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                    adminTab === 'dashboard' ? 'bg-[#5C7362] text-white shadow-xs' : 'text-stone-600 hover:bg-stone-50'
-                  }`}
-                >
-                  <BarChart3 className="w-4 h-4" /> Dashboard
-                </button>
-                <button
-                  onClick={() => setAdminTab('estetica')}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                    adminTab === 'estetica' ? 'bg-[#5C7362] text-white shadow-xs' : 'text-stone-600 hover:bg-stone-50'
-                  }`}
-                >
-                  <Flower2 className="w-4 h-4" /> Estética
-                </button>
-                <button
-                  onClick={() => setAdminTab('students')}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                    adminTab === 'students' ? 'bg-[#5C7362] text-white shadow-xs' : 'text-stone-600 hover:bg-stone-50'
-                  }`}
-                >
-                  <Users className="w-4 h-4" /> Alumnos
-                </button>
-                <button
-                  onClick={() => setAdminTab('payments')}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                    adminTab === 'payments' ? 'bg-[#5C7362] text-white shadow-xs' : 'text-stone-600 hover:bg-stone-50'
-                  }`}
-                >
-                  <CreditCard className="w-4 h-4" /> Pagos & Comunicaciones
-                </button>
+                {[
+                  { id: 'schedule', label: 'Calendario & Clases', Icon: Calendar },
+                  { id: 'attendance', label: 'Asistencia', Icon: ClipboardCheck },
+                  { id: 'dashboard', label: 'Dashboard', Icon: BarChart3 },
+                  { id: 'estetica', label: 'Estética', Icon: Flower2 },
+                  { id: 'students', label: 'Alumnos', Icon: Users },
+                  { id: 'payments', label: 'Pagos & Comunicaciones', Icon: CreditCard }
+                ].map(({ id, label, Icon }) => (
+                  <button
+                    type="button"
+                    key={id}
+                    onClick={() => setAdminTab(id)}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                      adminTab === id ? 'bg-[#5C7362] text-white shadow-xs' : 'text-stone-600 hover:bg-stone-50'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4" /> {label}
+                  </button>
+                ))}
               </div>
 
               <button
+                type="button"
                 onClick={() => {
                   setIsAdminUnlocked(false);
                   setRole('student');
@@ -2155,6 +2274,7 @@ export default function App() {
 
                   <div className="flex flex-wrap items-center gap-2">
                     <button
+                      type="button"
                       onClick={() => {
                         setEditingServiceId(null);
                         setServiceForm({ label: '', pillar: 'cuerpo', isClass: true, defaultCap: 10 });
@@ -2166,6 +2286,7 @@ export default function App() {
                     </button>
 
                     <button
+                      type="button"
                       onClick={handleOpenNewClassModal}
                       className="flex items-center gap-1.5 bg-[#5C7362] hover:bg-[#4B5F50] text-white shadow-xs px-4 py-2 rounded-xl text-xs font-semibold transition-all"
                     >
@@ -2173,11 +2294,9 @@ export default function App() {
                     </button>
 
                     <button
+                      type="button"
                       onClick={() => {
-                        setVacationForm({
-                          startDate: selectedDate,
-                          endDate: addDaysToISO(selectedDate, 7)
-                        });
+                        setVacationForm({ startDate: selectedDate, endDate: addDaysToISO(selectedDate, 7) });
                         setShowVacationModal(true);
                       }}
                       className="flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all"
@@ -2187,148 +2306,7 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => handleNavigateCalendar(-1)} className="p-1.5 rounded-xl border border-stone-200 hover:bg-stone-50">
-                        <ChevronLeft className="w-4 h-4" />
-                      </button>
-                      <span className="font-semibold text-sm sm:text-base min-w-[140px] text-center">
-                        {MONTH_NAMES[calendarCursor.getMonth()]} {calendarCursor.getFullYear()}
-                      </span>
-                      <button onClick={() => handleNavigateCalendar(1)} className="p-1.5 rounded-xl border border-stone-200 hover:bg-stone-50">
-                        <ChevronRight className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          const now = new Date();
-                          setCalendarCursor(now);
-                          setSelectedDate(toISODate(now));
-                        }}
-                        className="text-xs font-medium text-[#5C7362] bg-[#EDF3EE] px-2.5 py-1 rounded-lg ml-1"
-                      >
-                        Hoy
-                      </button>
-                    </div>
-
-                    <div className="flex items-center bg-[#F7F5F0] p-1 rounded-xl border border-stone-200/70">
-                      <button
-                        onClick={() => setCalendarView('week')}
-                        className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
-                          calendarView === 'week' ? 'bg-[#5C7362] text-white shadow-2xs' : 'text-stone-600'
-                        }`}
-                      >
-                        Semanal
-                      </button>
-                      <button
-                        onClick={() => setCalendarView('month')}
-                        className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
-                          calendarView === 'month' ? 'bg-[#5C7362] text-white shadow-2xs' : 'text-stone-600'
-                        }`}
-                      >
-                        Mensual
-                      </button>
-                    </div>
-                  </div>
-
-                  {calendarView === 'week' ? (
-                    <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
-                      {getWeekDays(calendarCursor).map((dayObj) => {
-                        const iso = toISODate(dayObj);
-                        const isSelected = iso === selectedDate;
-                        const isToday = iso === todayISO;
-                        const isVac = Boolean(getVacationForDate(iso));
-                        const count = classes.filter((c) => c.date === iso).length;
-                        const dayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
-
-                        return (
-                          <button
-                            key={iso}
-                            onClick={() => setSelectedDate(iso)}
-                            className={`p-2 sm:p-3 rounded-2xl border text-center transition-all flex flex-col items-center justify-between min-h-[76px] ${
-                              isSelected
-                                ? 'bg-[#5C7362] text-white border-[#5C7362] shadow-xs'
-                                : isVac
-                                ? 'bg-amber-50/90 border-amber-200 text-amber-900'
-                                : isToday
-                                ? 'bg-[#EDF3EE] border-[#5C7362]/40 text-[#2D332F]'
-                                : 'bg-[#F7F5F0]/60 border-stone-200/80 hover:border-stone-300'
-                            }`}
-                          >
-                            <span className={`text-[11px] font-medium ${isSelected ? 'text-white/80' : 'text-stone-500'}`}>
-                              {dayNames[dayObj.getDay()]}
-                            </span>
-                            <span className="text-base sm:text-lg font-bold my-0.5">{dayObj.getDate()}</span>
-                            {isVac ? (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-amber-100 text-amber-800">
-                                Vacaciones
-                              </span>
-                            ) : count > 0 ? (
-                              <span
-                                className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
-                                  isSelected ? 'bg-white/20 text-white' : 'bg-[#EDF3EE] text-[#4C6352]'
-                                }`}
-                              >
-                                {count} {count === 1 ? 'clase' : 'clases'}
-                              </span>
-                            ) : (
-                              <span className="text-[10px] opacity-40">—</span>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div>
-                      <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold text-stone-400 mb-1.5">
-                        <span>Lun</span><span>Mar</span><span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span><span>Dom</span>
-                      </div>
-                      <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
-                        {getMonthGridDays(calendarCursor).map((dayObj, idx) => {
-                          if (!dayObj) return <div key={`empty-${idx}`} className="p-2" />;
-                          const iso = toISODate(dayObj);
-                          const isSelected = iso === selectedDate;
-                          const isToday = iso === todayISO;
-                          const isVac = Boolean(getVacationForDate(iso));
-                          const count = classes.filter((c) => c.date === iso).length;
-
-                          return (
-                            <button
-                              key={iso}
-                              onClick={() => setSelectedDate(iso)}
-                              className={`p-1.5 sm:p-2 rounded-xl border text-center transition-all flex flex-col items-center justify-center min-h-[54px] ${
-                                isSelected
-                                  ? 'bg-[#5C7362] text-white border-[#5C7362]'
-                                  : isVac
-                                  ? 'bg-amber-50 border-amber-200 text-amber-900'
-                                  : isToday
-                                  ? 'bg-[#EDF3EE] border-[#5C7362]/40'
-                                  : 'bg-[#F7F5F0]/50 border-stone-200/70 hover:border-stone-300'
-                              }`}
-                            >
-                              <span className="text-xs sm:text-sm font-semibold">{dayObj.getDate()}</span>
-                              {isVac ? (
-                                <span className="mt-0.5 text-[9px] px-1 rounded-full font-semibold bg-amber-100 text-amber-800">
-                                  Lic.
-                                </span>
-                              ) : (
-                                count > 0 && (
-                                  <span
-                                    className={`mt-0.5 text-[10px] px-1.5 rounded-full font-medium ${
-                                      isSelected ? 'bg-white/25 text-white' : 'bg-[#EDF3EE] text-[#4C6352]'
-                                    }`}
-                                  >
-                                    {count}
-                                  </span>
-                                )
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                {renderCalendarSelector()}
 
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
@@ -2340,12 +2318,12 @@ export default function App() {
                     </span>
                   </div>
 
-                  {getVacationForDate(selectedDate) && (
+                  {activeVacationForSelectedDate && (
                     <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 text-xs text-amber-900">
                       <strong>Licencia / Vacaciones activa:</strong> del{' '}
-                      <strong>{formatDateDDMMYYYY(getVacationForDate(selectedDate).startDate)}</strong> al{' '}
-                      <strong>{formatDateDDMMYYYY(getVacationForDate(selectedDate).endDate)}</strong>. En Vista
-                      Alumno figura como <em>Cerrado por vacaciones</em>.
+                      <strong>{formatDateDDMMYYYY(activeVacationForSelectedDate.startDate)}</strong> al{' '}
+                      <strong>{formatDateDDMMYYYY(activeVacationForSelectedDate.endDate)}</strong>. En Vista Alumno
+                      figura como <em>Cerrado por vacaciones</em>.
                     </div>
                   )}
 
@@ -2401,6 +2379,7 @@ export default function App() {
 
                               <div className="flex items-center gap-2">
                                 <button
+                                  type="button"
                                   onClick={() => handleOpenEditClass(cls)}
                                   className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-100 rounded-xl border border-stone-200 transition-colors"
                                 >
@@ -2408,6 +2387,7 @@ export default function App() {
                                 </button>
 
                                 <button
+                                  type="button"
                                   onClick={() => handleToggleCancelClass(cls.id)}
                                   className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all ${
                                     cls.is_cancelled
@@ -2420,6 +2400,7 @@ export default function App() {
                                 </button>
 
                                 <button
+                                  type="button"
                                   onClick={() => handleRequestDeleteClass(cls)}
                                   className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 rounded-xl border border-rose-200 transition-colors"
                                 >
@@ -2458,233 +2439,8 @@ export default function App() {
                   </select>
                 </div>
 
-                <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => handleNavigateCalendar(-1)} className="p-1.5 rounded-xl border border-stone-200 hover:bg-stone-50">
-                        <ChevronLeft className="w-4 h-4" />
-                      </button>
-                      <span className="font-semibold text-sm sm:text-base min-w-[140px] text-center">
-                        {MONTH_NAMES[calendarCursor.getMonth()]} {calendarCursor.getFullYear()}
-                      </span>
-                      <button onClick={() => handleNavigateCalendar(1)} className="p-1.5 rounded-xl border border-stone-200 hover:bg-stone-50">
-                        <ChevronRight className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          const now = new Date();
-                          setCalendarCursor(now);
-                          setSelectedDate(toISODate(now));
-                        }}
-                        className="text-xs font-medium text-[#5C7362] bg-[#EDF3EE] px-2.5 py-1 rounded-lg ml-1"
-                      >
-                        Hoy
-                      </button>
-                    </div>
-
-                    <div className="flex items-center bg-[#F7F5F0] p-1 rounded-xl border border-stone-200/70">
-                      <button
-                        onClick={() => setCalendarView('week')}
-                        className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
-                          calendarView === 'week' ? 'bg-[#5C7362] text-white shadow-2xs' : 'text-stone-600'
-                        }`}
-                      >
-                        Semanal
-                      </button>
-                      <button
-                        onClick={() => setCalendarView('month')}
-                        className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
-                          calendarView === 'month' ? 'bg-[#5C7362] text-white shadow-2xs' : 'text-stone-600'
-                        }`}
-                      >
-                        Mensual
-                      </button>
-                    </div>
-                  </div>
-
-                  {calendarView === 'week' ? (
-                    <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
-                      {getWeekDays(calendarCursor).map((dayObj) => {
-                        const iso = toISODate(dayObj);
-                        const isSelected = iso === selectedDate;
-                        const isToday = iso === todayISO;
-                        const count = classes.filter((c) => c.date === iso).length;
-                        const dayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
-
-                        return (
-                          <button
-                            key={iso}
-                            onClick={() => setSelectedDate(iso)}
-                            className={`p-2 sm:p-3 rounded-2xl border text-center transition-all flex flex-col items-center justify-between min-h-[76px] ${
-                              isSelected
-                                ? 'bg-[#5C7362] text-white border-[#5C7362] shadow-xs'
-                                : isToday
-                                ? 'bg-[#EDF3EE] border-[#5C7362]/40 text-[#2D332F]'
-                                : 'bg-[#F7F5F0]/60 border-stone-200/80 hover:border-stone-300'
-                            }`}
-                          >
-                            <span className={`text-[11px] font-medium ${isSelected ? 'text-white/80' : 'text-stone-500'}`}>
-                              {dayNames[dayObj.getDay()]}
-                            </span>
-                            <span className="text-base sm:text-lg font-bold my-0.5">{dayObj.getDate()}</span>
-                            {count > 0 ? (
-                              <span
-                                className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
-                                  isSelected ? 'bg-white/20 text-white' : 'bg-[#EDF3EE] text-[#4C6352]'
-                                }`}
-                              >
-                                {count} {count === 1 ? 'clase' : 'clases'}
-                              </span>
-                            ) : (
-                              <span className="text-[10px] opacity-40">—</span>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div>
-                      <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold text-stone-400 mb-1.5">
-                        <span>Lun</span><span>Mar</span><span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span><span>Dom</span>
-                      </div>
-                      <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
-                        {getMonthGridDays(calendarCursor).map((dayObj, idx) => {
-                          if (!dayObj) return <div key={`empty-${idx}`} className="p-2" />;
-                          const iso = toISODate(dayObj);
-                          const isSelected = iso === selectedDate;
-                          const isToday = iso === todayISO;
-                          const count = classes.filter((c) => c.date === iso).length;
-
-                          return (
-                            <button
-                              key={iso}
-                              onClick={() => setSelectedDate(iso)}
-                              className={`p-1.5 sm:p-2 rounded-xl border text-center transition-all flex flex-col items-center justify-center min-h-[54px] ${
-                                isSelected
-                                  ? 'bg-[#5C7362] text-white border-[#5C7362]'
-                                  : isToday
-                                  ? 'bg-[#EDF3EE] border-[#5C7362]/40'
-                                  : 'bg-[#F7F5F0]/50 border-stone-200/70 hover:border-stone-300'
-                              }`}
-                            >
-                              <span className="text-xs sm:text-sm font-semibold">{dayObj.getDate()}</span>
-                              {count > 0 && (
-                                <span
-                                  className={`mt-0.5 text-[10px] px-1.5 rounded-full font-medium ${
-                                    isSelected ? 'bg-white/25 text-white' : 'bg-[#EDF3EE] text-[#4C6352]'
-                                  }`}
-                                >
-                                  {count}
-                                </span>
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="space-y-4">
-                  <h3 className="font-semibold text-base">
-                    Planilla del día: <span className="text-[#5C7362]">{formatDateDDMMYYYY(selectedDate)}</span>
-                  </h3>
-
-                  {attendanceDayClasses.length === 0 ? (
-                    <div className="bg-white rounded-3xl p-8 text-center border border-stone-200/70 text-stone-500 text-sm">
-                      No hay clases para tomar asistencia en esta fecha o filtro.
-                    </div>
-                  ) : (
-                    attendanceDayClasses.map((cls) => {
-                      const classBookings = bookings.filter((b) => b.classId === cls.id);
-                      const pendingCount = classBookings.filter((b) => !b.attendanceStatus && !b.attended).length;
-
-                      return (
-                        <div key={cls.id} className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-4">
-                          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-stone-100">
-                            <div>
-                              <div className="flex flex-wrap items-center gap-2 mb-1">
-                                {getCategoryBadge(cls.category)}
-                                <span className="text-xs font-medium px-2.5 py-0.5 rounded-lg bg-[#EDF3EE] text-[#4C6352]">
-                                  {cls.time} hs
-                                </span>
-                                {cls.is_cancelled && (
-                                  <span className="text-xs font-semibold px-2 py-0.5 bg-rose-100 text-rose-700 rounded-lg">
-                                    CANCELADA
-                                  </span>
-                                )}
-                              </div>
-                              <h4 className="font-semibold text-base">{cls.title}</h4>
-                            </div>
-
-                            <span className="text-xs text-stone-500">
-                              Inscritos: <strong>{classBookings.length}</strong> • Pendientes: <strong>{pendingCount}</strong>
-                            </span>
-                          </div>
-
-                          {classBookings.length === 0 ? (
-                            <p className="text-xs text-stone-400 italic">No hay alumnos registrados en esta clase.</p>
-                          ) : (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                              {classBookings.map((booking) => {
-                                const st = students.find((s) => s.id === booking.studentId);
-                                if (!st) return null;
-                                const isNoShow = booking.attendanceStatus === 'no_show';
-                                const isAttended = booking.attendanceStatus === 'attended' || (!isNoShow && booking.attended);
-
-                                return (
-                                  <div
-                                    key={booking.id}
-                                    className={`p-3 rounded-2xl border flex items-center justify-between gap-2 transition-all ${
-                                      isAttended
-                                        ? 'bg-[#EDF3EE] text-[#4C6352] border-[#5C7362]/30'
-                                        : isNoShow
-                                        ? 'bg-rose-50/70 text-rose-900 border-rose-200'
-                                        : 'bg-[#F7F5F0] border-stone-200/80'
-                                    }`}
-                                  >
-                                    <div>
-                                      <p className="text-sm font-semibold">
-                                        {st.name}: <span className="text-[#5C7362]">{getStudentQuotaDisplay(st)}</span>
-                                      </p>
-                                      <p className="text-[11px] text-stone-500">{st.plan}</p>
-                                    </div>
-
-                                    <div className="flex items-center gap-1.5 shrink-0">
-                                      <button
-                                        onClick={() => handleRequestAttendanceChange(booking, 'attended', st.name)}
-                                        className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-xl transition-all ${
-                                          isAttended
-                                            ? 'bg-[#5C7362] text-white'
-                                            : 'bg-white text-stone-600 border border-stone-200 hover:bg-[#EDF3EE]'
-                                        }`}
-                                      >
-                                        <UserCheck className="w-3.5 h-3.5" />
-                                        Asistió
-                                      </button>
-
-                                      <button
-                                        onClick={() => handleRequestAttendanceChange(booking, 'no_show', st.name)}
-                                        className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-xl transition-all ${
-                                          isNoShow
-                                            ? 'bg-rose-600 text-white'
-                                            : 'bg-white text-stone-600 border border-stone-200 hover:bg-rose-50'
-                                        }`}
-                                      >
-                                        <UserX className="w-3.5 h-3.5" />
-                                        No asistió
-                                      </button>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
+                {renderCalendarSelector()}
+                {renderAttendanceBoard(attendanceDayClasses)}
               </div>
             )}
 
@@ -2701,6 +2457,7 @@ export default function App() {
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="flex items-center bg-white p-1 rounded-xl border border-stone-200/80">
                       <button
+                        type="button"
                         onClick={() => setDashboardScope('day')}
                         className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
                           dashboardScope === 'day' ? 'bg-[#5C7362] text-white' : 'text-stone-600'
@@ -2709,6 +2466,7 @@ export default function App() {
                         Vista Diaria
                       </button>
                       <button
+                        type="button"
                         onClick={() => setDashboardScope('month')}
                         className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
                           dashboardScope === 'month' ? 'bg-[#5C7362] text-white' : 'text-stone-600'
@@ -2818,7 +2576,8 @@ export default function App() {
                                         {cls.time} hs • {cls.title}
                                       </p>
                                       <p className="text-xs text-stone-500 mt-0.5">
-                                        Total inscritos: <strong>{clsBookings.length}</strong> / Cupo disponible: <strong>{freeSpots}</strong>
+                                        Total inscritos: <strong>{clsBookings.length}</strong> / Cupo disponible:{' '}
+                                        <strong>{freeSpots}</strong>
                                       </p>
                                     </div>
 
@@ -2841,7 +2600,10 @@ export default function App() {
                                         ) : (
                                           <ul className="space-y-1 text-xs">
                                             {attendedList.map((st) => (
-                                              <li key={st.id} className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-stone-200/60">
+                                              <li
+                                                key={st.id}
+                                                className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-stone-200/60"
+                                              >
                                                 <span className="font-medium">{st.name}</span>
                                                 <span className="font-semibold text-[#5C7362]">{getStudentQuotaDisplay(st)}</span>
                                               </li>
@@ -2859,7 +2621,10 @@ export default function App() {
                                         ) : (
                                           <ul className="space-y-1 text-xs">
                                             {noShowList.map((st) => (
-                                              <li key={st.id} className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-rose-200/60">
+                                              <li
+                                                key={st.id}
+                                                className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-rose-200/60"
+                                              >
                                                 <span className="font-medium">{st.name}</span>
                                                 <span className="font-semibold text-rose-700">{getStudentQuotaDisplay(st)}</span>
                                               </li>
@@ -2896,14 +2661,23 @@ export default function App() {
                               if (!st || !cls) return null;
 
                               return (
-                                <div key={b.id} className="p-3 rounded-2xl bg-[#F7F5F0]/70 border border-stone-200/70 flex flex-wrap items-center justify-between gap-2 text-sm">
+                                <div
+                                  key={b.id}
+                                  className="p-3 rounded-2xl bg-[#F7F5F0]/70 border border-stone-200/70 flex flex-wrap items-center justify-between gap-2 text-sm"
+                                >
                                   <div>
                                     <span className="font-semibold">{st.name}</span>{' '}
                                     <span className="text-xs font-semibold text-[#5C7362]">({getStudentQuotaDisplay(st)})</span>
-                                    <p className="text-xs text-stone-500">{cls.time} hs • {cls.title}</p>
+                                    <p className="text-xs text-stone-500">
+                                      {cls.time} hs • {cls.title}
+                                    </p>
                                   </div>
                                   <span className="text-xs font-medium px-2.5 py-1 rounded-xl bg-white border border-stone-200 text-stone-600">
-                                    {b.attendanceStatus === 'no_show' ? 'No asistió' : b.attendanceStatus === 'attended' || b.attended ? 'Asistió' : 'Pendiente'}
+                                    {b.attendanceStatus === 'no_show'
+                                      ? 'No asistió'
+                                      : b.attendanceStatus === 'attended' || b.attended
+                                      ? 'Asistió'
+                                      : 'Pendiente'}
                                   </span>
                                 </div>
                               );
@@ -2917,7 +2691,9 @@ export default function App() {
                   <div className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-4">
                     <div>
                       <h3 className="font-semibold text-base">Estadísticas Mensuales de Asistencias por Clase y Horario</h3>
-                      <p className="text-xs text-stone-500">Período: <strong>{dashboardMonth}</strong></p>
+                      <p className="text-xs text-stone-500">
+                        Período: <strong>{dashboardMonth}</strong>
+                      </p>
                     </div>
 
                     {monthStatsBySlot.length === 0 ? (
@@ -3000,7 +2776,9 @@ export default function App() {
                             type="button"
                             onClick={() =>
                               showToast(
-                                `Notificación push enviada a ${student.name}: Sugerencia de turno para el ${formatDateDDMMYYYY(suggestedDate)}`
+                                `Notificación push enviada a ${student.name}: Sugerencia de turno para el ${formatDateDDMMYYYY(
+                                  suggestedDate
+                                )}`
                               )
                             }
                             className="flex-1 inline-flex items-center justify-center gap-1.5 bg-[#5C7362] hover:bg-[#4B5F50] text-white py-2 px-3 rounded-xl text-xs font-semibold transition-all"
@@ -3012,7 +2790,9 @@ export default function App() {
                           {student.phone && (
                             <a
                               href={`https://wa.me/${student.phone.replace(/\D/g, '')}?text=${encodeURIComponent(
-                                `¡Hola ${student.name}! Desde Espacio Sat-Nam te recordamos tu última sesión (${lastTitle}) y te sugerimos agendar tu próximo turno alrededor del ${formatDateDDMMYYYY(suggestedDate)}. 🪷`
+                                `¡Hola ${student.name}! Desde Espacio Sat-Nam te recordamos tu última sesión (${lastTitle}) y te sugerimos agendar tu próximo turno alrededor del ${formatDateDDMMYYYY(
+                                  suggestedDate
+                                )}. 🪷`
                               )}`}
                               target="_blank"
                               rel="noopener noreferrer"
@@ -3036,11 +2816,13 @@ export default function App() {
                   <div>
                     <h2 className="text-xl font-semibold">Alumnos & Personas</h2>
                     <p className="text-sm text-stone-500">
-                      Total registrados: <strong>{students.length}</strong> (incluye alumnos con plan y personas de sesiones/masajes)
+                      Total registrados: <strong>{students.length}</strong> (incluye alumnos con plan y personas de
+                      sesiones/masajes)
                     </p>
                   </div>
 
                   <button
+                    type="button"
                     onClick={handleOpenNewStudent}
                     className="flex items-center gap-1.5 bg-[#5C7362] hover:bg-[#4B5F50] text-white shadow-xs px-4 py-2 rounded-xl text-sm font-medium w-fit"
                   >
@@ -3090,7 +2872,9 @@ export default function App() {
                                   Pase Libre
                                 </span>
                               ) : (
-                                <span>{st.credits} disp. ({getStudentQuotaDisplay(st)})</span>
+                                <span>
+                                  {st.credits} disp. ({getStudentQuotaDisplay(st)})
+                                </span>
                               )}
                             </td>
                             <td className="py-3.5 px-4 text-xs text-stone-600">
@@ -3107,6 +2891,7 @@ export default function App() {
                             <td className="py-3.5 px-4 text-right">
                               <div className="inline-flex items-center gap-1.5">
                                 <button
+                                  type="button"
                                   onClick={() => handleOpenEditStudent(st)}
                                   title="Editar registro"
                                   className="p-1.5 text-stone-600 hover:bg-stone-100 rounded-lg border border-stone-200 transition-colors"
@@ -3114,6 +2899,7 @@ export default function App() {
                                   <Edit3 className="w-3.5 h-3.5" />
                                 </button>
                                 <button
+                                  type="button"
                                   onClick={() => handleRequestDeleteStudent(st)}
                                   title="Eliminar registro"
                                   className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg border border-rose-200 transition-colors"
@@ -3165,10 +2951,12 @@ export default function App() {
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold uppercase tracking-wider text-stone-500">
-                        Activos
-                      </span>
-                      {openPaymentsPanel === 'active' ? <ChevronUp className="w-4 h-4 text-[#5C7362]" /> : <ChevronDown className="w-4 h-4 text-[#5C7362]" />}
+                      <span className="text-xs font-semibold uppercase tracking-wider text-stone-500">Activos</span>
+                      {openPaymentsPanel === 'active' ? (
+                        <ChevronUp className="w-4 h-4 text-[#5C7362]" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-[#5C7362]" />
+                      )}
                     </div>
                     <p className="text-2xl font-bold text-[#5C7362] mt-1">{activePaymentStudents.length}</p>
                     <p className="text-xs text-[#5C7362] font-medium mt-1">Tocá para ver alumnos activos</p>
@@ -3187,7 +2975,11 @@ export default function App() {
                       <span className="text-xs font-semibold uppercase tracking-wider text-stone-500">
                         Por Renovar
                       </span>
-                      {openPaymentsPanel === 'renew' ? <ChevronUp className="w-4 h-4 text-[#5C7362]" /> : <ChevronDown className="w-4 h-4 text-[#5C7362]" />}
+                      {openPaymentsPanel === 'renew' ? (
+                        <ChevronUp className="w-4 h-4 text-[#5C7362]" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-[#5C7362]" />
+                      )}
                     </div>
                     <p className="text-2xl font-bold text-amber-700 mt-1">{renewPaymentStudents.length}</p>
                     <p className="text-xs text-stone-500 mt-1">Tocá para ver vencidos o por vencer (≤ 5d)</p>
@@ -3212,7 +3004,10 @@ export default function App() {
                           const paused = isPlanPaused(st);
 
                           return (
-                            <div key={st.id} className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs flex flex-col justify-between gap-4">
+                            <div
+                              key={st.id}
+                              className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs flex flex-col justify-between gap-4"
+                            >
                               <div className="flex justify-between items-start gap-2">
                                 <div>
                                   <h4 className="font-semibold text-base">{st.name}</h4>
@@ -3275,35 +3070,36 @@ export default function App() {
 
       <footer className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-[#E5E0D8] py-2 px-4 text-center z-30">
         <p className="text-xs text-stone-600 tracking-wide">
-          © {new Date().getFullYear()}{' '}
-          <strong className="font-semibold text-stone-800">Espacio Sat-Nam</strong> •{' '}
+          © {new Date().getFullYear()} <strong className="font-semibold text-stone-800">Espacio Sat-Nam</strong> •{' '}
           <span className="font-medium text-[#5C7362]">by Patricia Aleman</span>. Todos los derechos reservados.
         </p>
       </footer>
 
       {role === 'admin' && (
         <nav className="md:hidden fixed bottom-8 left-0 right-0 bg-white border-t border-stone-200 flex justify-around py-2 px-1 z-40">
-          <button onClick={() => setAdminTab('schedule')} className={`flex flex-col items-center gap-0.5 text-[10px] font-medium ${adminTab === 'schedule' ? 'text-[#5C7362]' : 'text-stone-400'}`}>
-            <Calendar className="w-4 h-4" /> Agenda
-          </button>
-          <button onClick={() => setAdminTab('attendance')} className={`flex flex-col items-center gap-0.5 text-[10px] font-medium ${adminTab === 'attendance' ? 'text-[#5C7362]' : 'text-stone-400'}`}>
-            <ClipboardCheck className="w-4 h-4" /> Asistencia
-          </button>
-          <button onClick={() => setAdminTab('dashboard')} className={`flex flex-col items-center gap-0.5 text-[10px] font-medium ${adminTab === 'dashboard' ? 'text-[#5C7362]' : 'text-stone-400'}`}>
-            <BarChart3 className="w-4 h-4" /> Dashboard
-          </button>
-          <button onClick={() => setAdminTab('estetica')} className={`flex flex-col items-center gap-0.5 text-[10px] font-medium ${adminTab === 'estetica' ? 'text-[#5C7362]' : 'text-stone-400'}`}>
-            <Flower2 className="w-4 h-4" /> Estética
-          </button>
-          <button onClick={() => setAdminTab('students')} className={`flex flex-col items-center gap-0.5 text-[10px] font-medium ${adminTab === 'students' ? 'text-[#5C7362]' : 'text-stone-400'}`}>
-            <Users className="w-4 h-4" /> Alumnos
-          </button>
-          <button onClick={() => setAdminTab('payments')} className={`flex flex-col items-center gap-0.5 text-[10px] font-medium ${adminTab === 'payments' ? 'text-[#5C7362]' : 'text-stone-400'}`}>
-            <CreditCard className="w-4 h-4" /> Pagos
-          </button>
+          {[
+            { id: 'schedule', label: 'Agenda', Icon: Calendar },
+            { id: 'attendance', label: 'Asistencia', Icon: ClipboardCheck },
+            { id: 'dashboard', label: 'Dashboard', Icon: BarChart3 },
+            { id: 'estetica', label: 'Estética', Icon: Flower2 },
+            { id: 'students', label: 'Alumnos', Icon: Users },
+            { id: 'payments', label: 'Pagos', Icon: CreditCard }
+          ].map(({ id, label, Icon }) => (
+            <button
+              type="button"
+              key={id}
+              onClick={() => setAdminTab(id)}
+              className={`flex flex-col items-center gap-0.5 text-[10px] font-medium ${
+                adminTab === id ? 'text-[#5C7362]' : 'text-stone-400'
+              }`}
+            >
+              <Icon className="w-4 h-4" /> {label}
+            </button>
+          ))}
         </nav>
       )}
 
+      {/* Modales únicos (sin duplicados) */}
       {pendingDeleteConfirm && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl text-center">
@@ -3312,10 +3108,18 @@ export default function App() {
               ¿Estás seguro de que querés borrar definitivamente <strong>{pendingDeleteConfirm.title}</strong>?
             </p>
             <div className="flex gap-2">
-              <button type="button" onClick={() => setPendingDeleteConfirm(null)} className="flex-1 py-2.5 rounded-xl text-xs font-medium bg-stone-100 text-stone-700 hover:bg-stone-200">
+              <button
+                type="button"
+                onClick={() => setPendingDeleteConfirm(null)}
+                className="flex-1 py-2.5 rounded-xl text-xs font-medium bg-stone-100 text-stone-700 hover:bg-stone-200"
+              >
                 Cancelar
               </button>
-              <button type="button" onClick={handleConfirmDelete} className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white">
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white"
+              >
                 Sí, borrar
               </button>
             </div>
@@ -3332,7 +3136,11 @@ export default function App() {
               <strong>{pendingAttendanceEdit.nextStatus === 'attended' ? 'Asistió' : 'No asistió'}</strong>?
             </p>
             <div className="flex gap-2">
-              <button type="button" onClick={() => setPendingAttendanceEdit(null)} className="flex-1 py-2.5 rounded-xl text-xs font-medium bg-stone-100 text-stone-700 hover:bg-stone-200">
+              <button
+                type="button"
+                onClick={() => setPendingAttendanceEdit(null)}
+                className="flex-1 py-2.5 rounded-xl text-xs font-medium bg-stone-100 text-stone-700 hover:bg-stone-200"
+              >
                 Cancelar
               </button>
               <button
@@ -3358,7 +3166,9 @@ export default function App() {
               <Lock className="w-6 h-6" />
             </div>
             <h3 className="font-semibold text-lg">Acceso Modo Estudio</h3>
-            <p className="text-xs text-stone-500 mt-1 mb-4">Ingresa el PIN de 4 dígitos para administrar la agenda y los turnos</p>
+            <p className="text-xs text-stone-500 mt-1 mb-4">
+              Ingresa el PIN de 4 dígitos para administrar la agenda y los turnos
+            </p>
 
             <form onSubmit={handleVerifyPin} className="space-y-3">
               <input
@@ -3379,10 +3189,17 @@ export default function App() {
               {pinError && <p className="text-xs text-rose-600 font-medium">PIN incorrecto. Intenta nuevamente.</p>}
 
               <div className="flex gap-2 pt-2">
-                <button type="button" onClick={() => setShowPinModal(false)} className="flex-1 py-2.5 rounded-xl text-xs font-medium bg-stone-100 text-stone-600 hover:bg-stone-200">
+                <button
+                  type="button"
+                  onClick={() => setShowPinModal(false)}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-medium bg-stone-100 text-stone-600 hover:bg-stone-200"
+                >
                   Cancelar
                 </button>
-                <button type="submit" className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-[#5C7362] hover:bg-[#4B5F50] text-white">
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-[#5C7362] hover:bg-[#4B5F50] text-white"
+                >
                   Ingresar
                 </button>
               </div>
@@ -3396,19 +3213,36 @@ export default function App() {
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-semibold text-lg">Editar Mi Perfil</h3>
-              <button onClick={() => setShowEditProfileModal(false)}><XCircle className="w-5 h-5 text-stone-400" /></button>
+              <button type="button" onClick={() => setShowEditProfileModal(false)}>
+                <XCircle className="w-5 h-5 text-stone-400" />
+              </button>
             </div>
 
             <form onSubmit={handleSaveProfile} className="space-y-3.5 text-sm">
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">Nombre y Apellido</label>
-                <input required type="text" value={profileForm.name} onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
+                <input
+                  required
+                  type="text"
+                  value={profileForm.name}
+                  onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })}
+                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                />
               </div>
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">Teléfono WhatsApp</label>
-                <input required type="text" value={profileForm.phone} onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
+                <input
+                  required
+                  type="text"
+                  value={profileForm.phone}
+                  onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })}
+                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                />
               </div>
-              <button type="submit" className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2">
+              <button
+                type="submit"
+                className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2"
+              >
                 Guardar Cambios
               </button>
             </form>
@@ -3423,7 +3257,9 @@ export default function App() {
               <h3 className="font-semibold text-lg flex items-center gap-2">
                 <Palmtree className="w-5 h-5 text-[#5C7362]" /> Licencia / Vacaciones
               </h3>
-              <button onClick={() => setShowVacationModal(false)}><XCircle className="w-5 h-5 text-stone-400" /></button>
+              <button type="button" onClick={() => setShowVacationModal(false)}>
+                <XCircle className="w-5 h-5 text-stone-400" />
+              </button>
             </div>
 
             <form onSubmit={handleSaveVacationPeriod} className="space-y-3.5 text-sm border-b border-stone-100 pb-4">
@@ -3432,17 +3268,32 @@ export default function App() {
                   <label className="block text-xs font-medium text-stone-600 mb-1">
                     Desde ({formatDateDDMMYYYY(vacationForm.startDate)})
                   </label>
-                  <input required type="date" value={vacationForm.startDate} onChange={(e) => setVacationForm({ ...vacationForm, startDate: e.target.value })} className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs" />
+                  <input
+                    required
+                    type="date"
+                    value={vacationForm.startDate}
+                    onChange={(e) => setVacationForm({ ...vacationForm, startDate: e.target.value })}
+                    className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-stone-600 mb-1">
                     Hasta ({formatDateDDMMYYYY(vacationForm.endDate)})
                   </label>
-                  <input required type="date" value={vacationForm.endDate} onChange={(e) => setVacationForm({ ...vacationForm, endDate: e.target.value })} className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs" />
+                  <input
+                    required
+                    type="date"
+                    value={vacationForm.endDate}
+                    onChange={(e) => setVacationForm({ ...vacationForm, endDate: e.target.value })}
+                    className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs"
+                  />
                 </div>
               </div>
 
-              <button type="submit" className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl">
+              <button
+                type="submit"
+                className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl"
+              >
                 Bloquear Días y Cancelar Clases
               </button>
             </form>
@@ -3456,9 +3307,13 @@ export default function App() {
               ) : (
                 <div className="space-y-2 max-h-40 overflow-y-auto">
                   {vacationPeriods.map((vp) => (
-                    <div key={vp.id} className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200 flex items-center justify-between text-xs">
+                    <div
+                      key={vp.id}
+                      className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200 flex items-center justify-between text-xs"
+                    >
                       <span>
-                        Del <strong>{formatDateDDMMYYYY(vp.startDate)}</strong> al <strong>{formatDateDDMMYYYY(vp.endDate)}</strong>
+                        Del <strong>{formatDateDDMMYYYY(vp.startDate)}</strong> al{' '}
+                        <strong>{formatDateDDMMYYYY(vp.endDate)}</strong>
                       </span>
                       <button
                         type="button"
@@ -3481,8 +3336,16 @@ export default function App() {
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto space-y-5">
             <div className="flex justify-between items-center">
-              <h3 className="font-semibold text-lg">{editingServiceId ? 'Editar Servicio' : 'Administrar Servicios'}</h3>
-              <button onClick={() => { setShowServiceModal(false); setEditingServiceId(null); }}>
+              <h3 className="font-semibold text-lg">
+                {editingServiceId ? 'Editar Servicio' : 'Administrar Servicios'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowServiceModal(false);
+                  setEditingServiceId(null);
+                }}
+              >
                 <XCircle className="w-5 h-5 text-stone-400" />
               </button>
             </div>
@@ -3490,22 +3353,43 @@ export default function App() {
             <form onSubmit={handleSaveService} className="space-y-3 text-sm border-b border-stone-100 pb-4">
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">Nombre del Servicio</label>
-                <input required type="text" placeholder="Ej. Masajes, Yoga Nidra..." value={serviceForm.label} onChange={(e) => setServiceForm({ ...serviceForm, label: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
+                <input
+                  required
+                  type="text"
+                  placeholder="Ej. Masajes, Yoga Nidra..."
+                  value={serviceForm.label}
+                  onChange={(e) => setServiceForm({ ...serviceForm, label: e.target.value })}
+                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-2.5">
                 <div>
                   <label className="block text-xs font-medium text-stone-600 mb-1">Categoría</label>
-                  <select value={serviceForm.pillar} onChange={(e) => setServiceForm({ ...serviceForm, pillar: e.target.value })} className="w-full border border-stone-200 rounded-xl px-2.5 py-2 bg-white text-xs">
+                  <select
+                    value={serviceForm.pillar}
+                    onChange={(e) => setServiceForm({ ...serviceForm, pillar: e.target.value })}
+                    className="w-full border border-stone-200 rounded-xl px-2.5 py-2 bg-white text-xs"
+                  >
                     {SELECTABLE_PILLARS.map((p) => (
-                      <option key={p.id} value={p.id}>{p.label}</option>
+                      <option key={p.id} value={p.id}>
+                        {p.label}
+                      </option>
                     ))}
                   </select>
                 </div>
 
                 <div>
                   <label className="block text-xs font-medium text-stone-600 mb-1">Cupo Base</label>
-                  <input required type="number" min="1" max="60" value={serviceForm.defaultCap} onChange={(e) => setServiceForm({ ...serviceForm, defaultCap: e.target.value })} className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs" />
+                  <input
+                    required
+                    type="number"
+                    min="1"
+                    max="60"
+                    value={serviceForm.defaultCap}
+                    onChange={(e) => setServiceForm({ ...serviceForm, defaultCap: e.target.value })}
+                    className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs"
+                  />
                 </div>
               </div>
 
@@ -3521,21 +3405,36 @@ export default function App() {
 
               <div className="flex gap-2 pt-1">
                 {editingServiceId && (
-                  <button type="button" onClick={() => { setEditingServiceId(null); setServiceForm({ label: '', pillar: 'cuerpo', isClass: true, defaultCap: 10 }); }} className="px-3 py-2 rounded-xl text-xs font-medium bg-stone-100 text-stone-600">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingServiceId(null);
+                      setServiceForm({ label: '', pillar: 'cuerpo', isClass: true, defaultCap: 10 });
+                    }}
+                    className="px-3 py-2 rounded-xl text-xs font-medium bg-stone-100 text-stone-600"
+                  >
                     Cancelar
                   </button>
                 )}
-                <button type="submit" className="flex-1 bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2 rounded-xl text-xs">
+                <button
+                  type="submit"
+                  className="flex-1 bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2 rounded-xl text-xs"
+                >
                   {editingServiceId ? 'Guardar Cambios' : 'Agregar Servicio'}
                 </button>
               </div>
             </form>
 
             <div className="space-y-2">
-              <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider">Servicios Existentes ({services.length})</p>
+              <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider">
+                Servicios Existentes ({services.length})
+              </p>
               <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
                 {services.map((srv) => (
-                  <div key={srv.id} className="p-2.5 rounded-xl bg-[#F7F5F0] border border-stone-200/80 flex items-center justify-between gap-2">
+                  <div
+                    key={srv.id}
+                    className="p-2.5 rounded-xl bg-[#F7F5F0] border border-stone-200/80 flex items-center justify-between gap-2"
+                  >
                     <div>
                       <p className="text-xs font-semibold text-[#2D332F]">{srv.label}</p>
                       <p className="text-[11px] text-stone-500">
@@ -3543,10 +3442,18 @@ export default function App() {
                       </p>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <button type="button" onClick={() => handleStartEditService(srv)} className="p-1.5 text-stone-700 bg-white hover:bg-stone-100 rounded-lg border border-stone-200">
+                      <button
+                        type="button"
+                        onClick={() => handleStartEditService(srv)}
+                        className="p-1.5 text-stone-700 bg-white hover:bg-stone-100 rounded-lg border border-stone-200"
+                      >
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
-                      <button type="button" onClick={() => handleRequestDeleteService(srv)} className="p-1.5 text-rose-600 bg-white hover:bg-rose-50 rounded-lg border border-rose-200">
+                      <button
+                        type="button"
+                        onClick={() => handleRequestDeleteService(srv)}
+                        className="p-1.5 text-rose-600 bg-white hover:bg-rose-50 rounded-lg border border-rose-200"
+                      >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
@@ -3562,8 +3469,12 @@ export default function App() {
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="font-semibold text-lg">{editingClassId ? 'Editar Clase' : 'Programar Horarios'}</h3>
-              <button onClick={() => setShowClassModal(false)}><XCircle className="w-5 h-5 text-stone-400" /></button>
+              <h3 className="font-semibold text-lg">
+                {editingClassId ? 'Editar Clase' : 'Programar Horarios'}
+              </h3>
+              <button type="button" onClick={() => setShowClassModal(false)}>
+                <XCircle className="w-5 h-5 text-stone-400" />
+              </button>
             </div>
 
             <form onSubmit={handleSaveClass} className="space-y-3.5 text-sm">
@@ -3583,7 +3494,9 @@ export default function App() {
                         }))
                       }
                       className={`py-2 px-2.5 rounded-xl border text-xs font-medium text-left transition-all ${
-                        classForm.category === srv.id ? 'bg-[#5C7362] text-white border-transparent' : 'bg-[#F7F5F0] text-stone-600 border-stone-200'
+                        classForm.category === srv.id
+                          ? 'bg-[#5C7362] text-white border-transparent'
+                          : 'bg-[#F7F5F0] text-stone-600 border-stone-200'
                       }`}
                     >
                       {srv.label}
@@ -3602,7 +3515,11 @@ export default function App() {
                       onChange={(e) => {
                         const custom = e.target.checked;
                         const srv = services.find((s) => s.id === classForm.category);
-                        setClassForm({ ...classForm, isCustomTitle: custom, title: custom ? classForm.title : srv?.label || '' });
+                        setClassForm({
+                          ...classForm,
+                          isCustomTitle: custom,
+                          title: custom ? classForm.title : srv?.label || ''
+                        });
                       }}
                       className="rounded accent-[#5C7362] w-3.5 h-3.5"
                     />
@@ -3614,7 +3531,11 @@ export default function App() {
                   required
                   type="text"
                   disabled={!classForm.isCustomTitle}
-                  value={classForm.isCustomTitle ? classForm.title : services.find((s) => s.id === classForm.category)?.label || ''}
+                  value={
+                    classForm.isCustomTitle
+                      ? classForm.title
+                      : services.find((s) => s.id === classForm.category)?.label || ''
+                  }
                   onChange={(e) => setClassForm({ ...classForm, title: e.target.value })}
                   className={`w-full border border-stone-200 rounded-xl px-3 py-2 text-sm ${
                     !classForm.isCustomTitle ? 'bg-stone-50 text-stone-700 font-medium' : 'bg-white'
@@ -3624,7 +3545,13 @@ export default function App() {
 
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">Facilitadora</label>
-                <input required type="text" value={classForm.instructor} onChange={(e) => setClassForm({ ...classForm, instructor: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2 bg-stone-50 font-medium" />
+                <input
+                  required
+                  type="text"
+                  value={classForm.instructor}
+                  onChange={(e) => setClassForm({ ...classForm, instructor: e.target.value })}
+                  className="w-full border border-stone-200 rounded-xl px-3 py-2 bg-stone-50 font-medium"
+                />
               </div>
 
               {!editingClassId && (
@@ -3641,11 +3568,15 @@ export default function App() {
                             type="button"
                             key={day.id}
                             onClick={() => {
-                              const updated = isSelected ? classForm.selectedDays.filter((d) => d !== day.id) : [...classForm.selectedDays, day.id];
+                              const updated = isSelected
+                                ? classForm.selectedDays.filter((d) => d !== day.id)
+                                : [...classForm.selectedDays, day.id];
                               setClassForm({ ...classForm, selectedDays: updated });
                             }}
                             className={`py-2 rounded-xl text-xs font-medium border text-center transition-all ${
-                              isSelected ? 'bg-[#5C7362] text-white border-transparent' : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
+                              isSelected
+                                ? 'bg-[#5C7362] text-white border-transparent'
+                                : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
                             }`}
                           >
                             {day.short}
@@ -3657,7 +3588,11 @@ export default function App() {
 
                   <div>
                     <label className="block text-xs font-medium text-stone-600 mb-1">Repetición semanal</label>
-                    <select value={classForm.weeksCount} onChange={(e) => setClassForm({ ...classForm, weeksCount: Number(e.target.value) })} className="w-full border border-stone-200 rounded-xl px-3 py-2 bg-white text-sm">
+                    <select
+                      value={classForm.weeksCount}
+                      onChange={(e) => setClassForm({ ...classForm, weeksCount: Number(e.target.value) })}
+                      className="w-full border border-stone-200 rounded-xl px-3 py-2 bg-white text-sm"
+                    >
                       <option value={1}>Solo esta semana (1 semana)</option>
                       <option value={2}>Durante 2 semanas</option>
                       <option value={4}>Durante 4 semanas (1 mes)</option>
@@ -3669,19 +3604,44 @@ export default function App() {
               <div className="grid grid-cols-3 gap-2.5">
                 <div>
                   <label className="block text-xs font-medium text-stone-600 mb-1">Hora</label>
-                  <input required type="time" value={classForm.time} onChange={(e) => setClassForm({ ...classForm, time: e.target.value })} className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs" />
+                  <input
+                    required
+                    type="time"
+                    value={classForm.time}
+                    onChange={(e) => setClassForm({ ...classForm, time: e.target.value })}
+                    className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-stone-600 mb-1">Duración (min)</label>
-                  <input required type="number" min="15" max="480" value={classForm.duration} onChange={(e) => setClassForm({ ...classForm, duration: e.target.value })} className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs" />
+                  <input
+                    required
+                    type="number"
+                    min="15"
+                    max="480"
+                    value={classForm.duration}
+                    onChange={(e) => setClassForm({ ...classForm, duration: e.target.value })}
+                    className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-stone-600 mb-1">Cupo</label>
-                  <input required type="number" min="1" max="60" value={classForm.capacity} onChange={(e) => setClassForm({ ...classForm, capacity: e.target.value })} className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs" />
+                  <input
+                    required
+                    type="number"
+                    min="1"
+                    max="60"
+                    value={classForm.capacity}
+                    onChange={(e) => setClassForm({ ...classForm, capacity: e.target.value })}
+                    className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs"
+                  />
                 </div>
               </div>
 
-              <button type="submit" className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2">
+              <button
+                type="submit"
+                className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2"
+              >
                 {editingClassId ? 'Guardar Cambios' : 'Guardar Horarios'}
               </button>
             </form>
@@ -3694,18 +3654,34 @@ export default function App() {
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-semibold text-lg">{editingStudentId ? 'Editar Registro' : 'Nuevo Registro'}</h3>
-              <button onClick={() => setShowStudentModal(false)}><XCircle className="w-5 h-5 text-stone-400" /></button>
+              <button type="button" onClick={() => setShowStudentModal(false)}>
+                <XCircle className="w-5 h-5 text-stone-400" />
+              </button>
             </div>
 
             <form onSubmit={handleSaveStudent} className="space-y-3.5 text-sm">
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">Nombre Completo</label>
-                <input required type="text" placeholder="Ej. María Gómez" value={studentForm.name} onChange={(e) => setStudentForm({ ...studentForm, name: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
+                <input
+                  required
+                  type="text"
+                  placeholder="Ej. María Gómez"
+                  value={studentForm.name}
+                  onChange={(e) => setStudentForm({ ...studentForm, name: e.target.value })}
+                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                />
               </div>
 
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">Teléfono WhatsApp</label>
-                <input required type="text" placeholder="Ej. +5491123456789" value={studentForm.phone} onChange={(e) => setStudentForm({ ...studentForm, phone: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
+                <input
+                  required
+                  type="text"
+                  placeholder="Ej. +5491123456789"
+                  value={studentForm.phone}
+                  onChange={(e) => setStudentForm({ ...studentForm, phone: e.target.value })}
+                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -3715,12 +3691,18 @@ export default function App() {
                     value={studentForm.plan}
                     onChange={(e) => {
                       const chosenPlan = e.target.value;
-                      setStudentForm({ ...studentForm, plan: chosenPlan, credits: getDefaultCreditsForPlan(chosenPlan) });
+                      setStudentForm({
+                        ...studentForm,
+                        plan: chosenPlan,
+                        credits: getDefaultCreditsForPlan(chosenPlan)
+                      });
                     }}
                     className="w-full border border-stone-200 rounded-xl px-3 py-2 bg-white"
                   >
                     {plans.map((p) => (
-                      <option key={p.id} value={p.name}>{p.name}</option>
+                      <option key={p.id} value={p.name}>
+                        {p.name}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -3732,7 +3714,13 @@ export default function App() {
                     min="0"
                     max="99"
                     disabled={isUnlimitedPlan(studentForm.plan) || getPlanConfig(studentForm.plan).isNone}
-                    value={getPlanConfig(studentForm.plan).isNone ? 0 : isUnlimitedPlan(studentForm.plan) ? 99 : studentForm.credits}
+                    value={
+                      getPlanConfig(studentForm.plan).isNone
+                        ? 0
+                        : isUnlimitedPlan(studentForm.plan)
+                        ? 99
+                        : studentForm.credits
+                    }
                     onChange={(e) => setStudentForm({ ...studentForm, credits: e.target.value })}
                     className="w-full border border-stone-200 rounded-xl px-3 py-2 disabled:bg-stone-100"
                   />
@@ -3762,19 +3750,32 @@ export default function App() {
                       value={studentForm.startDate}
                       onChange={(e) => {
                         const nextStart = e.target.value;
-                        setStudentForm({ ...studentForm, startDate: nextStart, expiryDate: addDaysToISO(nextStart, 30) });
+                        setStudentForm({
+                          ...studentForm,
+                          startDate: nextStart,
+                          expiryDate: addDaysToISO(nextStart, 30)
+                        });
                       }}
                       className="w-full border border-stone-200 rounded-xl px-3 py-2"
                     />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-stone-600 mb-1">Fecha de Vencimiento</label>
-                    <input required type="date" value={studentForm.expiryDate} onChange={(e) => setStudentForm({ ...studentForm, expiryDate: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
+                    <input
+                      required
+                      type="date"
+                      value={studentForm.expiryDate}
+                      onChange={(e) => setStudentForm({ ...studentForm, expiryDate: e.target.value })}
+                      className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                    />
                   </div>
                 </div>
               )}
 
-              <button type="submit" className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2">
+              <button
+                type="submit"
+                className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2"
+              >
                 {editingStudentId ? 'Guardar Cambios' : 'Guardar Registro'}
               </button>
             </form>
@@ -3787,7 +3788,9 @@ export default function App() {
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-semibold text-lg">Renovar / Modificar Fechas</h3>
-              <button onClick={() => setShowRenewDatesModal(false)}><XCircle className="w-5 h-5 text-stone-400" /></button>
+              <button type="button" onClick={() => setShowRenewDatesModal(false)}>
+                <XCircle className="w-5 h-5 text-stone-400" />
+              </button>
             </div>
 
             <form onSubmit={handleSaveRenewAndDates} className="space-y-3.5 text-sm">
@@ -3799,7 +3802,11 @@ export default function App() {
                   value={renewDatesForm.startDate}
                   onChange={(e) => {
                     const nextStart = e.target.value;
-                    setRenewDatesForm({ ...renewDatesForm, startDate: nextStart, expiryDate: addDaysToISO(nextStart, 30) });
+                    setRenewDatesForm({
+                      ...renewDatesForm,
+                      startDate: nextStart,
+                      expiryDate: addDaysToISO(nextStart, 30)
+                    });
                   }}
                   className="w-full border border-stone-200 rounded-xl px-3 py-2"
                 />
@@ -3807,7 +3814,13 @@ export default function App() {
 
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">Fecha de Vencimiento</label>
-                <input required type="date" value={renewDatesForm.expiryDate} onChange={(e) => setRenewDatesForm({ ...renewDatesForm, expiryDate: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
+                <input
+                  required
+                  type="date"
+                  value={renewDatesForm.expiryDate}
+                  onChange={(e) => setRenewDatesForm({ ...renewDatesForm, expiryDate: e.target.value })}
+                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                />
               </div>
 
               <label className="flex items-center gap-2 cursor-pointer bg-[#F7F5F0] p-2.5 rounded-xl border border-stone-200 text-xs">
@@ -3820,7 +3833,10 @@ export default function App() {
                 Restablecer sesiones del plan al renovar
               </label>
 
-              <button type="submit" className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2">
+              <button
+                type="submit"
+                className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2"
+              >
                 Guardar Renovación / Fechas
               </button>
             </form>
@@ -3828,13 +3844,18 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal: Crear / Editar Planes (con campo $$ y listado completo con precios) */}
       {showPlanManagerModal && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto space-y-4">
             <div className="flex justify-between items-center">
               <h3 className="font-semibold text-lg">{editingPlanId ? 'Editar Plan' : 'Crear y Editar Planes'}</h3>
-              <button onClick={() => { setShowPlanManagerModal(false); setEditingPlanId(null); }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPlanManagerModal(false);
+                  setEditingPlanId(null);
+                }}
+              >
                 <XCircle className="w-5 h-5 text-stone-400" />
               </button>
             </div>
@@ -3904,13 +3925,15 @@ export default function App() {
                     Cancelar
                   </button>
                 )}
-                <button type="submit" className="flex-1 bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2 rounded-xl text-xs">
+                <button
+                  type="submit"
+                  className="flex-1 bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2 rounded-xl text-xs"
+                >
                   {editingPlanId ? 'Guardar Plan' : 'Crear y Publicar Plan'}
                 </button>
               </div>
             </form>
 
-            {/* Todos los planes listados con sus precios */}
             <div className="space-y-2">
               <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider">
                 Todos los planes ({publishedPlansForStudents.length})
