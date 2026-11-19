@@ -32,7 +32,8 @@ import {
   ChevronDown,
   ChevronUp,
   UserCog,
-  CalendarRange
+  CalendarRange,
+  ClipboardCheck
 } from 'lucide-react';
 
 // Conexión a Supabase
@@ -168,7 +169,8 @@ function SatNamLogo({ className = 'w-11 h-11' }) {
 
 export default function App() {
   const [role, setRole] = useState('student');
-  const [adminTab, setAdminTab] = useState('schedule'); // 'schedule' | 'dashboard' | 'students' | 'payments'
+  // 'schedule' | 'attendance' | 'dashboard' | 'students' | 'payments'
+  const [adminTab, setAdminTab] = useState('schedule');
   const [notification, setNotification] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -226,9 +228,10 @@ export default function App() {
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
   const [profileForm, setProfileForm] = useState({ name: '', phone: '' });
 
-  // Vista Admin: Calendario semanal / mensual
+  // Vista Admin: Calendario semanal / mensual, filtro asistencia y Dashboard
   const [calendarView, setCalendarView] = useState('week'); // 'week' | 'month'
   const [calendarCursor, setCalendarCursor] = useState(new Date());
+  const [attendanceServiceFilter, setAttendanceServiceFilter] = useState('ALL');
   const [searchTerm, setSearchTerm] = useState('');
 
   // Dashboard: secciones desplegables y visión mensual
@@ -236,7 +239,7 @@ export default function App() {
   const [openBookingsPanel, setOpenBookingsPanel] = useState(false);
   const [expandedDashboardClassId, setExpandedDashboardClassId] = useState(null);
   const [dashboardScope, setDashboardScope] = useState('day'); // 'day' | 'month'
-  const [dashboardMonth, setDashboardMonth] = useState(() => toISODate(new Date()).slice(0, 7)); // 'YYYY-MM'
+  const [dashboardMonth, setDashboardMonth] = useState(() => toISODate(new Date()).slice(0, 7));
 
   // Pagos: desplegables para Activos y Por Renovar
   const [openPaymentsPanel, setOpenPaymentsPanel] = useState('renew'); // 'active' | 'renew' | null
@@ -1103,6 +1106,11 @@ export default function App() {
     .filter((c) => c.date === selectedDate)
     .sort((a, b) => a.time.localeCompare(b.time));
 
+  // Clases del día filtradas por servicio para la pestaña Asistencia
+  const attendanceDayClasses = dayClassesAdmin.filter((c) =>
+    attendanceServiceFilter === 'ALL' ? true : c.category === attendanceServiceFilter
+  );
+
   const filteredStudents = students.filter(
     (s) =>
       s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1203,7 +1211,7 @@ export default function App() {
     setCalendarCursor(next);
   };
 
-  // Listados de Pagos: Activos vs Por Renovar (incluye vencidos o por vencer <= 5 días)
+  // Listados de Pagos: Activos vs Por Renovar
   const activePaymentStudents = students.filter(
     (s) => !isPlanPaused(s) && !isPlanExpired(s)
   );
@@ -1566,7 +1574,7 @@ export default function App() {
               <div className="hidden md:flex items-center gap-1.5 bg-white p-1.5 rounded-2xl border border-stone-200/80 w-fit shadow-2xs">
                 <button
                   onClick={() => setAdminTab('schedule')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                  className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-medium transition-all ${
                     adminTab === 'schedule'
                       ? 'bg-[#5C7362] text-white shadow-xs'
                       : 'text-stone-600 hover:bg-stone-50'
@@ -1575,8 +1583,18 @@ export default function App() {
                   <Calendar className="w-4 h-4" /> Calendario & Clases
                 </button>
                 <button
+                  onClick={() => setAdminTab('attendance')}
+                  className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-medium transition-all ${
+                    adminTab === 'attendance'
+                      ? 'bg-[#5C7362] text-white shadow-xs'
+                      : 'text-stone-600 hover:bg-stone-50'
+                  }`}
+                >
+                  <ClipboardCheck className="w-4 h-4" /> Asistencia
+                </button>
+                <button
                   onClick={() => setAdminTab('dashboard')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                  className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-medium transition-all ${
                     adminTab === 'dashboard'
                       ? 'bg-[#5C7362] text-white shadow-xs'
                       : 'text-stone-600 hover:bg-stone-50'
@@ -1586,7 +1604,7 @@ export default function App() {
                 </button>
                 <button
                   onClick={() => setAdminTab('students')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                  className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-medium transition-all ${
                     adminTab === 'students'
                       ? 'bg-[#5C7362] text-white shadow-xs'
                       : 'text-stone-600 hover:bg-stone-50'
@@ -1596,7 +1614,7 @@ export default function App() {
                 </button>
                 <button
                   onClick={() => setAdminTab('payments')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                  className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-medium transition-all ${
                     adminTab === 'payments'
                       ? 'bg-[#5C7362] text-white shadow-xs'
                       : 'text-stone-600 hover:bg-stone-50'
@@ -1618,14 +1636,14 @@ export default function App() {
               </button>
             </div>
 
-            {/* PESTAÑA 1: CALENDARIO SEMANAL / MENSUAL Y DETALLE DEL DÍA */}
+            {/* PESTAÑA 1: CALENDARIO & CLASES (Abrir/Programar, Editar, Pausar/Cerrar o Eliminar clases) */}
             {adminTab === 'schedule' && (
               <div className="space-y-5">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
-                    <h2 className="text-xl font-semibold">Agenda Espacio Sat-Nam</h2>
+                    <h2 className="text-xl font-semibold">Calendario & Clases</h2>
                     <p className="text-sm text-stone-500">
-                      Haz clic en cualquier día para ver clases, marcar asistencia o cancelar
+                      Agrega servicios, programa horarios o abre/cierra/edita/elimina clases
                     </p>
                   </div>
 
@@ -1820,16 +1838,16 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Detalle del Día Seleccionado */}
+                {/* Detalle del Día: Clases y Acciones (Editar, Pausar/Cerrar, Eliminar) */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <h3 className="font-semibold text-base">
-                      Detalle del día:{' '}
+                      Clases del día:{' '}
                       <span className="text-[#5C7362]">{formatDateDDMMYYYY(selectedDate)}</span>
                     </h3>
                     <span className="text-xs text-stone-500">
                       {dayClassesAdmin.length}{' '}
-                      {dayClassesAdmin.length === 1 ? 'actividad' : 'actividades'}
+                      {dayClassesAdmin.length === 1 ? 'clase' : 'clases'}
                     </span>
                   </div>
 
@@ -1837,10 +1855,10 @@ export default function App() {
                     <div className="bg-white rounded-3xl p-8 text-center border border-stone-200/70 text-stone-500 text-sm">
                       No hay clases programadas para el{' '}
                       <strong>{formatDateDDMMYYYY(selectedDate)}</strong>. Usa{' '}
-                      <strong>+ Programar Horarios</strong> para cargar turnos.
+                      <strong>+ Programar Horarios</strong> para abrir turnos.
                     </div>
                   ) : (
-                    <div className="space-y-4">
+                    <div className="space-y-3">
                       {dayClassesAdmin.map((cls) => {
                         const classBookings = bookings.filter((b) => b.classId === cls.id);
                         const cancelledAt = cls.cancelled_at || cancelledTimestamps[cls.id];
@@ -1854,7 +1872,7 @@ export default function App() {
                                 : 'border-stone-200/70'
                             }`}
                           >
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-stone-100">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                               <div>
                                 <div className="flex flex-wrap items-center gap-2 mb-1.5">
                                   {getCategoryBadge(cls.category)}
@@ -1862,11 +1880,11 @@ export default function App() {
                                     {cls.time} hs ({cls.duration} min)
                                   </span>
                                   <span className="text-xs text-stone-500 font-medium">
-                                    Cupo: {classBookings.length}/{cls.capacity}
+                                    Inscritos: {classBookings.length}/{cls.capacity}
                                   </span>
                                   {cls.is_cancelled && (
                                     <span className="text-xs font-semibold px-2 py-0.5 bg-rose-100 text-rose-700 rounded-lg">
-                                      CANCELADA
+                                      CERRADA / CANCELADA
                                     </span>
                                   )}
                                 </div>
@@ -1878,7 +1896,8 @@ export default function App() {
                                 </h4>
                                 {cls.is_cancelled && cancelledAt && (
                                   <p className="text-[11px] text-rose-700 mt-1">
-                                    Cancelada el: <strong>{formatTimestamp(cancelledAt)}</strong>
+                                    Cerrada/cancelada el:{' '}
+                                    <strong>{formatTimestamp(cancelledAt)}</strong>
                                   </p>
                                 )}
                               </div>
@@ -1901,7 +1920,7 @@ export default function App() {
                                   }`}
                                 >
                                   <Ban className="w-3.5 h-3.5" />
-                                  {cls.is_cancelled ? 'Reactivar' : 'Pausar'}
+                                  {cls.is_cancelled ? 'Abrir Clase' : 'Cerrar / Pausar'}
                                 </button>
 
                                 <button
@@ -1913,89 +1932,6 @@ export default function App() {
                                 </button>
                               </div>
                             </div>
-
-                            <div className="mt-4">
-                              <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2.5">
-                                Personas registradas ({classBookings.length})
-                              </p>
-                              {classBookings.length === 0 ? (
-                                <p className="text-xs text-stone-400 italic">
-                                  Aún no hay personas registradas en este horario.
-                                </p>
-                              ) : (
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                                  {classBookings.map((booking) => {
-                                    const st = students.find((s) => s.id === booking.studentId);
-                                    if (!st) return null;
-                                    const isNoShow = booking.attendanceStatus === 'no_show';
-                                    const isAttended =
-                                      booking.attendanceStatus === 'attended' ||
-                                      (!isNoShow && booking.attended);
-
-                                    return (
-                                      <div
-                                        key={booking.id}
-                                        className={`p-3 rounded-2xl border flex items-center justify-between gap-2 transition-all ${
-                                          isAttended
-                                            ? 'bg-[#EDF3EE] text-[#4C6352] border-[#5C7362]/30'
-                                            : isNoShow
-                                            ? 'bg-rose-50/70 text-rose-900 border-rose-200'
-                                            : 'bg-[#F7F5F0] border-stone-200/80'
-                                        }`}
-                                      >
-                                        <div>
-                                          <p className="text-sm font-semibold">
-                                            {st.name}:{' '}
-                                            <span className="text-[#5C7362]">
-                                              {getStudentQuotaDisplay(st)}
-                                            </span>
-                                          </p>
-                                          <p className="text-[11px] text-stone-500">{st.plan}</p>
-                                        </div>
-
-                                        <div className="flex items-center gap-1.5 shrink-0">
-                                          <button
-                                            onClick={() =>
-                                              handleRequestAttendanceChange(
-                                                booking,
-                                                'attended',
-                                                st.name
-                                              )
-                                            }
-                                            className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-xl transition-all ${
-                                              isAttended
-                                                ? 'bg-[#5C7362] text-white'
-                                                : 'bg-white text-stone-600 border border-stone-200 hover:bg-[#EDF3EE]'
-                                            }`}
-                                          >
-                                            <UserCheck className="w-3.5 h-3.5" />
-                                            Asistió
-                                          </button>
-
-                                          <button
-                                            onClick={() =>
-                                              handleRequestAttendanceChange(
-                                                booking,
-                                                'no_show',
-                                                st.name
-                                              )
-                                            }
-                                            className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-xl transition-all ${
-                                              isNoShow
-                                                ? 'bg-rose-600 text-white'
-                                                : 'bg-white text-stone-600 border border-stone-200 hover:bg-rose-50'
-                                            }`}
-                                          >
-                                            <UserX className="w-3.5 h-3.5" />
-                                            No asistió
-                                          </button>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
                           </div>
                         );
                       })}
@@ -2005,14 +1941,325 @@ export default function App() {
               </div>
             )}
 
-            {/* PESTAÑA 2: DASHBOARD (Desplegables + Asistieron/No asistieron por clase + Visión Mensual) */}
+            {/* PESTAÑA 2: ASISTENCIA (Pura para marcar Asistió / No asistió, mismo formato calendario) */}
+            {adminTab === 'attendance' && (
+              <div className="space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-xl font-semibold">Asistencia</h2>
+                    <p className="text-sm text-stone-500">
+                      Marca Asistió o No asistió para los alumnos registrados en cada clase
+                    </p>
+                  </div>
+
+                  <select
+                    value={attendanceServiceFilter}
+                    onChange={(e) => setAttendanceServiceFilter(e.target.value)}
+                    className="text-sm font-medium bg-white px-3 py-2 rounded-xl border border-stone-200/80 w-fit"
+                  >
+                    <option value="ALL">Todos los servicios</option>
+                    {services.map((srv) => (
+                      <option key={srv.id} value={srv.id}>
+                        {srv.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Mismo formato de calendario para seleccionar el día */}
+                <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleNavigateCalendar(-1)}
+                        className="p-1.5 rounded-xl border border-stone-200 hover:bg-stone-50"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <span className="font-semibold text-sm sm:text-base min-w-[140px] text-center">
+                        {MONTH_NAMES[calendarCursor.getMonth()]} {calendarCursor.getFullYear()}
+                      </span>
+                      <button
+                        onClick={() => handleNavigateCalendar(1)}
+                        className="p-1.5 rounded-xl border border-stone-200 hover:bg-stone-50"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          const now = new Date();
+                          setCalendarCursor(now);
+                          setSelectedDate(toISODate(now));
+                        }}
+                        className="text-xs font-medium text-[#5C7362] bg-[#EDF3EE] px-2.5 py-1 rounded-lg ml-1"
+                      >
+                        Hoy
+                      </button>
+                    </div>
+
+                    <div className="flex items-center bg-[#F7F5F0] p-1 rounded-xl border border-stone-200/70">
+                      <button
+                        onClick={() => setCalendarView('week')}
+                        className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                          calendarView === 'week'
+                            ? 'bg-[#5C7362] text-white shadow-2xs'
+                            : 'text-stone-600'
+                        }`}
+                      >
+                        Semanal
+                      </button>
+                      <button
+                        onClick={() => setCalendarView('month')}
+                        className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                          calendarView === 'month'
+                            ? 'bg-[#5C7362] text-white shadow-2xs'
+                            : 'text-stone-600'
+                        }`}
+                      >
+                        Mensual
+                      </button>
+                    </div>
+                  </div>
+
+                  {calendarView === 'week' ? (
+                    <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
+                      {getWeekDays(calendarCursor).map((dayObj) => {
+                        const iso = toISODate(dayObj);
+                        const isSelected = iso === selectedDate;
+                        const isToday = iso === todayISO;
+                        const count = classes.filter((c) => c.date === iso).length;
+                        const dayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+
+                        return (
+                          <button
+                            key={iso}
+                            onClick={() => setSelectedDate(iso)}
+                            className={`p-2 sm:p-3 rounded-2xl border text-center transition-all flex flex-col items-center justify-between min-h-[76px] ${
+                              isSelected
+                                ? 'bg-[#5C7362] text-white border-[#5C7362] shadow-xs'
+                                : isToday
+                                ? 'bg-[#EDF3EE] border-[#5C7362]/40 text-[#2D332F]'
+                                : 'bg-[#F7F5F0]/60 border-stone-200/80 hover:border-stone-300'
+                            }`}
+                          >
+                            <span
+                              className={`text-[11px] font-medium ${
+                                isSelected ? 'text-white/80' : 'text-stone-500'
+                              }`}
+                            >
+                              {dayNames[dayObj.getDay()]}
+                            </span>
+                            <span className="text-base sm:text-lg font-bold my-0.5">
+                              {dayObj.getDate()}
+                            </span>
+                            {count > 0 ? (
+                              <span
+                                className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
+                                  isSelected
+                                    ? 'bg-white/20 text-white'
+                                    : 'bg-[#EDF3EE] text-[#4C6352]'
+                                }`}
+                              >
+                                {count} {count === 1 ? 'clase' : 'clases'}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] opacity-40">—</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold text-stone-400 mb-1.5">
+                        <span>Lun</span>
+                        <span>Mar</span>
+                        <span>Mié</span>
+                        <span>Jue</span>
+                        <span>Vie</span>
+                        <span>Sáb</span>
+                        <span>Dom</span>
+                      </div>
+                      <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
+                        {getMonthGridDays(calendarCursor).map((dayObj, idx) => {
+                          if (!dayObj) return <div key={`empty-${idx}`} className="p-2" />;
+                          const iso = toISODate(dayObj);
+                          const isSelected = iso === selectedDate;
+                          const isToday = iso === todayISO;
+                          const count = classes.filter((c) => c.date === iso).length;
+
+                          return (
+                            <button
+                              key={iso}
+                              onClick={() => setSelectedDate(iso)}
+                              className={`p-1.5 sm:p-2 rounded-xl border text-center transition-all flex flex-col items-center justify-center min-h-[54px] ${
+                                isSelected
+                                  ? 'bg-[#5C7362] text-white border-[#5C7362]'
+                                  : isToday
+                                  ? 'bg-[#EDF3EE] border-[#5C7362]/40'
+                                  : 'bg-[#F7F5F0]/50 border-stone-200/70 hover:border-stone-300'
+                              }`}
+                            >
+                              <span className="text-xs sm:text-sm font-semibold">
+                                {dayObj.getDate()}
+                              </span>
+                              {count > 0 && (
+                                <span
+                                  className={`mt-0.5 text-[10px] px-1.5 rounded-full font-medium ${
+                                    isSelected
+                                      ? 'bg-white/25 text-white'
+                                      : 'bg-[#EDF3EE] text-[#4C6352]'
+                                  }`}
+                                >
+                                  {count}
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Planilla de Asistencia del Día */}
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-base">
+                    Planilla del día:{' '}
+                    <span className="text-[#5C7362]">{formatDateDDMMYYYY(selectedDate)}</span>
+                  </h3>
+
+                  {attendanceDayClasses.length === 0 ? (
+                    <div className="bg-white rounded-3xl p-8 text-center border border-stone-200/70 text-stone-500 text-sm">
+                      No hay clases para tomar asistencia en esta fecha o filtro.
+                    </div>
+                  ) : (
+                    attendanceDayClasses.map((cls) => {
+                      const classBookings = bookings.filter((b) => b.classId === cls.id);
+                      const pendingCount = classBookings.filter(
+                        (b) => !b.attendanceStatus && !b.attended
+                      ).length;
+
+                      return (
+                        <div
+                          key={cls.id}
+                          className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-4"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-stone-100">
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2 mb-1">
+                                {getCategoryBadge(cls.category)}
+                                <span className="text-xs font-medium px-2.5 py-0.5 rounded-lg bg-[#EDF3EE] text-[#4C6352]">
+                                  {cls.time} hs
+                                </span>
+                                {cls.is_cancelled && (
+                                  <span className="text-xs font-semibold px-2 py-0.5 bg-rose-100 text-rose-700 rounded-lg">
+                                    CANCELADA
+                                  </span>
+                                )}
+                              </div>
+                              <h4 className="font-semibold text-base">{cls.title}</h4>
+                            </div>
+
+                            <span className="text-xs text-stone-500">
+                              Inscritos: <strong>{classBookings.length}</strong> • Pendientes:{' '}
+                              <strong>{pendingCount}</strong>
+                            </span>
+                          </div>
+
+                          {classBookings.length === 0 ? (
+                            <p className="text-xs text-stone-400 italic">
+                              No hay alumnos registrados en esta clase.
+                            </p>
+                          ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                              {classBookings.map((booking) => {
+                                const st = students.find((s) => s.id === booking.studentId);
+                                if (!st) return null;
+                                const isNoShow = booking.attendanceStatus === 'no_show';
+                                const isAttended =
+                                  booking.attendanceStatus === 'attended' ||
+                                  (!isNoShow && booking.attended);
+
+                                return (
+                                  <div
+                                    key={booking.id}
+                                    className={`p-3 rounded-2xl border flex items-center justify-between gap-2 transition-all ${
+                                      isAttended
+                                        ? 'bg-[#EDF3EE] text-[#4C6352] border-[#5C7362]/30'
+                                        : isNoShow
+                                        ? 'bg-rose-50/70 text-rose-900 border-rose-200'
+                                        : 'bg-[#F7F5F0] border-stone-200/80'
+                                    }`}
+                                  >
+                                    <div>
+                                      <p className="text-sm font-semibold">
+                                        {st.name}:{' '}
+                                        <span className="text-[#5C7362]">
+                                          {getStudentQuotaDisplay(st)}
+                                        </span>
+                                      </p>
+                                      <p className="text-[11px] text-stone-500">{st.plan}</p>
+                                    </div>
+
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                      <button
+                                        onClick={() =>
+                                          handleRequestAttendanceChange(
+                                            booking,
+                                            'attended',
+                                            st.name
+                                          )
+                                        }
+                                        className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-xl transition-all ${
+                                          isAttended
+                                            ? 'bg-[#5C7362] text-white'
+                                            : 'bg-white text-stone-600 border border-stone-200 hover:bg-[#EDF3EE]'
+                                        }`}
+                                      >
+                                        <UserCheck className="w-3.5 h-3.5" />
+                                        Asistió
+                                      </button>
+
+                                      <button
+                                        onClick={() =>
+                                          handleRequestAttendanceChange(
+                                            booking,
+                                            'no_show',
+                                            st.name
+                                          )
+                                        }
+                                        className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-xl transition-all ${
+                                          isNoShow
+                                            ? 'bg-rose-600 text-white'
+                                            : 'bg-white text-stone-600 border border-stone-200 hover:bg-rose-50'
+                                        }`}
+                                      >
+                                        <UserX className="w-3.5 h-3.5" />
+                                        No asistió
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* PESTAÑA 3: DASHBOARD (Desplegables + Asistieron/No asistieron por clase + Visión Mensual) */}
             {adminTab === 'dashboard' && (
               <div className="space-y-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h2 className="text-xl font-semibold">Dashboard</h2>
                     <p className="text-sm text-stone-500">
-                      Toca Clases del Día o Reservas del Día para ver el detalle sin saturar la vista
+                      Toca Clases del Día o Reservas del Día para ver el detalle
                     </p>
                   </div>
 
@@ -2060,7 +2307,6 @@ export default function App() {
 
                 {dashboardScope === 'day' ? (
                   <>
-                    {/* Botones resumen tocables: Clases del Día y Reservas del Día */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <button
                         type="button"
@@ -2117,7 +2363,6 @@ export default function App() {
                       </button>
                     </div>
 
-                    {/* Desplegable: Clases del Día -> Total inscritos / cupo disponible -> Alumnos que asistieron y no */}
                     {openClassesPanel && (
                       <div className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-4">
                         <div className="flex items-center justify-between pb-2 border-b border-stone-100">
@@ -2249,7 +2494,6 @@ export default function App() {
                       </div>
                     )}
 
-                    {/* Desplegable: Reservas del Día */}
                     {openBookingsPanel && (
                       <div className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-3">
                         <div className="flex items-center justify-between pb-2 border-b border-stone-100">
@@ -2302,7 +2546,6 @@ export default function App() {
                     )}
                   </>
                 ) : (
-                  /* Visión Mensual: solo estadísticas de asistencias por clase y horarios */
                   <div className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-4">
                     <div className="flex items-center justify-between pb-2 border-b border-stone-100">
                       <div>
@@ -2366,14 +2609,15 @@ export default function App() {
               </div>
             )}
 
-            {/* PESTAÑA 3: ALUMNOS */}
+            {/* PESTAÑA 4: ALUMNOS */}
             {adminTab === 'students' && (
               <div className="space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <h2 className="text-xl font-semibold">Alumnos & Consultantes</h2>
                     <p className="text-sm text-stone-500">
-                      Crea, edita o elimina registros (las fechas del plan se gestionan en Pagos)
+                      Total registrados: <strong>{students.length}</strong> (las fechas del plan se
+                      gestionan en Pagos)
                     </p>
                   </div>
 
@@ -2462,7 +2706,7 @@ export default function App() {
               </div>
             )}
 
-            {/* PESTAÑA 4: PAGOS Y WHATSAPP (Desplegables Activos y Por Renovar) */}
+            {/* PESTAÑA 5: PAGOS Y WHATSAPP */}
             {adminTab === 'payments' && (
               <div className="space-y-5">
                 <div>
@@ -2643,10 +2887,10 @@ export default function App() {
 
       {/* Navegación móvil inferior Modo Estudio */}
       {role === 'admin' && (
-        <nav className="md:hidden fixed bottom-8 left-0 right-0 bg-white border-t border-stone-200 flex justify-around py-2 px-2 z-40">
+        <nav className="md:hidden fixed bottom-8 left-0 right-0 bg-white border-t border-stone-200 flex justify-around py-2 px-1 z-40">
           <button
             onClick={() => setAdminTab('schedule')}
-            className={`flex flex-col items-center gap-1 text-[11px] font-medium ${
+            className={`flex flex-col items-center gap-0.5 text-[10px] font-medium ${
               adminTab === 'schedule' ? 'text-[#5C7362]' : 'text-stone-400'
             }`}
           >
@@ -2654,8 +2898,17 @@ export default function App() {
             Agenda
           </button>
           <button
+            onClick={() => setAdminTab('attendance')}
+            className={`flex flex-col items-center gap-0.5 text-[10px] font-medium ${
+              adminTab === 'attendance' ? 'text-[#5C7362]' : 'text-stone-400'
+            }`}
+          >
+            <ClipboardCheck className="w-4 h-4" />
+            Asistencia
+          </button>
+          <button
             onClick={() => setAdminTab('dashboard')}
-            className={`flex flex-col items-center gap-1 text-[11px] font-medium ${
+            className={`flex flex-col items-center gap-0.5 text-[10px] font-medium ${
               adminTab === 'dashboard' ? 'text-[#5C7362]' : 'text-stone-400'
             }`}
           >
@@ -2664,7 +2917,7 @@ export default function App() {
           </button>
           <button
             onClick={() => setAdminTab('students')}
-            className={`flex flex-col items-center gap-1 text-[11px] font-medium ${
+            className={`flex flex-col items-center gap-0.5 text-[10px] font-medium ${
               adminTab === 'students' ? 'text-[#5C7362]' : 'text-stone-400'
             }`}
           >
@@ -2673,7 +2926,7 @@ export default function App() {
           </button>
           <button
             onClick={() => setAdminTab('payments')}
-            className={`flex flex-col items-center gap-1 text-[11px] font-medium ${
+            className={`flex flex-col items-center gap-0.5 text-[10px] font-medium ${
               adminTab === 'payments' ? 'text-[#5C7362]' : 'text-stone-400'
             }`}
           >
