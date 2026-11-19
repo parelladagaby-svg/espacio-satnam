@@ -175,8 +175,7 @@ function SatNamLogo({ className = 'w-11 h-11' }) {
 
 export default function App() {
   const [role, setRole] = useState('student');
-  // 'schedule' | 'attendance' | 'dashboard' | 'students' | 'payments'
-  const [adminTab, setAdminTab] = useState('schedule');
+  const [adminTab, setAdminTab] = useState('schedule'); // 'schedule' | 'attendance' | 'dashboard' | 'students' | 'payments'
   const [notification, setNotification] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -186,7 +185,7 @@ export default function App() {
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
 
-  // Servicios disponibles (con edición y borrado completos)
+  // Servicios disponibles
   const [services, setServices] = useState(() => {
     const saved = localStorage.getItem('satnam_services_v2');
     return saved ? JSON.parse(saved) : INITIAL_SERVICES;
@@ -226,6 +225,9 @@ export default function App() {
   // Confirmación al editar asistencia ya registrada
   const [pendingAttendanceEdit, setPendingAttendanceEdit] = useState(null);
 
+  // Confirmación al borrar cualquier registro ('class' | 'student' | 'service')
+  const [pendingDeleteConfirm, setPendingDeleteConfirm] = useState(null);
+
   // Vista Alumno
   const [activeStudentId, setActiveStudentId] = useState('');
   const [selectedDate, setSelectedDate] = useState(toISODate(new Date()));
@@ -249,7 +251,7 @@ export default function App() {
   // Pagos: desplegables para Activos y Por Renovar
   const [openPaymentsPanel, setOpenPaymentsPanel] = useState('renew'); // 'active' | 'renew' | null
 
-  // Modal Gestionar Servicios (Crear, Editar y Borrar servicios existentes)
+  // Modal Gestionar Servicios
   const [showServiceModal, setShowServiceModal] = useState(false);
   const [editingServiceId, setEditingServiceId] = useState(null);
   const [serviceForm, setServiceForm] = useState({
@@ -258,7 +260,7 @@ export default function App() {
     defaultCap: 10
   });
 
-  // Modal Programar / Editar Clase (con selección por categoría y servicio)
+  // Modal Programar / Editar Clase
   const [showClassModal, setShowClassModal] = useState(false);
   const [editingClassId, setEditingClassId] = useState(null);
   const [classForm, setClassForm] = useState({
@@ -707,22 +709,17 @@ export default function App() {
     });
   };
 
-  // Borrar un servicio existente
-  const handleDeleteService = (srvId) => {
+  // Solicitar confirmación para borrar un servicio
+  const handleRequestDeleteService = (srv) => {
     if (services.length <= 1) {
       showToast('Debe quedar al menos un servicio en el estudio.', 'error');
       return;
     }
-    const updated = services.filter((s) => s.id !== srvId);
-    saveServices(updated);
-    if (editingServiceId === srvId) {
-      setEditingServiceId(null);
-      setServiceForm({ label: '', pillar: 'cuerpo', defaultCap: 10 });
-    }
-    if (attendanceServiceFilter === srvId) {
-      setAttendanceServiceFilter('ALL');
-    }
-    showToast('Servicio eliminado');
+    setPendingDeleteConfirm({
+      type: 'service',
+      id: srv.id,
+      title: `el servicio "${srv.label}"`
+    });
   };
 
   // Abrir modal de Programar Horarios (categoría + servicio)
@@ -747,7 +744,7 @@ export default function App() {
     setShowClassModal(true);
   };
 
-  // Guardar o Programar Clases (1 a 4 semanas)
+  // Guardar o Programar Clases (con validación de día/horario ya existente)
   const handleSaveClass = async (e) => {
     e.preventDefault();
     const matchingSrv = services.find((s) => s.id === classForm.category) || services[0];
@@ -756,6 +753,23 @@ export default function App() {
       : matchingSrv.label;
 
     if (editingClassId) {
+      const currentCls = classes.find((c) => c.id === editingClassId);
+      const targetDate = currentCls?.date || selectedDate;
+      const conflict = classes.find(
+        (c) =>
+          c.id !== editingClassId &&
+          c.date === targetDate &&
+          c.time === classForm.time
+      );
+
+      if (conflict) {
+        showToast(
+          `Ya existe una clase (${conflict.title}) el ${formatDateDDMMYYYY(targetDate)} a las ${classForm.time} hs.`,
+          'error'
+        );
+        return;
+      }
+
       const { data, error } = await supabase
         .from('classes')
         .update({
@@ -800,6 +814,23 @@ export default function App() {
             datesToCreate.push(iso);
           }
         }
+      }
+
+      // Validar que no exista ya una clase en alguno de esos días y horarios
+      const conflictingDates = datesToCreate.filter((d) =>
+        classes.some((c) => c.date === d && c.time === classForm.time)
+      );
+
+      if (conflictingDates.length > 0) {
+        const previewDates = conflictingDates
+          .slice(0, 3)
+          .map(formatDateDDMMYYYY)
+          .join(', ');
+        showToast(
+          `Ya hay una clase a las ${classForm.time} hs en: ${previewDates}. Cambia el día o el horario.`,
+          'error'
+        );
+        return;
       }
 
       const payload = datesToCreate.map((d) => ({
@@ -887,17 +918,13 @@ export default function App() {
     }
   };
 
-  // Eliminar clase puntual
-  const handleDeleteClass = async (classId) => {
-    const { error } = await supabase.from('classes').delete().eq('id', classId);
-    if (!error) {
-      setClasses((prev) => prev.filter((c) => c.id !== classId));
-      setBookings((prev) => prev.filter((b) => b.classId !== classId));
-      const updatedTs = { ...cancelledTimestamps };
-      delete updatedTs[classId];
-      saveCancelledTimestamps(updatedTs);
-      showToast('Clase eliminada');
-    }
+  // Solicitar confirmación para borrar clase
+  const handleRequestDeleteClass = (cls) => {
+    setPendingDeleteConfirm({
+      type: 'class',
+      id: cls.id,
+      title: `la clase "${cls.title}" (${cls.time} hs del ${formatDateDDMMYYYY(cls.date)})`
+    });
   };
 
   // Abrir modal para crear alumno
@@ -1013,24 +1040,53 @@ export default function App() {
     }
   };
 
-  // Eliminar Alumno
-  const handleDeleteStudent = async (studentId) => {
-    await supabase.from('bookings').delete().eq('student_id', studentId);
-    const { error } = await supabase.from('students').delete().eq('id', studentId);
+  // Solicitar confirmación para borrar alumno
+  const handleRequestDeleteStudent = (st) => {
+    setPendingDeleteConfirm({
+      type: 'student',
+      id: st.id,
+      title: `el registro de "${st.name}"`
+    });
+  };
 
-    if (!error) {
-      const remaining = students.filter((s) => s.id !== studentId);
-      setStudents(remaining);
-      setBookings((prev) => prev.filter((b) => b.studentId !== studentId));
-      const updatedMeta = { ...planMetaMap };
-      delete updatedMeta[studentId];
-      savePlanMeta(updatedMeta);
-      if (activeStudentId === studentId) {
-        setActiveStudentId(remaining[0]?.id || '');
+  // Ejecutar borrado confirmado según tipo ('class' | 'student' | 'service')
+  const handleConfirmDelete = async () => {
+    if (!pendingDeleteConfirm) return;
+    const { type, id } = pendingDeleteConfirm;
+    setPendingDeleteConfirm(null);
+
+    if (type === 'class') {
+      const { error } = await supabase.from('classes').delete().eq('id', id);
+      if (!error) {
+        setClasses((prev) => prev.filter((c) => c.id !== id));
+        setBookings((prev) => prev.filter((b) => b.classId !== id));
+        const updatedTs = { ...cancelledTimestamps };
+        delete updatedTs[id];
+        saveCancelledTimestamps(updatedTs);
+        showToast('Clase eliminada');
+      } else {
+        showToast('No se pudo eliminar la clase', 'error');
       }
-      showToast('Alumno eliminado del registro');
-    } else {
-      showToast('No se pudo eliminar el alumno', 'error');
+    } else if (type === 'student') {
+      await supabase.from('bookings').delete().eq('student_id', id);
+      const { error } = await supabase.from('students').delete().eq('id', id);
+
+      if (!error) {
+        const remaining = students.filter((s) => s.id !== id);
+        setStudents(remaining);
+        setBookings((prev) => prev.filter((b) => b.studentId !== id));
+        const updatedMeta = { ...planMetaMap };
+        delete updatedMeta[id];
+        savePlanMeta(updatedMeta);
+        if (activeStudentId === id) {
+          setActiveStudentId(remaining[0]?.id || '');
+        }
+        showToast('Alumno eliminado del registro');
+      } else {
+        showToast('No se pudo eliminar el alumno', 'error');
+      }
+    } else if (type === 'service') {
+      handleDeleteService(id);
     }
   };
 
@@ -1988,7 +2044,7 @@ export default function App() {
                                 </button>
 
                                 <button
-                                  onClick={() => handleDeleteClass(cls.id)}
+                                  onClick={() => handleRequestDeleteClass(cls)}
                                   title="Eliminar clase"
                                   className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 rounded-xl border border-rose-200 transition-colors"
                                 >
@@ -2751,7 +2807,7 @@ export default function App() {
                                   <Edit3 className="w-3.5 h-3.5" />
                                 </button>
                                 <button
-                                  onClick={() => handleDeleteStudent(st.id)}
+                                  onClick={() => handleRequestDeleteStudent(st)}
                                   title="Eliminar alumno"
                                   className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg border border-rose-200 transition-colors"
                                 >
@@ -2998,6 +3054,35 @@ export default function App() {
         </nav>
       )}
 
+      {/* Modal: Confirmación al borrar cualquier registro */}
+      {pendingDeleteConfirm && (
+        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl text-center">
+            <h3 className="font-semibold text-lg text-rose-700">Confirmar eliminación</h3>
+            <p className="text-sm text-stone-600 mt-2 mb-5">
+              ¿Estás seguro de que querés borrar definitivamente{' '}
+              <strong>{pendingDeleteConfirm.title}</strong>? Esta acción no se puede deshacer.
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingDeleteConfirm(null)}
+                className="flex-1 py-2.5 rounded-xl text-xs font-medium bg-stone-100 text-stone-700 hover:bg-stone-200"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white"
+              >
+                Sí, borrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal: Confirmación al editar asistencia ya registrada */}
       {pendingAttendanceEdit && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
@@ -3158,7 +3243,10 @@ export default function App() {
               </button>
             </div>
 
-            <form onSubmit={handleSaveService} className="space-y-3 text-sm border-b border-stone-100 pb-4">
+            <form
+              onSubmit={handleSaveService}
+              className="space-y-3 text-sm border-b border-stone-100 pb-4"
+            >
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">
                   Nombre del Servicio
@@ -3231,7 +3319,6 @@ export default function App() {
               </div>
             </form>
 
-            {/* Listado de servicios existentes para editar o borrar */}
             <div className="space-y-2">
               <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider">
                 Servicios Existentes ({services.length})
@@ -3262,7 +3349,7 @@ export default function App() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleDeleteService(srv.id)}
+                          onClick={() => handleRequestDeleteService(srv)}
                           title="Borrar servicio"
                           className="p-1.5 text-rose-600 bg-white hover:bg-rose-50 rounded-lg border border-rose-200"
                         >
@@ -3292,7 +3379,6 @@ export default function App() {
             </div>
 
             <form onSubmit={handleSaveClass} className="space-y-3.5 text-sm">
-              {/* Paso 1: Elegir Categoría */}
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1.5">
                   1. Categoría
@@ -3328,7 +3414,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Paso 2: Elegir Servicio dentro de la categoría */}
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1.5">
                   2. Servicio
