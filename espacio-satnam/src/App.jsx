@@ -29,7 +29,8 @@ import {
   BarChart3,
   ChevronLeft,
   ChevronRight,
-  UserCog
+  UserCog,
+  CalendarRange
 } from 'lucide-react';
 
 // Conexión a Supabase
@@ -87,9 +88,23 @@ const MONTH_NAMES = [
 // Formatear YYYY-MM-DD a DD-MM-YYYY
 const formatDateDDMMYYYY = (dateStr) => {
   if (!dateStr) return '';
-  const [year, month, day] = dateStr.split('-');
+  const clean = String(dateStr).split('T')[0];
+  const [year, month, day] = clean.split('-');
   if (!year || !month || !day) return dateStr;
   return `${day}-${month}-${year}`;
+};
+
+// Formatear ISO timestamp a DD-MM-YYYY HH:mm
+const formatTimestamp = (isoStr) => {
+  if (!isoStr) return '';
+  const d = new Date(isoStr);
+  if (Number.isNaN(d.getTime())) return isoStr;
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${day}-${month}-${year} ${hh}:${mm}`;
 };
 
 const toISODate = (dateObj) => {
@@ -97,6 +112,13 @@ const toISODate = (dateObj) => {
   const m = String(dateObj.getMonth() + 1).padStart(2, '0');
   const d = String(dateObj.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
+};
+
+const addDaysToISO = (isoDate, days) => {
+  const base = new Date(`${isoDate}T00:00:00`);
+  if (Number.isNaN(base.getTime())) return isoDate;
+  base.setDate(base.getDate() + Number(days || 0));
+  return toISODate(base);
 };
 
 // Logo oficial: Flor de Loto
@@ -160,6 +182,24 @@ export default function App() {
     return saved ? JSON.parse(saved) : INITIAL_SERVICES;
   });
 
+  // Fechas de inicio y estados pausados persistidos localmente si no están en columnas extra de Supabase
+  const [planMetaMap, setPlanMetaMap] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('satnam_plan_meta_v1') || '{}');
+    } catch {
+      return {};
+    }
+  });
+
+  // Timestamps de cancelación por classId
+  const [cancelledTimestamps, setCancelledTimestamps] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('satnam_cancelled_ts_v1') || '{}');
+    } catch {
+      return {};
+    }
+  });
+
   const [students, setStudents] = useState([]);
   const [classes, setClasses] = useState([]);
   // attendanceStatus: null | 'attended' | 'no_show'
@@ -172,10 +212,9 @@ export default function App() {
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
   const [profileForm, setProfileForm] = useState({ name: '', phone: '' });
 
-  // Vista Admin: Calendario semanal / mensual & Dashboard
+  // Vista Admin: Calendario semanal / mensual
   const [calendarView, setCalendarView] = useState('week'); // 'week' | 'month'
   const [calendarCursor, setCalendarCursor] = useState(new Date());
-  const [dashboardClassFilter, setDashboardClassFilter] = useState('ALL');
   const [searchTerm, setSearchTerm] = useState('');
 
   // Modal + Servicio (solo agregar)
@@ -208,13 +247,32 @@ export default function App() {
     name: '',
     phone: '',
     plan: 'Mensual - 2 veces por semana',
+    startDate: toISODate(new Date()),
     expiryDate: toISODate(new Date(Date.now() + 30 * 86400000)),
     credits: 8
+  });
+
+  // Modal Modificar Fecha de Inicio y Vencimiento desde Pagos
+  const [showDatesModal, setShowDatesModal] = useState(false);
+  const [datesStudentId, setDatesStudentId] = useState(null);
+  const [datesForm, setDatesForm] = useState({
+    startDate: toISODate(new Date()),
+    expiryDate: toISODate(new Date(Date.now() + 30 * 86400000))
   });
 
   const showToast = (message, type = 'success') => {
     setNotification({ message, type });
     setTimeout(() => setNotification(null), 3500);
+  };
+
+  const savePlanMeta = (nextMap) => {
+    setPlanMetaMap(nextMap);
+    localStorage.setItem('satnam_plan_meta_v1', JSON.stringify(nextMap));
+  };
+
+  const saveCancelledTimestamps = (nextMap) => {
+    setCancelledTimestamps(nextMap);
+    localStorage.setItem('satnam_cancelled_ts_v1', JSON.stringify(nextMap));
   };
 
   const handleSelectAdminMode = () => {
@@ -296,6 +354,16 @@ export default function App() {
 
   const activeStudent = students.find((s) => s.id === activeStudentId) || students[0];
 
+  const isPlanPaused = (student) => {
+    if (!student) return false;
+    return student.status === 'paused' || Boolean(planMetaMap[student.id]?.isPaused);
+  };
+
+  const getStudentStartDate = (student) => {
+    if (!student) return '';
+    return planMetaMap[student.id]?.startDate || addDaysToISO(student.expiryDate, -30);
+  };
+
   const isUnlimitedPlan = (plan) =>
     plan === 'Pase Libre Clases' ||
     plan === 'Pase Libre Actividades' ||
@@ -362,6 +430,11 @@ export default function App() {
   const handleToggleBooking = async (classId) => {
     if (!activeStudent) {
       showToast('Primero solicita tu alta en el espacio', 'error');
+      return;
+    }
+
+    if (isPlanPaused(activeStudent)) {
+      showToast('Tu plan se encuentra pausado/cancelado. No puedes reservar por el momento.', 'error');
       return;
     }
 
@@ -437,7 +510,7 @@ export default function App() {
     }
   };
 
-  // Establecer asistencia explícita ('attended' | 'no_show')
+  // Establecer asistencia explícita ('attended' | 'no_show') únicamente desde las clases
   const handleSetAttendanceStatus = async (bookingId, status) => {
     const current = bookings.find((b) => b.id === bookingId);
     if (!current) return;
@@ -529,7 +602,7 @@ export default function App() {
       }
 
       const weeks = Math.min(4, Math.max(1, Number(classForm.weeksCount) || 1));
-      const baseDate = new Date(selectedDate + 'T00:00:00');
+      const baseDate = new Date(`${selectedDate}T00:00:00`);
       const datesToCreate = [];
 
       for (let w = 0; w < weeks; w++) {
@@ -593,12 +666,14 @@ export default function App() {
     setShowClassModal(true);
   };
 
-  // Pausar / Reactivar clase puntual
+  // Pausar / Reactivar clase puntual con timestamp
   const handleToggleCancelClass = async (classId) => {
     const targetClass = classes.find((c) => c.id === classId);
     if (!targetClass) return;
 
     const nextCancelledState = !targetClass.is_cancelled;
+    const nowISO = new Date().toISOString();
+
     const { error } = await supabase
       .from('classes')
       .update({ is_cancelled: nextCancelledState })
@@ -608,7 +683,20 @@ export default function App() {
       setClasses((prev) =>
         prev.map((c) => (c.id === classId ? { ...c, is_cancelled: nextCancelledState } : c))
       );
-      showToast(nextCancelledState ? 'Clase pausada' : 'Clase reactivada');
+
+      const updatedTs = { ...cancelledTimestamps };
+      if (nextCancelledState) {
+        updatedTs[classId] = nowISO;
+      } else {
+        delete updatedTs[classId];
+      }
+      saveCancelledTimestamps(updatedTs);
+
+      showToast(
+        nextCancelledState
+          ? `Clase cancelada (${formatTimestamp(nowISO)})`
+          : 'Clase reactivada'
+      );
     } else {
       showToast('Verifica que la columna is_cancelled exista en Supabase', 'error');
     }
@@ -620,18 +708,23 @@ export default function App() {
     if (!error) {
       setClasses((prev) => prev.filter((c) => c.id !== classId));
       setBookings((prev) => prev.filter((b) => b.classId !== classId));
+      const updatedTs = { ...cancelledTimestamps };
+      delete updatedTs[classId];
+      saveCancelledTimestamps(updatedTs);
       showToast('Clase eliminada');
     }
   };
 
   // Abrir modal para crear alumno
   const handleOpenNewStudent = () => {
+    const start = toISODate(new Date());
     setEditingStudentId(null);
     setStudentForm({
       name: '',
       phone: '',
       plan: 'Mensual - 2 veces por semana',
-      expiryDate: toISODate(new Date(Date.now() + 30 * 86400000)),
+      startDate: start,
+      expiryDate: addDaysToISO(start, 30),
       credits: 8
     });
     setShowStudentModal(true);
@@ -644,6 +737,7 @@ export default function App() {
       name: st.name,
       phone: st.phone,
       plan: st.plan,
+      startDate: getStudentStartDate(st),
       expiryDate: st.expiryDate,
       credits: st.credits
     });
@@ -686,6 +780,15 @@ export default function App() {
             : s
         )
       );
+
+      savePlanMeta({
+        ...planMetaMap,
+        [editingStudentId]: {
+          ...(planMetaMap[editingStudentId] || {}),
+          startDate: studentForm.startDate
+        }
+      });
+
       setShowStudentModal(false);
       setEditingStudentId(null);
       showToast('Datos del alumno actualizados');
@@ -720,6 +823,14 @@ export default function App() {
         credits: data.credits
       };
 
+      savePlanMeta({
+        ...planMetaMap,
+        [created.id]: {
+          startDate: studentForm.startDate,
+          isPaused: false
+        }
+      });
+
       setStudents((prev) => [...prev, created]);
       if (!activeStudentId) setActiveStudentId(created.id);
       setShowStudentModal(false);
@@ -736,6 +847,9 @@ export default function App() {
       const remaining = students.filter((s) => s.id !== studentId);
       setStudents(remaining);
       setBookings((prev) => prev.filter((b) => b.studentId !== studentId));
+      const updatedMeta = { ...planMetaMap };
+      delete updatedMeta[studentId];
+      savePlanMeta(updatedMeta);
       if (activeStudentId === studentId) {
         setActiveStudentId(remaining[0]?.id || '');
       }
@@ -745,12 +859,88 @@ export default function App() {
     }
   };
 
-  // Renovar abono
+  // Pausar o Reactivar Plan desde Pagos & WhatsApp
+  const handleTogglePausePlan = async (student) => {
+    const currentlyPaused = isPlanPaused(student);
+    const nextPaused = !currentlyPaused;
+    const nextStatus = nextPaused ? 'paused' : 'active';
+
+    const { error } = await supabase
+      .from('students')
+      .update({ status: nextStatus })
+      .eq('id', student.id);
+
+    if (!error) {
+      setStudents((prev) =>
+        prev.map((s) => (s.id === student.id ? { ...s, status: nextStatus } : s))
+      );
+      savePlanMeta({
+        ...planMetaMap,
+        [student.id]: {
+          ...(planMetaMap[student.id] || { startDate: getStudentStartDate(student) }),
+          isPaused: nextPaused
+        }
+      });
+      showToast(
+        nextPaused
+          ? `Plan de ${student.name} pausado (no podrá reservar)`
+          : `Plan de ${student.name} reactivado`
+      );
+    } else {
+      showToast('No se pudo actualizar el estado del plan', 'error');
+    }
+  };
+
+  // Abrir modal para editar Fecha de Inicio y Vencimiento
+  const handleOpenEditDates = (student) => {
+    setDatesStudentId(student.id);
+    setDatesForm({
+      startDate: getStudentStartDate(student),
+      expiryDate: student.expiryDate
+    });
+    setShowDatesModal(true);
+  };
+
+  const handleSaveDates = async (e) => {
+    e.preventDefault();
+    if (!datesStudentId) return;
+
+    const { error } = await supabase
+      .from('students')
+      .update({ expiry_date: datesForm.expiryDate })
+      .eq('id', datesStudentId);
+
+    if (error) {
+      showToast('No se pudieron guardar las fechas', 'error');
+      return;
+    }
+
+    setStudents((prev) =>
+      prev.map((s) =>
+        s.id === datesStudentId ? { ...s, expiryDate: datesForm.expiryDate } : s
+      )
+    );
+
+    savePlanMeta({
+      ...planMetaMap,
+      [datesStudentId]: {
+        ...(planMetaMap[datesStudentId] || {}),
+        startDate: datesForm.startDate
+      }
+    });
+
+    setShowDatesModal(false);
+    setDatesStudentId(null);
+    showToast('Fechas de inicio y vencimiento actualizadas');
+  };
+
+  // Renovar abono (30 días desde hoy)
   const handleRenewPlan = async (studentId) => {
     const student = students.find((s) => s.id === studentId);
     if (!student) return;
 
-    const nextMonth = toISODate(new Date(Date.now() + 30 * 86400000));
+    const startNow = toISODate(new Date());
+    const nextMonth = addDaysToISO(startNow, 30);
     const renewedCredits = getDefaultCreditsForPlan(student.plan);
 
     const { error } = await supabase
@@ -770,6 +960,13 @@ export default function App() {
             : s
         )
       );
+      savePlanMeta({
+        ...planMetaMap,
+        [studentId]: {
+          startDate: startNow,
+          isPaused: false
+        }
+      });
       showToast('Abono renovado por 30 días');
     }
   };
@@ -809,6 +1006,13 @@ export default function App() {
   );
 
   const getStatusBadge = (student) => {
+    if (isPlanPaused(student)) {
+      return (
+        <span className="px-2.5 py-0.5 text-xs font-medium rounded-full bg-stone-200 text-stone-700">
+          Pausado / Cancelado
+        </span>
+      );
+    }
     const today = toISODate(new Date());
     if (student.expiryDate < today || student.status === 'overdue') {
       return (
@@ -898,20 +1102,20 @@ export default function App() {
 
   // Métricas para Dashboard
   const todayISO = toISODate(new Date());
-  const activeStudentsCount = students.filter((s) => s.expiryDate >= todayISO).length;
+  const activeStudentsCount = students.filter(
+    (s) => !isPlanPaused(s) && s.expiryDate >= todayISO
+  ).length;
   const overdueOrSoonCount = students.filter((s) => {
+    if (isPlanPaused(s)) return false;
     const diff = Math.ceil((new Date(s.expiryDate) - new Date(todayISO)) / 86400000);
     return diff <= 5;
   }).length;
   const totalBookingsCount = bookings.length;
-  const totalAttendedCount = bookings.filter((b) => b.attendanceStatus === 'attended' || b.attended).length;
+  const totalAttendedCount = bookings.filter(
+    (b) => b.attendanceStatus === 'attended' || (b.attendanceStatus !== 'no_show' && b.attended)
+  ).length;
   const attendanceRate =
     totalBookingsCount > 0 ? Math.round((totalAttendedCount / totalBookingsCount) * 100) : 0;
-
-  const dashboardFilteredClasses =
-    dashboardClassFilter === 'ALL'
-      ? dayClassesAdmin
-      : dayClassesAdmin.filter((c) => c.id === dashboardClassFilter);
 
   return (
     <div className="min-h-screen bg-[#F7F5F0] text-[#2D332F] font-sans pb-24 md:pb-14 flex flex-col">
@@ -1047,6 +1251,12 @@ export default function App() {
                         </span>
                       )}
                     </div>
+
+                    {activeStudent && isPlanPaused(activeStudent) && (
+                      <p className="text-xs text-rose-700 font-medium mt-1.5">
+                        Tu plan está pausado/cancelado. Contacta al estudio para reactivar reservas.
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -1121,6 +1331,7 @@ export default function App() {
                     ? classBookings.some((b) => b.studentId === activeStudent.id)
                     : false;
                   const spotsLeft = cls.capacity - classBookings.length;
+                  const pausedByPlan = isPlanPaused(activeStudent);
 
                   return (
                     <div
@@ -1191,16 +1402,20 @@ export default function App() {
                         {!cls.is_cancelled && (
                           <button
                             onClick={() => handleToggleBooking(cls.id)}
-                            disabled={!isBooked && spotsLeft === 0}
+                            disabled={(!isBooked && spotsLeft === 0) || (!isBooked && pausedByPlan)}
                             className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
                               isBooked
                                 ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200/80'
-                                : spotsLeft === 0
+                                : spotsLeft === 0 || pausedByPlan
                                 ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
                                 : 'bg-[#5C7362] hover:bg-[#4B5F50] text-white shadow-xs'
                             }`}
                           >
-                            {isBooked ? 'Cancelar Reserva' : 'Reservar'}
+                            {isBooked
+                              ? 'Cancelar Reserva'
+                              : pausedByPlan
+                              ? 'Plan pausado'
+                              : 'Reservar'}
                           </button>
                         )}
                       </div>
@@ -1234,7 +1449,7 @@ export default function App() {
                       : 'text-stone-600 hover:bg-stone-50'
                   }`}
                 >
-                  <BarChart3 className="w-4 h-4" /> Dashboard & Asistencia
+                  <BarChart3 className="w-4 h-4" /> Dashboard
                 </button>
                 <button
                   onClick={() => setAdminTab('students')}
@@ -1273,12 +1488,11 @@ export default function App() {
             {/* PESTAÑA 1: CALENDARIO SEMANAL / MENSUAL Y DETALLE DEL DÍA */}
             {adminTab === 'schedule' && (
               <div className="space-y-5">
-                {/* Barra de Acciones Principales */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <h2 className="text-xl font-semibold">Agenda Espacio Sat-Nam</h2>
                     <p className="text-sm text-stone-500">
-                      Haz clic en cualquier día del calendario para ver sus clases e inscritos
+                      Haz clic en cualquier día para ver clases, marcar asistencia o cancelar
                     </p>
                   </div>
 
@@ -1372,7 +1586,6 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Vista Semanal */}
                   {calendarView === 'week' ? (
                     <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
                       {getWeekDays(calendarCursor).map((dayObj) => {
@@ -1422,7 +1635,6 @@ export default function App() {
                       })}
                     </div>
                   ) : (
-                    /* Vista Mensual */
                     <div>
                       <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold text-stone-400 mb-1.5">
                         <span>Lun</span>
@@ -1475,7 +1687,7 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Detalle del Día Seleccionado: Clases + Personas Registradas con Abono */}
+                {/* Detalle del Día Seleccionado */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <h3 className="font-semibold text-base">
@@ -1498,6 +1710,7 @@ export default function App() {
                     <div className="space-y-4">
                       {dayClassesAdmin.map((cls) => {
                         const classBookings = bookings.filter((b) => b.classId === cls.id);
+                        const cancelledAt = cls.cancelled_at || cancelledTimestamps[cls.id];
 
                         return (
                           <div
@@ -1520,7 +1733,7 @@ export default function App() {
                                   </span>
                                   {cls.is_cancelled && (
                                     <span className="text-xs font-semibold px-2 py-0.5 bg-rose-100 text-rose-700 rounded-lg">
-                                      PAUSADA / CANCELADA
+                                      CANCELADA
                                     </span>
                                   )}
                                 </div>
@@ -1530,9 +1743,13 @@ export default function App() {
                                     — {cls.instructor}
                                   </span>
                                 </h4>
+                                {cls.is_cancelled && cancelledAt && (
+                                  <p className="text-[11px] text-rose-700 mt-1">
+                                    Cancelada el: <strong>{formatTimestamp(cancelledAt)}</strong>
+                                  </p>
+                                )}
                               </div>
 
-                              {/* Acciones dentro de cada box de clase: Editar, Pausar, Eliminar */}
                               <div className="flex items-center gap-2">
                                 <button
                                   onClick={() => handleOpenEditClass(cls)}
@@ -1564,7 +1781,7 @@ export default function App() {
                               </div>
                             </div>
 
-                            {/* Personas registradas con contador de abono (ej: Federico: 1/4) y Asistió / No asistió */}
+                            {/* Personas registradas con abono + Asistió / No asistió */}
                             <div className="mt-4">
                               <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2.5">
                                 Personas registradas ({classBookings.length})
@@ -1648,14 +1865,23 @@ export default function App() {
               </div>
             )}
 
-            {/* PESTAÑA 2: DASHBOARD DE MÉTRICAS Y ACTUALIZACIÓN DE ASISTENCIA */}
+            {/* PESTAÑA 2: DASHBOARD (Solo lectura de métricas y listados Asistieron / No asistieron por clase) */}
             {adminTab === 'dashboard' && (
               <div className="space-y-6">
-                <div>
-                  <h2 className="text-xl font-semibold">Dashboard & Control de Asistencia</h2>
-                  <p className="text-sm text-stone-500">
-                    Resumen general del estudio y actualización directa de asistencia
-                  </p>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-xl font-semibold">Dashboard</h2>
+                    <p className="text-sm text-stone-500">
+                      Métricas y listado de alumnos que asistieron y no asistieron por clase
+                    </p>
+                  </div>
+
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className="text-sm font-medium bg-white px-3 py-1.5 rounded-xl border border-stone-200/80 w-fit"
+                  />
                 </div>
 
                 {/* Tarjetas KPI */}
@@ -1690,152 +1916,117 @@ export default function App() {
                     <p className="text-xs text-stone-500 font-medium">Tasa de Asistencia</p>
                     <p className="text-2xl font-bold text-[#5C7362] mt-1">{attendanceRate}%</p>
                     <p className="text-[11px] text-stone-400 mt-1">
-                      {totalAttendedCount} asistencias marcadas
+                      {totalAttendedCount} asistencias registradas
                     </p>
                   </div>
                 </div>
 
-                {/* Actualizar Asistencia por Fecha y Clase */}
-                <div className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-stone-100">
-                    <div>
-                      <h3 className="font-semibold text-base">
-                        Actualizar Asistencia ({formatDateDDMMYYYY(selectedDate)})
-                      </h3>
-                      <p className="text-xs text-stone-500">
-                        Selecciona la fecha y la clase para marcar Asistió o No asistió
-                      </p>
-                    </div>
+                {/* Listado por Clase: Asistieron vs No asistieron */}
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-base">
+                    Asistencia por Clase ({formatDateDDMMYYYY(selectedDate)})
+                  </h3>
 
-                    <div className="flex flex-wrap items-center gap-2">
-                      <input
-                        type="date"
-                        value={selectedDate}
-                        onChange={(e) => {
-                          setSelectedDate(e.target.value);
-                          setDashboardClassFilter('ALL');
-                        }}
-                        className="text-sm font-medium bg-[#F7F5F0] px-3 py-1.5 rounded-xl border border-stone-200"
-                      />
-
-                      <select
-                        value={dashboardClassFilter}
-                        onChange={(e) => setDashboardClassFilter(e.target.value)}
-                        className="text-sm font-medium bg-[#F7F5F0] px-3 py-1.5 rounded-xl border border-stone-200"
-                      >
-                        <option value="ALL">Todas las clases del día</option>
-                        {dayClassesAdmin.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.time} hs — {c.title}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {dashboardFilteredClasses.length === 0 ? (
-                    <p className="text-sm text-stone-500 py-4 text-center">
+                  {dayClassesAdmin.length === 0 ? (
+                    <div className="bg-white rounded-3xl p-8 text-center border border-stone-200/70 text-stone-500 text-sm">
                       No hay clases programadas en esta fecha.
-                    </p>
+                    </div>
                   ) : (
-                    <div className="space-y-4">
-                      {dashboardFilteredClasses.map((cls) => {
-                        const clsBookings = bookings.filter((b) => b.classId === cls.id);
-                        return (
-                          <div
-                            key={cls.id}
-                            className="p-4 rounded-2xl bg-[#F7F5F0]/70 border border-stone-200/70 space-y-3"
-                          >
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <span className="text-xs font-semibold text-[#5C7362]">
-                                  {cls.time} hs
-                                </span>{' '}
-                                <span className="font-semibold text-sm">• {cls.title}</span>
-                              </div>
-                              <span className="text-xs font-medium text-stone-600">
-                                Presentes:{' '}
-                                {
-                                  clsBookings.filter(
-                                    (b) => b.attendanceStatus === 'attended' || b.attended
-                                  ).length
-                                }
-                                /{clsBookings.length}
-                              </span>
+                    dayClassesAdmin.map((cls) => {
+                      const clsBookings = bookings.filter((b) => b.classId === cls.id);
+                      const attendedList = clsBookings
+                        .filter(
+                          (b) =>
+                            b.attendanceStatus === 'attended' ||
+                            (b.attendanceStatus !== 'no_show' && b.attended)
+                        )
+                        .map((b) => students.find((s) => s.id === b.studentId))
+                        .filter(Boolean);
+
+                      const noShowList = clsBookings
+                        .filter((b) => b.attendanceStatus === 'no_show')
+                        .map((b) => students.find((s) => s.id === b.studentId))
+                        .filter(Boolean);
+
+                      return (
+                        <div
+                          key={cls.id}
+                          className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-4"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-stone-100">
+                            <div>
+                              <span className="text-xs font-semibold text-[#5C7362]">
+                                {cls.time} hs
+                              </span>{' '}
+                              <span className="font-semibold text-base">• {cls.title}</span>
+                            </div>
+                            <span className="text-xs text-stone-500">
+                              Total inscritos: {clsBookings.length}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {/* Asistieron */}
+                            <div className="p-3.5 rounded-2xl bg-[#EDF3EE]/60 border border-[#5C7362]/20">
+                              <p className="text-xs font-semibold text-[#4C6352] uppercase tracking-wider mb-2">
+                                Asistieron ({attendedList.length})
+                              </p>
+                              {attendedList.length === 0 ? (
+                                <p className="text-xs text-stone-400 italic">
+                                  Ningún alumno marcado como asistió.
+                                </p>
+                              ) : (
+                                <ul className="space-y-1.5 text-sm">
+                                  {attendedList.map((st) => (
+                                    <li
+                                      key={st.id}
+                                      className="flex items-center justify-between bg-white px-3 py-1.5 rounded-xl border border-stone-200/60"
+                                    >
+                                      <span className="font-medium">{st.name}</span>
+                                      <span className="text-xs font-semibold text-[#5C7362]">
+                                        {getStudentQuotaDisplay(st)}
+                                      </span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
                             </div>
 
-                            {clsBookings.length === 0 ? (
-                              <p className="text-xs text-stone-400 italic">
-                                Sin alumnos inscritos en este turno.
+                            {/* No asistieron */}
+                            <div className="p-3.5 rounded-2xl bg-rose-50/50 border border-rose-200/60">
+                              <p className="text-xs font-semibold text-rose-800 uppercase tracking-wider mb-2">
+                                No asistieron ({noShowList.length})
                               </p>
-                            ) : (
-                              <div className="space-y-2">
-                                {clsBookings.map((b) => {
-                                  const st = students.find((s) => s.id === b.studentId);
-                                  if (!st) return null;
-                                  const isNoShow = b.attendanceStatus === 'no_show';
-                                  const isAttended =
-                                    b.attendanceStatus === 'attended' || (!isNoShow && b.attended);
-
-                                  return (
-                                    <div
-                                      key={b.id}
-                                      className="bg-white p-3 rounded-xl border border-stone-200/80 flex flex-wrap items-center justify-between gap-2"
+                              {noShowList.length === 0 ? (
+                                <p className="text-xs text-stone-400 italic">
+                                  Ningún alumno marcado como no asistió.
+                                </p>
+                              ) : (
+                                <ul className="space-y-1.5 text-sm">
+                                  {noShowList.map((st) => (
+                                    <li
+                                      key={st.id}
+                                      className="flex items-center justify-between bg-white px-3 py-1.5 rounded-xl border border-rose-200/60"
                                     >
-                                      <div>
-                                        <p className="text-sm font-semibold">
-                                          {st.name}{' '}
-                                          <span className="text-[#5C7362]">
-                                            ({getStudentQuotaDisplay(st)})
-                                          </span>
-                                        </p>
-                                        <p className="text-xs text-stone-500">{st.plan}</p>
-                                      </div>
-
-                                      <div className="flex items-center gap-1.5">
-                                        <button
-                                          onClick={() =>
-                                            handleSetAttendanceStatus(b.id, 'attended')
-                                          }
-                                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-                                            isAttended
-                                              ? 'bg-[#5C7362] text-white hover:bg-[#4B5F50]'
-                                              : 'bg-[#EDF3EE] text-[#4C6352] hover:bg-[#dce8de]'
-                                          }`}
-                                        >
-                                          <UserCheck className="w-3.5 h-3.5" />
-                                          Asistió
-                                        </button>
-
-                                        <button
-                                          onClick={() =>
-                                            handleSetAttendanceStatus(b.id, 'no_show')
-                                          }
-                                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-                                            isNoShow
-                                              ? 'bg-rose-600 text-white hover:bg-rose-700'
-                                              : 'bg-rose-50 text-rose-700 hover:bg-rose-100'
-                                          }`}
-                                        >
-                                          <UserX className="w-3.5 h-3.5" />
-                                          No asistió
-                                        </button>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
+                                      <span className="font-medium">{st.name}</span>
+                                      <span className="text-xs font-semibold text-rose-700">
+                                        {getStudentQuotaDisplay(st)}
+                                      </span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
                           </div>
-                        );
-                      })}
-                    </div>
+                        </div>
+                      );
+                    })
                   )}
                 </div>
               </div>
             )}
 
-            {/* PESTAÑA 3: ALUMNOS (con Editar y Borrar) */}
+            {/* PESTAÑA 3: ALUMNOS */}
             {adminTab === 'students' && (
               <div className="space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1873,7 +2064,7 @@ export default function App() {
                           <th className="py-3.5 px-4 font-medium">Nombre</th>
                           <th className="py-3.5 px-4 font-medium">Modalidad</th>
                           <th className="py-3.5 px-4 font-medium">Saldo / Abono</th>
-                          <th className="py-3.5 px-4 font-medium">Vencimiento</th>
+                          <th className="py-3.5 px-4 font-medium">Vigencia</th>
                           <th className="py-3.5 px-4 font-medium">Estado</th>
                           <th className="py-3.5 px-4 font-medium text-right">Acciones</th>
                         </tr>
@@ -1899,8 +2090,9 @@ export default function App() {
                                 </span>
                               )}
                             </td>
-                            <td className="py-3.5 px-4 text-stone-600">
-                              {formatDateDDMMYYYY(st.expiryDate)}
+                            <td className="py-3.5 px-4 text-xs text-stone-600">
+                              <div>Inicio: {formatDateDDMMYYYY(getStudentStartDate(st))}</div>
+                              <div>Vence: {formatDateDDMMYYYY(st.expiryDate)}</div>
                             </td>
                             <td className="py-3.5 px-4">{getStatusBadge(st)}</td>
                             <td className="py-3.5 px-4 text-right">
@@ -1934,50 +2126,79 @@ export default function App() {
             {adminTab === 'payments' && (
               <div className="space-y-4">
                 <div>
-                  <h2 className="text-xl font-semibold">Recordatorios de Pago y Renovación</h2>
+                  <h2 className="text-xl font-semibold">Pagos, Fechas y WhatsApp</h2>
                   <p className="text-sm text-stone-500">
-                    Envía avisos personalizados por WhatsApp o renueva planes
+                    Envía recordatorios, renueva, pausa/cancela planes o modifica fechas de inicio y vencimiento
                   </p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {students.map((st) => (
-                    <div
-                      key={st.id}
-                      className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs flex flex-col justify-between gap-4"
-                    >
-                      <div className="flex justify-between items-start gap-2">
-                        <div>
-                          <h3 className="font-semibold text-base">{st.name}</h3>
-                          <p className="text-xs text-[#5C7362] font-medium mt-0.5">{st.plan}</p>
-                          <p className="text-xs text-stone-500 mt-0.5">
-                            Vence el: <strong>{formatDateDDMMYYYY(st.expiryDate)}</strong>
-                          </p>
+                  {students.map((st) => {
+                    const paused = isPlanPaused(st);
+
+                    return (
+                      <div
+                        key={st.id}
+                        className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs flex flex-col justify-between gap-4"
+                      >
+                        <div className="flex justify-between items-start gap-2">
+                          <div>
+                            <h3 className="font-semibold text-base">{st.name}</h3>
+                            <p className="text-xs text-[#5C7362] font-medium mt-0.5">{st.plan}</p>
+                            <p className="text-xs text-stone-500 mt-1">
+                              Inicio: <strong>{formatDateDDMMYYYY(getStudentStartDate(st))}</strong> •
+                              Vence: <strong>{formatDateDDMMYYYY(st.expiryDate)}</strong>
+                            </p>
+                          </div>
+                          {getStatusBadge(st)}
                         </div>
-                        {getStatusBadge(st)}
-                      </div>
 
-                      <div className="flex items-center gap-2 pt-3 border-t border-stone-100">
-                        <a
-                          href={getWhatsAppReminderUrl(st)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex-1 flex items-center justify-center gap-1.5 bg-[#25D366] hover:bg-[#1EBE5D] text-white py-2.5 px-3 rounded-xl text-xs font-semibold shadow-2xs transition-all"
-                        >
-                          <MessageCircle className="w-4 h-4" />
-                          Recordatorio WhatsApp
-                        </a>
+                        <div className="space-y-2 pt-3 border-t border-stone-100">
+                          <div className="flex items-center gap-2">
+                            <a
+                              href={getWhatsAppReminderUrl(st)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex-1 flex items-center justify-center gap-1.5 bg-[#25D366] hover:bg-[#1EBE5D] text-white py-2 px-3 rounded-xl text-xs font-semibold shadow-2xs transition-all"
+                            >
+                              <MessageCircle className="w-4 h-4" />
+                              Recordatorio WhatsApp
+                            </a>
 
-                        <button
-                          onClick={() => handleRenewPlan(st.id)}
-                          className="flex items-center justify-center gap-1 bg-[#EDF3EE] text-[#4C6352] py-2.5 px-3 rounded-xl text-xs font-semibold transition-all"
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          Renovar Plan
-                        </button>
+                            <button
+                              onClick={() => handleRenewPlan(st.id)}
+                              className="flex items-center justify-center gap-1 bg-[#EDF3EE] hover:bg-[#dce8de] text-[#4C6352] py-2 px-3 rounded-xl text-xs font-semibold transition-all"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              Renovar Plan
+                            </button>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleTogglePausePlan(st)}
+                              className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-semibold border transition-all ${
+                                paused
+                                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                                  : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                              }`}
+                            >
+                              <Ban className="w-3.5 h-3.5" />
+                              {paused ? 'Reactivar Plan' : 'Pausar / Cancelar Plan'}
+                            </button>
+
+                            <button
+                              onClick={() => handleOpenEditDates(st)}
+                              className="flex items-center justify-center gap-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 py-2 px-3 rounded-xl text-xs font-semibold transition-all"
+                            >
+                              <CalendarRange className="w-3.5 h-3.5" />
+                              Modificar Fechas
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -2491,6 +2712,85 @@ export default function App() {
                 </div>
               </div>
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">
+                    Fecha de Inicio
+                  </label>
+                  <input
+                    required
+                    type="date"
+                    value={studentForm.startDate}
+                    onChange={(e) => {
+                      const nextStart = e.target.value;
+                      setStudentForm({
+                        ...studentForm,
+                        startDate: nextStart,
+                        expiryDate: addDaysToISO(nextStart, 30)
+                      });
+                    }}
+                    className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">
+                    Fecha de Vencimiento
+                  </label>
+                  <input
+                    required
+                    type="date"
+                    value={studentForm.expiryDate}
+                    onChange={(e) =>
+                      setStudentForm({ ...studentForm, expiryDate: e.target.value })
+                    }
+                    className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2"
+              >
+                {editingStudentId ? 'Guardar Cambios' : 'Guardar Registro'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Modificar Fecha de Inicio y Vencimiento desde Pagos */}
+      {showDatesModal && (
+        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-semibold text-lg">Modificar Fechas del Plan</h3>
+              <button onClick={() => setShowDatesModal(false)}>
+                <XCircle className="w-5 h-5 text-stone-400" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveDates} className="space-y-3.5 text-sm">
+              <div>
+                <label className="block text-xs font-medium text-stone-600 mb-1">
+                  Fecha de Inicio del Plan
+                </label>
+                <input
+                  required
+                  type="date"
+                  value={datesForm.startDate}
+                  onChange={(e) => {
+                    const nextStart = e.target.value;
+                    setDatesForm({
+                      startDate: nextStart,
+                      expiryDate: addDaysToISO(nextStart, 30)
+                    });
+                  }}
+                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                />
+              </div>
+
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">
                   Fecha de Vencimiento
@@ -2498,8 +2798,8 @@ export default function App() {
                 <input
                   required
                   type="date"
-                  value={studentForm.expiryDate}
-                  onChange={(e) => setStudentForm({ ...studentForm, expiryDate: e.target.value })}
+                  value={datesForm.expiryDate}
+                  onChange={(e) => setDatesForm({ ...datesForm, expiryDate: e.target.value })}
                   className="w-full border border-stone-200 rounded-xl px-3 py-2"
                 />
               </div>
@@ -2508,7 +2808,7 @@ export default function App() {
                 type="submit"
                 className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2"
               >
-                {editingStudentId ? 'Guardar Cambios' : 'Guardar Registro'}
+                Guardar Fechas
               </button>
             </form>
           </div>
