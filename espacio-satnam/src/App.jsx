@@ -224,6 +224,10 @@ export default function App() {
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
   const [profileForm, setProfileForm] = useState({ name: '', phone: '' });
 
+  // Menús comprimibles en Vista Alumno: Agenda y Reservas / Planes y Precios
+  const [openStudentAgendaPanel, setOpenStudentAgendaPanel] = useState(true);
+  const [openStudentPlansPanel, setOpenStudentPlansPanel] = useState(false);
+
   const [calendarView, setCalendarView] = useState('week');
   const [calendarCursor, setCalendarCursor] = useState(new Date());
   const [attendanceServiceFilter, setAttendanceServiceFilter] = useState('ALL');
@@ -1857,6 +1861,7 @@ export default function App() {
         {loading && students.length === 0 && classes.length === 0 ? (
           <div className="text-center py-16 text-stone-500">Conectando con la agenda de Espacio Sat-Nam...</div>
         ) : role === 'student' ? (
+          /* ================= VISTA ALUMNO (1. Agenda y Reservas comprimible / 2. Planes y Precios comprimible) ================= */
           <div className="space-y-6">
             <div className="bg-white/80 rounded-3xl px-5 py-4 border border-stone-200/70">
               <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
@@ -1946,282 +1951,311 @@ export default function App() {
               </div>
             )}
 
-            {/* Planes y Precios publicados */}
-            <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-3">
-              <div className="flex items-center justify-between">
-                <h2 className="text-base font-semibold">Planes y Precios</h2>
-                <span className="text-xs text-stone-500">Espacio Sat-Nam</span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
-                {publishedPlansForStudents.map((p) => (
-                  <div
-                    key={p.id}
-                    className="p-3 rounded-2xl bg-[#F7F5F0] border border-stone-200/80 flex items-center justify-between gap-2"
-                  >
-                    <div>
-                      <p className="text-xs font-semibold text-[#2D332F]">{p.name}</p>
-                      <p className="text-[11px] text-stone-500">
-                        {p.isUnlimited ? 'Pase Libre' : `${p.credits} ${p.credits === 1 ? 'sesión' : 'clases'}`}
-                      </p>
-                    </div>
-                    <span className="text-xs font-bold text-[#5C7362] bg-[#EDF3EE] px-2.5 py-1 rounded-xl shrink-0">
-                      {formatPriceARS(p.price)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Calendario interactivo para elegir fecha */}
-            <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            {/* 1. Menú comprimible: Agenda y Reservas */}
+            <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-4">
+              <button
+                type="button"
+                onClick={() => setOpenStudentAgendaPanel((prev) => !prev)}
+                className="w-full text-left flex items-center justify-between gap-3"
+              >
                 <div>
                   <h2 className="text-xl font-semibold">Agenda y Reservas</h2>
-                  <p className="text-sm text-stone-500">Entrá a una fecha en el calendario para ver sus clases</p>
+                  <p className="text-xs sm:text-sm text-stone-500">
+                    Fecha seleccionada: <strong>{formatDateDDMMYYYY(selectedDate)}</strong> • Tocá para expandir o
+                    comprimir
+                  </p>
                 </div>
+                <span className="p-2 rounded-xl bg-[#EDF3EE] text-[#5C7362]">
+                  {openStudentAgendaPanel ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </span>
+              </button>
 
-                <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-stone-200/80 shadow-2xs w-fit">
-                  <Calendar className="w-4 h-4 text-[#5C7362]" />
-                  <span className="text-xs font-semibold text-[#2D332F]">{formatDateDDMMYYYY(selectedDate)}</span>
-                </div>
-              </div>
-
-              <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-3">
-                <div className="flex items-center justify-between">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const prev = new Date(studentCalendarMonth);
-                      prev.setMonth(prev.getMonth() - 1);
-                      setStudentCalendarMonth(prev);
-                    }}
-                    className="p-1.5 rounded-xl border border-stone-200 hover:bg-stone-50"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <span className="font-semibold text-sm sm:text-base">
-                    {MONTH_NAMES[studentCalendarMonth.getMonth()]} {studentCalendarMonth.getFullYear()}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = new Date(studentCalendarMonth);
-                      next.setMonth(next.getMonth() + 1);
-                      setStudentCalendarMonth(next);
-                    }}
-                    className="p-1.5 rounded-xl border border-stone-200 hover:bg-stone-50"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold text-stone-400">
-                  <span>Lun</span><span>Mar</span><span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span><span>Dom</span>
-                </div>
-
-                <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
-                  {monthDaysStudent.map((dayObj, idx) => {
-                    if (!dayObj) return <div key={`st-empty-${idx}`} className="p-2" />;
-                    const iso = toISODate(dayObj);
-                    const isSelected = iso === selectedDate;
-                    const isVac = Boolean(getVacationForDate(iso));
-                    const isBlocked = isDateBlockedForStudent(activeStudent, iso);
-                    const dayClassesCount = classes.filter((c) => c.date === iso).length;
-
-                    return (
+              {openStudentAgendaPanel && (
+                <div className="space-y-4 pt-2 border-t border-stone-100">
+                  <div className="bg-[#F7F5F0]/70 rounded-2xl p-3 sm:p-4 border border-stone-200/70 space-y-3">
+                    <div className="flex items-center justify-between">
                       <button
                         type="button"
-                        key={iso}
                         onClick={() => {
-                          if (isBlocked) {
-                            showToast(
-                              'Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el espacio para reactivar tu plan.',
-                              'error'
-                            );
-                            return;
-                          }
-                          setSelectedDate(iso);
+                          const prev = new Date(studentCalendarMonth);
+                          prev.setMonth(prev.getMonth() - 1);
+                          setStudentCalendarMonth(prev);
                         }}
-                        className={`p-1.5 sm:p-2 rounded-xl border text-center transition-all flex flex-col items-center justify-center min-h-[54px] ${
-                          isSelected
-                            ? 'bg-[#5C7362] text-white border-[#5C7362]'
-                            : isBlocked
-                            ? 'bg-stone-100/70 text-stone-400 border-stone-200/50'
-                            : isVac
-                            ? 'bg-amber-50 border-amber-200 text-amber-900'
-                            : 'bg-[#F7F5F0]/60 border-stone-200/80 hover:border-stone-300'
+                        className="p-1.5 rounded-xl bg-white border border-stone-200 hover:bg-stone-50"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <span className="font-semibold text-sm sm:text-base">
+                        {MONTH_NAMES[studentCalendarMonth.getMonth()]} {studentCalendarMonth.getFullYear()}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = new Date(studentCalendarMonth);
+                          next.setMonth(next.getMonth() + 1);
+                          setStudentCalendarMonth(next);
+                        }}
+                        className="p-1.5 rounded-xl bg-white border border-stone-200 hover:bg-stone-50"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold text-stone-400">
+                      <span>Lun</span><span>Mar</span><span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span><span>Dom</span>
+                    </div>
+
+                    <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
+                      {monthDaysStudent.map((dayObj, idx) => {
+                        if (!dayObj) return <div key={`st-empty-${idx}`} className="p-2" />;
+                        const iso = toISODate(dayObj);
+                        const isSelected = iso === selectedDate;
+                        const isVac = Boolean(getVacationForDate(iso));
+                        const isBlocked = isDateBlockedForStudent(activeStudent, iso);
+                        const dayClassesCount = classes.filter((c) => c.date === iso).length;
+
+                        return (
+                          <button
+                            type="button"
+                            key={iso}
+                            onClick={() => {
+                              if (isBlocked) {
+                                showToast(
+                                  'Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el espacio para reactivar tu plan.',
+                                  'error'
+                                );
+                                return;
+                              }
+                              setSelectedDate(iso);
+                            }}
+                            className={`p-1.5 sm:p-2 rounded-xl border text-center transition-all flex flex-col items-center justify-center min-h-[54px] ${
+                              isSelected
+                                ? 'bg-[#5C7362] text-white border-[#5C7362]'
+                                : isBlocked
+                                ? 'bg-stone-100/70 text-stone-400 border-stone-200/50'
+                                : isVac
+                                ? 'bg-amber-50 border-amber-200 text-amber-900'
+                                : 'bg-white border-stone-200/80 hover:border-stone-300'
+                            }`}
+                          >
+                            <span className="text-xs sm:text-sm font-semibold">{dayObj.getDate()}</span>
+                            {isVac ? (
+                              <span className="mt-0.5 text-[9px] px-1 rounded-full font-semibold bg-amber-100 text-amber-800">
+                                Vac.
+                              </span>
+                            ) : (
+                              dayClassesCount > 0 && (
+                                <span
+                                  className={`mt-0.5 text-[10px] px-1.5 rounded-full font-medium ${
+                                    isSelected ? 'bg-white/25 text-white' : 'bg-[#EDF3EE] text-[#4C6352]'
+                                  }`}
+                                >
+                                  {dayClassesCount}
+                                </span>
+                              )
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {PILLARS.map((pil) => (
+                      <button
+                        type="button"
+                        key={pil.id}
+                        onClick={() => setPillarFilter(pil.id)}
+                        className={`px-4 py-2 rounded-xl text-xs font-medium transition-all border ${
+                          pillarFilter === pil.id
+                            ? 'bg-[#5C7362] text-white border-transparent shadow-xs'
+                            : 'bg-[#F7F5F0] text-stone-600 border-stone-200/80 hover:border-stone-300'
                         }`}
                       >
-                        <span className="text-xs sm:text-sm font-semibold">{dayObj.getDate()}</span>
-                        {isVac ? (
-                          <span className="mt-0.5 text-[9px] px-1 rounded-full font-semibold bg-amber-100 text-amber-800">
-                            Vac.
-                          </span>
-                        ) : (
-                          dayClassesCount > 0 && (
-                            <span
-                              className={`mt-0.5 text-[10px] px-1.5 rounded-full font-medium ${
-                                isSelected ? 'bg-white/25 text-white' : 'bg-[#EDF3EE] text-[#4C6352]'
-                              }`}
-                            >
-                              {dayClassesCount}
-                            </span>
-                          )
-                        )}
+                        {pil.label}
                       </button>
-                    );
-                  })}
-                </div>
-              </div>
+                    ))}
+                  </div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                {PILLARS.map((pil) => (
-                  <button
-                    type="button"
-                    key={pil.id}
-                    onClick={() => setPillarFilter(pil.id)}
-                    className={`px-4 py-2 rounded-xl text-xs font-medium transition-all border ${
-                      pillarFilter === pil.id
-                        ? 'bg-[#5C7362] text-white border-transparent shadow-xs'
-                        : 'bg-white text-stone-600 border-stone-200/80 hover:border-stone-300'
-                    }`}
-                  >
-                    {pil.label}
-                  </button>
-                ))}
-              </div>
+                  {activeVacationForSelectedDate ? (
+                    <div className="bg-amber-50/60 rounded-2xl p-8 text-center border border-amber-200/90 space-y-2">
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
+                        <Palmtree className="w-4 h-4" /> Cerrado por vacaciones
+                      </span>
+                      <p className="text-sm text-stone-600">
+                        El estudio se encuentra <strong>cerrado por vacaciones</strong> del{' '}
+                        <strong>{formatDateDDMMYYYY(activeVacationForSelectedDate.startDate)}</strong> al{' '}
+                        <strong>{formatDateDDMMYYYY(activeVacationForSelectedDate.endDate)}</strong>.
+                      </p>
+                    </div>
+                  ) : studentFilteredClasses.length === 0 ? (
+                    <div className="bg-[#F7F5F0]/60 rounded-2xl p-8 text-center border border-stone-200/70">
+                      <p className="text-stone-500 text-sm">
+                        No hay actividades disponibles para el <strong>{formatDateDDMMYYYY(selectedDate)}</strong> en
+                        esta categoría.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {studentFilteredClasses.map((cls) => {
+                        const classBookings = bookings.filter((b) => b.classId === cls.id);
+                        const isBooked = activeStudent
+                          ? classBookings.some((b) => b.studentId === activeStudent.id)
+                          : false;
+                        const isFull = classBookings.length >= cls.capacity;
+                        const onWaitlist = activeStudent
+                          ? (waitlistMap[cls.id] || []).includes(activeStudent.id)
+                          : false;
+                        const dateBlocked = isDateBlockedForStudent(activeStudent, cls.date);
+
+                        const srvObj = services.find((s) => s.id === cls.category);
+                        const categoryLabel = (srvObj ? srvObj.label : cls.category || '').trim().toLowerCase();
+                        const classTitle = (cls.title || '').trim().toLowerCase();
+                        const hideDuplicateBadge = Boolean(
+                          categoryLabel && classTitle && categoryLabel === classTitle
+                        );
+
+                        return (
+                          <div
+                            key={cls.id}
+                            className={`bg-[#F7F5F0]/45 rounded-3xl p-5 border transition-all flex flex-col justify-between ${
+                              cls.is_cancelled
+                                ? 'border-stone-200 bg-stone-50/70 opacity-80'
+                                : isBooked
+                                ? 'border-[#5C7362] ring-1 ring-[#5C7362]/25 bg-white shadow-sm'
+                                : 'border-stone-200/80 bg-white shadow-2xs hover:border-stone-300'
+                            }`}
+                          >
+                            <div>
+                              <div className="flex justify-between items-start gap-2 mb-2.5">
+                                <div>{!hideDuplicateBadge ? getCategoryBadge(cls.category) : null}</div>
+                                {cls.is_cancelled ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-100 text-rose-700">
+                                    <Ban className="w-3.5 h-3.5" /> Clase cancelada
+                                  </span>
+                                ) : (
+                                  isBooked && (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#5C7362] text-white shadow-xs">
+                                      <CheckCircle2 className="w-3.5 h-3.5" /> Reservado
+                                    </span>
+                                  )
+                                )}
+                              </div>
+
+                              <h3 className="font-semibold text-lg">{cls.title}</h3>
+
+                              <div className="flex flex-wrap items-center gap-3 text-sm text-stone-600 mt-3">
+                                <span className="flex items-center gap-1.5">
+                                  <Clock className="w-4 h-4 text-[#5C7362]" />
+                                  {cls.time} hs ({cls.duration} min)
+                                </span>
+                                <span className="flex items-center gap-1.5">
+                                  <Users className="w-4 h-4 text-[#5C7362]" />
+                                  {cls.instructor}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="mt-5 pt-4 border-t border-stone-100 flex items-center justify-between gap-2">
+                              <div>
+                                {cls.is_cancelled ? (
+                                  <span className="text-xs text-stone-500 font-medium">No disponible por hoy</span>
+                                ) : (
+                                  <span
+                                    className={`text-xs font-medium px-2.5 py-1 rounded-xl ${
+                                      isFull ? 'bg-rose-100/80 text-rose-700' : 'bg-[#EDF3EE] text-[#4C6352]'
+                                    }`}
+                                  >
+                                    {isFull ? 'Clase completa' : 'Cupos disponibles'}
+                                  </span>
+                                )}
+                              </div>
+
+                              {!cls.is_cancelled && (
+                                <div className="flex items-center gap-2">
+                                  {isFull && !isBooked ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleWaitlist(cls.id)}
+                                      disabled={!studentAllowed || dateBlocked}
+                                      className={`inline-flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+                                        !studentAllowed || dateBlocked
+                                          ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
+                                          : onWaitlist
+                                          ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                          : 'bg-[#5C7362] hover:bg-[#4B5F50] text-white'
+                                      }`}
+                                    >
+                                      <ListPlus className="w-3.5 h-3.5" />
+                                      {onWaitlist ? 'En lista de espera' : 'Lista de espera'}
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleBooking(cls.id)}
+                                      disabled={!studentAllowed || (!isBooked && dateBlocked)}
+                                      className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                                        !studentAllowed || (!isBooked && dateBlocked)
+                                          ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
+                                          : isBooked
+                                          ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200/80'
+                                          : 'bg-[#5C7362] hover:bg-[#4B5F50] text-white shadow-xs'
+                                      }`}
+                                    >
+                                      {isBooked ? 'Cancelar Reserva' : 'Reservar'}
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
-            {activeVacationForSelectedDate ? (
-              <div className="bg-white rounded-3xl p-10 text-center border border-amber-200/90 shadow-2xs space-y-2">
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
-                  <Palmtree className="w-4 h-4" /> Cerrado por vacaciones
+            {/* 2. Menú comprimible: Planes y Precios */}
+            <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-3">
+              <button
+                type="button"
+                onClick={() => setOpenStudentPlansPanel((prev) => !prev)}
+                className="w-full text-left flex items-center justify-between gap-3"
+              >
+                <div>
+                  <h2 className="text-base font-semibold">Planes y Precios</h2>
+                  <p className="text-xs text-stone-500">
+                    {publishedPlansForStudents.length} opciones disponibles • Tocá para ver o comprimir
+                  </p>
+                </div>
+                <span className="p-2 rounded-xl bg-[#EDF3EE] text-[#5C7362]">
+                  {openStudentPlansPanel ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 </span>
-                <p className="text-sm text-stone-600">
-                  El estudio se encuentra <strong>cerrado por vacaciones</strong> del{' '}
-                  <strong>{formatDateDDMMYYYY(activeVacationForSelectedDate.startDate)}</strong> al{' '}
-                  <strong>{formatDateDDMMYYYY(activeVacationForSelectedDate.endDate)}</strong>.
-                </p>
-              </div>
-            ) : studentFilteredClasses.length === 0 ? (
-              <div className="bg-white rounded-3xl p-10 text-center border border-stone-200/70">
-                <p className="text-stone-500 text-sm">
-                  No hay actividades disponibles para el <strong>{formatDateDDMMYYYY(selectedDate)}</strong> en esta
-                  categoría.
-                </p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {studentFilteredClasses.map((cls) => {
-                  const classBookings = bookings.filter((b) => b.classId === cls.id);
-                  const isBooked = activeStudent ? classBookings.some((b) => b.studentId === activeStudent.id) : false;
-                  const isFull = classBookings.length >= cls.capacity;
-                  const onWaitlist = activeStudent ? (waitlistMap[cls.id] || []).includes(activeStudent.id) : false;
-                  const dateBlocked = isDateBlockedForStudent(activeStudent, cls.date);
+              </button>
 
-                  const srvObj = services.find((s) => s.id === cls.category);
-                  const categoryLabel = (srvObj ? srvObj.label : cls.category || '').trim().toLowerCase();
-                  const classTitle = (cls.title || '').trim().toLowerCase();
-                  const hideDuplicateBadge = Boolean(categoryLabel && classTitle && categoryLabel === classTitle);
-
-                  return (
+              {openStudentPlansPanel && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 pt-2 border-t border-stone-100">
+                  {publishedPlansForStudents.map((p) => (
                     <div
-                      key={cls.id}
-                      className={`bg-white rounded-3xl p-5 border transition-all flex flex-col justify-between ${
-                        cls.is_cancelled
-                          ? 'border-stone-200 bg-stone-50/70 opacity-80'
-                          : isBooked
-                          ? 'border-[#5C7362] ring-1 ring-[#5C7362]/25 shadow-sm'
-                          : 'border-stone-200/70 shadow-2xs hover:border-stone-300'
-                      }`}
+                      key={p.id}
+                      className="p-3 rounded-2xl bg-[#F7F5F0] border border-stone-200/80 flex items-center justify-between gap-2"
                     >
                       <div>
-                        <div className="flex justify-between items-start gap-2 mb-2.5">
-                          <div>{!hideDuplicateBadge ? getCategoryBadge(cls.category) : null}</div>
-                          {cls.is_cancelled ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-100 text-rose-700">
-                              <Ban className="w-3.5 h-3.5" /> Clase cancelada
-                            </span>
-                          ) : (
-                            isBooked && (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#5C7362] text-white shadow-xs">
-                                <CheckCircle2 className="w-3.5 h-3.5" /> Reservado
-                              </span>
-                            )
-                          )}
-                        </div>
-
-                        <h3 className="font-semibold text-lg">{cls.title}</h3>
-
-                        <div className="flex flex-wrap items-center gap-3 text-sm text-stone-600 mt-3">
-                          <span className="flex items-center gap-1.5">
-                            <Clock className="w-4 h-4 text-[#5C7362]" />
-                            {cls.time} hs ({cls.duration} min)
-                          </span>
-                          <span className="flex items-center gap-1.5">
-                            <Users className="w-4 h-4 text-[#5C7362]" />
-                            {cls.instructor}
-                          </span>
-                        </div>
+                        <p className="text-xs font-semibold text-[#2D332F]">{p.name}</p>
+                        <p className="text-[11px] text-stone-500">
+                          {p.isUnlimited ? 'Pase Libre' : `${p.credits} ${p.credits === 1 ? 'sesión' : 'clases'}`}
+                        </p>
                       </div>
-
-                      <div className="mt-5 pt-4 border-t border-stone-100 flex items-center justify-between gap-2">
-                        <div>
-                          {cls.is_cancelled ? (
-                            <span className="text-xs text-stone-500 font-medium">No disponible por hoy</span>
-                          ) : (
-                            <span
-                              className={`text-xs font-medium px-2.5 py-1 rounded-xl ${
-                                isFull ? 'bg-rose-100/80 text-rose-700' : 'bg-[#EDF3EE] text-[#4C6352]'
-                              }`}
-                            >
-                              {isFull ? 'Clase completa' : 'Cupos disponibles'}
-                            </span>
-                          )}
-                        </div>
-
-                        {!cls.is_cancelled && (
-                          <div className="flex items-center gap-2">
-                            {isFull && !isBooked ? (
-                              <button
-                                type="button"
-                                onClick={() => handleToggleWaitlist(cls.id)}
-                                disabled={!studentAllowed || dateBlocked}
-                                className={`inline-flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
-                                  !studentAllowed || dateBlocked
-                                    ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
-                                    : onWaitlist
-                                    ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                                    : 'bg-[#5C7362] hover:bg-[#4B5F50] text-white'
-                                }`}
-                              >
-                                <ListPlus className="w-3.5 h-3.5" />
-                                {onWaitlist ? 'En lista de espera' : 'Lista de espera'}
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => handleToggleBooking(cls.id)}
-                                disabled={!studentAllowed || (!isBooked && dateBlocked)}
-                                className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-                                  !studentAllowed || (!isBooked && dateBlocked)
-                                    ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
-                                    : isBooked
-                                    ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200/80'
-                                    : 'bg-[#5C7362] hover:bg-[#4B5F50] text-white shadow-xs'
-                                }`}
-                              >
-                                {isBooked ? 'Cancelar Reserva' : 'Reservar'}
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
+                      <span className="text-xs font-bold text-[#5C7362] bg-[#EDF3EE] px-2.5 py-1 rounded-xl shrink-0">
+                        {formatPriceARS(p.price)}
+                      </span>
                     </div>
-                  );
-                })}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         ) : (
           /* ================= MODO ESTUDIO ================= */
@@ -3099,7 +3133,7 @@ export default function App() {
         </nav>
       )}
 
-      {/* Modales únicos (sin duplicados) */}
+      {/* Modales únicos */}
       {pendingDeleteConfirm && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl text-center">
@@ -3469,9 +3503,7 @@ export default function App() {
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="font-semibold text-lg">
-                {editingClassId ? 'Editar Clase' : 'Programar Horarios'}
-              </h3>
+              <h3 className="font-semibold text-lg">{editingClassId ? 'Editar Clase' : 'Programar Horarios'}</h3>
               <button type="button" onClick={() => setShowClassModal(false)}>
                 <XCircle className="w-5 h-5 text-stone-400" />
               </button>
