@@ -30,9 +30,7 @@ import {
   ChevronLeft,
   ChevronRight,
   UserCog,
-  CalendarRange,
-  ChevronDown,
-  ChevronUp
+  CalendarRange
 } from 'lucide-react';
 
 // Conexión a Supabase
@@ -202,9 +200,22 @@ export default function App() {
     }
   });
 
+  // Respaldo persistente de estados de asistencia por bookingId ('attended' | 'no_show')
+  const [attendanceMap, setAttendanceMap] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('satnam_attendance_v1') || '{}');
+    } catch {
+      return {};
+    }
+  });
+
   const [students, setStudents] = useState([]);
   const [classes, setClasses] = useState([]);
+  // attendanceStatus: null | 'attended' | 'no_show'
   const [bookings, setBookings] = useState([]);
+
+  // Confirmación al editar asistencia ya registrada
+  const [pendingAttendanceEdit, setPendingAttendanceEdit] = useState(null);
 
   // Vista Alumno
   const [activeStudentId, setActiveStudentId] = useState('');
@@ -213,10 +224,9 @@ export default function App() {
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
   const [profileForm, setProfileForm] = useState({ name: '', phone: '' });
 
-  // Vista Admin: Calendario semanal / mensual & Dashboard
+  // Vista Admin: Calendario semanal / mensual
   const [calendarView, setCalendarView] = useState('week'); // 'week' | 'month'
   const [calendarCursor, setCalendarCursor] = useState(new Date());
-  const [showActiveStudentsList, setShowActiveStudentsList] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
 
   // Modal + Servicio (solo agregar)
@@ -242,7 +252,7 @@ export default function App() {
     weeksCount: 4
   });
 
-  // Modal Crear / Editar Alumno (en edición no permite tocar fechas de plan)
+  // Modal Crear / Editar Alumno
   const [showStudentModal, setShowStudentModal] = useState(false);
   const [editingStudentId, setEditingStudentId] = useState(null);
   const [studentForm, setStudentForm] = useState({
@@ -275,6 +285,11 @@ export default function App() {
   const saveCancelledTimestamps = (nextMap) => {
     setCancelledTimestamps(nextMap);
     localStorage.setItem('satnam_cancelled_ts_v1', JSON.stringify(nextMap));
+  };
+
+  const saveAttendanceMap = (nextMap) => {
+    setAttendanceMap(nextMap);
+    localStorage.setItem('satnam_attendance_v1', JSON.stringify(nextMap));
   };
 
   const handleSelectAdminMode = () => {
@@ -333,14 +348,26 @@ export default function App() {
 
       setClasses(classesRes.data);
 
+      const savedAtt = (() => {
+        try {
+          return JSON.parse(localStorage.getItem('satnam_attendance_v1') || '{}');
+        } catch {
+          return {};
+        }
+      })();
+
       setBookings(
-        bookingsRes.data.map((b) => ({
-          id: b.id,
-          classId: b.class_id,
-          studentId: b.student_id,
-          attended: Boolean(b.attended),
-          attendanceStatus: b.attended ? 'attended' : null
-        }))
+        bookingsRes.data.map((b) => {
+          const fromDbStatus = b.attendance_status || (b.attended ? 'attended' : null);
+          const resolvedStatus = savedAtt[b.id] || fromDbStatus;
+          return {
+            id: b.id,
+            classId: b.class_id,
+            studentId: b.student_id,
+            attended: resolvedStatus === 'attended',
+            attendanceStatus: resolvedStatus
+          };
+        })
       );
     } catch (error) {
       console.error('Error cargando datos:', error);
@@ -355,10 +382,21 @@ export default function App() {
   }, []);
 
   const activeStudent = students.find((s) => s.id === activeStudentId) || students[0];
+  const todayISO = toISODate(new Date());
 
   const isPlanPaused = (student) => {
     if (!student) return false;
     return student.status === 'paused' || Boolean(planMetaMap[student.id]?.isPaused);
+  };
+
+  const isPlanExpired = (student) => {
+    if (!student || !student.expiryDate) return false;
+    return student.expiryDate < todayISO || student.status === 'overdue';
+  };
+
+  const canStudentOperate = (student) => {
+    if (!student) return false;
+    return !isPlanPaused(student) && !isPlanExpired(student);
   };
 
   const getStudentStartDate = (student) => {
@@ -428,7 +466,7 @@ export default function App() {
     showToast('Perfil actualizado correctamente');
   };
 
-  // Reservar o Cancelar turno (Alumno)
+  // Reservar o Cancelar turno (Alumno) - Bloqueado si el plan está vencido o pausado
   const handleToggleBooking = async (classId) => {
     if (!activeStudent) {
       showToast('Primero solicita tu alta en el espacio', 'error');
@@ -436,9 +474,17 @@ export default function App() {
     }
 
     if (isPlanPaused(activeStudent)) {
-      showToast('Tu plan se encuentra pausado/cancelado. No puedes reservar por el momento.', 'error');
+      showToast('Tu plan está pausado/cancelado. No puedes reservar ni cancelar.', 'error');
       return;
     }
+
+    if (isPlanExpired(activeStudent)) {
+      showToast('Tu plan está vencido. No puedes reservar ni cancelar turnos.', 'error');
+      return;
+    }
+
+    const classObj = classes.find((c) => c.id === classId);
+    if (!classObj) return;
 
     const existingBooking = bookings.find(
       (b) => b.classId === classId && b.studentId === activeStudent.id
@@ -452,6 +498,9 @@ export default function App() {
       }
 
       setBookings((prev) => prev.filter((b) => b.id !== existingBooking.id));
+      const nextAtt = { ...attendanceMap };
+      delete nextAtt[existingBooking.id];
+      saveAttendanceMap(nextAtt);
 
       if (!isUnlimitedPlan(activeStudent.plan)) {
         const updatedCredits = activeStudent.credits + 1;
@@ -462,7 +511,14 @@ export default function App() {
       }
       showToast('Reserva cancelada correctamente');
     } else {
-      const classObj = classes.find((c) => c.id === classId);
+      if (classObj.date > activeStudent.expiryDate) {
+        showToast(
+          `Tu plan vence el ${formatDateDDMMYYYY(activeStudent.expiryDate)}. No puedes reservar para fechas posteriores.`,
+          'error'
+        );
+        return;
+      }
+
       if (classObj.is_cancelled) {
         showToast('Esta clase se encuentra pausada/cancelada.', 'error');
         return;
@@ -496,8 +552,8 @@ export default function App() {
           id: data.id,
           classId: data.class_id,
           studentId: data.student_id,
-          attended: Boolean(data.attended),
-          attendanceStatus: data.attended ? 'attended' : null
+          attended: false,
+          attendanceStatus: null
         }
       ]);
 
@@ -512,28 +568,58 @@ export default function App() {
     }
   };
 
-  // Establecer asistencia explícita ('attended' | 'no_show') únicamente desde las clases
-  const handleSetAttendanceStatus = async (bookingId, status) => {
-    const current = bookings.find((b) => b.id === bookingId);
-    if (!current) return;
-
+  // Ejecutar guardado persistente de asistencia ('attended' | 'no_show')
+  const applyAttendanceStatus = async (bookingId, status) => {
     const isAttendedBool = status === 'attended';
-    const { error } = await supabase
+
+    // Intentar actualizar con attendance_status si existe la columna en Supabase; si falla, actualizar attended
+    const { error: statusErr } = await supabase
       .from('bookings')
-      .update({ attended: isAttendedBool })
+      .update({ attended: isAttendedBool, attendance_status: status })
       .eq('id', bookingId);
 
-    if (!error) {
-      setBookings((prev) =>
-        prev.map((b) =>
-          b.id === bookingId
-            ? { ...b, attended: isAttendedBool, attendanceStatus: status }
-            : b
-        )
-      );
-      showToast(status === 'attended' ? 'Marcado como Asistió' : 'Marcado como No asistió');
+    if (statusErr) {
+      await supabase
+        .from('bookings')
+        .update({ attended: isAttendedBool })
+        .eq('id', bookingId);
+    }
+
+    setBookings((prev) =>
+      prev.map((b) =>
+        b.id === bookingId
+          ? { ...b, attended: isAttendedBool, attendanceStatus: status }
+          : b
+      )
+    );
+
+    saveAttendanceMap({
+      ...attendanceMap,
+      [bookingId]: status
+    });
+
+    showToast(
+      status === 'attended'
+        ? 'Asistencia guardada como Asistió'
+        : 'Asistencia guardada como No asistió'
+    );
+  };
+
+  // Solicitar cambio de asistencia: si ya estaba marcada con otro estado, pide confirmación
+  const handleRequestAttendanceChange = (booking, nextStatus, studentName) => {
+    const currentStatus =
+      booking.attendanceStatus || (booking.attended ? 'attended' : null);
+
+    if (currentStatus === nextStatus) return;
+
+    if (currentStatus && currentStatus !== nextStatus) {
+      setPendingAttendanceEdit({
+        bookingId: booking.id,
+        nextStatus,
+        studentName
+      });
     } else {
-      showToast('No se pudo actualizar la asistencia', 'error');
+      applyAttendanceStatus(booking.id, nextStatus);
     }
   };
 
@@ -752,7 +838,6 @@ export default function App() {
     const finalCredits = isUnlimitedPlan(studentForm.plan) ? 99 : Number(studentForm.credits);
 
     if (editingStudentId) {
-      // En edición de Alumnos no se modifican las fechas de inicio/vencimiento (solo en Pagos)
       const { error } = await supabase
         .from('students')
         .update({
@@ -900,7 +985,10 @@ export default function App() {
 
     const { error } = await supabase
       .from('students')
-      .update({ expiry_date: datesForm.expiryDate })
+      .update({
+        expiry_date: datesForm.expiryDate,
+        status: datesForm.expiryDate >= todayISO ? 'active' : 'overdue'
+      })
       .eq('id', datesStudentId);
 
     if (error) {
@@ -910,7 +998,13 @@ export default function App() {
 
     setStudents((prev) =>
       prev.map((s) =>
-        s.id === datesStudentId ? { ...s, expiryDate: datesForm.expiryDate } : s
+        s.id === datesStudentId
+          ? {
+              ...s,
+              expiryDate: datesForm.expiryDate,
+              status: datesForm.expiryDate >= todayISO ? 'active' : 'overdue'
+            }
+          : s
       )
     );
 
@@ -1006,8 +1100,7 @@ export default function App() {
         </span>
       );
     }
-    const today = toISODate(new Date());
-    if (student.expiryDate < today || student.status === 'overdue') {
+    if (isPlanExpired(student)) {
       return (
         <span className="px-2.5 py-0.5 text-xs font-medium rounded-full bg-rose-100/80 text-rose-800">
           Vencido
@@ -1015,7 +1108,7 @@ export default function App() {
       );
     }
     const diffDays = Math.ceil(
-      (new Date(student.expiryDate) - new Date(today)) / (1000 * 60 * 60 * 24)
+      (new Date(student.expiryDate) - new Date(todayISO)) / (1000 * 60 * 60 * 24)
     );
     if (diffDays <= 5) {
       return (
@@ -1093,22 +1186,25 @@ export default function App() {
     setCalendarCursor(next);
   };
 
-  // Métricas y lista de Alumnos Activos para Dashboard
-  const todayISO = toISODate(new Date());
-  const activeStudentsList = students.filter(
-    (s) => !isPlanPaused(s) && s.expiryDate >= todayISO
-  );
+  // Métricas de Abonos (para Pagos & WhatsApp)
+  const activeStudentsCount = students.filter(
+    (s) => !isPlanPaused(s) && !isPlanExpired(s)
+  ).length;
   const overdueOrSoonCount = students.filter((s) => {
     if (isPlanPaused(s)) return false;
     const diff = Math.ceil((new Date(s.expiryDate) - new Date(todayISO)) / 86400000);
     return diff <= 5;
   }).length;
-  const totalBookingsCount = bookings.length;
-  const totalAttendedCount = bookings.filter(
+
+  // Métricas de Clases y Asistencias del día (para Dashboard)
+  const dayClassIds = new Set(dayClassesAdmin.map((c) => c.id));
+  const dayBookings = bookings.filter((b) => dayClassIds.has(b.classId));
+  const dayAttendedCount = dayBookings.filter(
     (b) => b.attendanceStatus === 'attended' || (b.attendanceStatus !== 'no_show' && b.attended)
   ).length;
-  const attendanceRate =
-    totalBookingsCount > 0 ? Math.round((totalAttendedCount / totalBookingsCount) * 100) : 0;
+  const dayNoShowCount = dayBookings.filter((b) => b.attendanceStatus === 'no_show').length;
+
+  const studentAllowed = canStudentOperate(activeStudent);
 
   return (
     <div className="min-h-screen bg-[#F7F5F0] text-[#2D332F] font-sans pb-24 md:pb-14 flex flex-col">
@@ -1200,7 +1296,7 @@ export default function App() {
               </p>
             </div>
 
-            {/* Tarjeta de Perfil del Alumno (ver y editar) */}
+            {/* Tarjeta de Perfil del Alumno */}
             {students.length > 0 ? (
               <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-1 h-full bg-[#5C7362]" />
@@ -1245,9 +1341,11 @@ export default function App() {
                       )}
                     </div>
 
-                    {activeStudent && isPlanPaused(activeStudent) && (
+                    {activeStudent && !studentAllowed && (
                       <p className="text-xs text-rose-700 font-medium mt-1.5">
-                        Tu plan está pausado/cancelado. Contacta al estudio para reactivar reservas.
+                        {isPlanPaused(activeStudent)
+                          ? 'Tu plan se encuentra pausado/cancelado. No puedes reservar ni cancelar.'
+                          : 'Tu plan está vencido. No puedes reservar ni cancelar turnos.'}
                       </p>
                     )}
                   </div>
@@ -1281,6 +1379,7 @@ export default function App() {
                   <input
                     type="date"
                     value={selectedDate}
+                    max={studentAllowed && activeStudent?.expiryDate ? activeStudent.expiryDate : undefined}
                     onChange={(e) => setSelectedDate(e.target.value)}
                     className="text-sm font-medium bg-transparent focus:outline-none"
                   />
@@ -1324,7 +1423,11 @@ export default function App() {
                     ? classBookings.some((b) => b.studentId === activeStudent.id)
                     : false;
                   const spotsLeft = cls.capacity - classBookings.length;
-                  const pausedByPlan = isPlanPaused(activeStudent);
+                  const dateBeyondExpiry =
+                    activeStudent?.expiryDate && cls.date > activeStudent.expiryDate;
+                  const actionDisabled =
+                    !studentAllowed ||
+                    (!isBooked && (spotsLeft === 0 || dateBeyondExpiry));
 
                   return (
                     <div
@@ -1395,19 +1498,23 @@ export default function App() {
                         {!cls.is_cancelled && (
                           <button
                             onClick={() => handleToggleBooking(cls.id)}
-                            disabled={(!isBooked && spotsLeft === 0) || (!isBooked && pausedByPlan)}
+                            disabled={actionDisabled}
                             className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-                              isBooked
-                                ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200/80'
-                                : spotsLeft === 0 || pausedByPlan
+                              actionDisabled
                                 ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
+                                : isBooked
+                                ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200/80'
                                 : 'bg-[#5C7362] hover:bg-[#4B5F50] text-white shadow-xs'
                             }`}
                           >
-                            {isBooked
+                            {!studentAllowed
+                              ? isPlanPaused(activeStudent)
+                                ? 'Plan pausado'
+                                : 'Plan vencido'
+                              : isBooked
                               ? 'Cancelar Reserva'
-                              : pausedByPlan
-                              ? 'Plan pausado'
+                              : dateBeyondExpiry
+                              ? 'Fuera de vigencia'
                               : 'Reservar'}
                           </button>
                         )}
@@ -1817,7 +1924,11 @@ export default function App() {
                                         <div className="flex items-center gap-1.5 shrink-0">
                                           <button
                                             onClick={() =>
-                                              handleSetAttendanceStatus(booking.id, 'attended')
+                                              handleRequestAttendanceChange(
+                                                booking,
+                                                'attended',
+                                                st.name
+                                              )
                                             }
                                             className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-xl transition-all ${
                                               isAttended
@@ -1831,7 +1942,11 @@ export default function App() {
 
                                           <button
                                             onClick={() =>
-                                              handleSetAttendanceStatus(booking.id, 'no_show')
+                                              handleRequestAttendanceChange(
+                                                booking,
+                                                'no_show',
+                                                st.name
+                                              )
                                             }
                                             className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-xl transition-all ${
                                               isNoShow
@@ -1858,14 +1973,14 @@ export default function App() {
               </div>
             )}
 
-            {/* PESTAÑA 2: DASHBOARD (Sencillo: Alumnos Activos desplegable + Asistencia por clase) */}
+            {/* PESTAÑA 2: DASHBOARD (Solo Clases y Asistencias) */}
             {adminTab === 'dashboard' && (
               <div className="space-y-6">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
-                    <h2 className="text-xl font-semibold">Dashboard</h2>
+                    <h2 className="text-xl font-semibold">Dashboard de Clases y Asistencias</h2>
                     <p className="text-sm text-stone-500">
-                      Consulta tus alumnos activos y el detalle de asistencia por clase
+                      Resumen de clases del día y detalle de quiénes asistieron y quiénes no
                     </p>
                   </div>
 
@@ -1877,114 +1992,45 @@ export default function App() {
                   />
                 </div>
 
-                {/* Tarjetas KPI (Alumnos Activos clicable para ver su listado) */}
+                {/* Tarjetas KPI exclusivas de Clases y Asistencias */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
-                  <button
-                    type="button"
-                    onClick={() => setShowActiveStudentsList((prev) => !prev)}
-                    className={`text-left bg-white rounded-3xl p-4 border transition-all shadow-2xs ${
-                      showActiveStudentsList
-                        ? 'border-[#5C7362] ring-1 ring-[#5C7362]/25'
-                        : 'border-stone-200/70 hover:border-stone-300'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs text-stone-500 font-medium">Alumnos Activos</p>
-                      {showActiveStudentsList ? (
-                        <ChevronUp className="w-4 h-4 text-[#5C7362]" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4 text-[#5C7362]" />
-                      )}
-                    </div>
-                    <p className="text-2xl font-bold text-[#5C7362] mt-1">
-                      {activeStudentsList.length}
-                    </p>
-                    <p className="text-[11px] text-[#5C7362] font-medium mt-1">
-                      {showActiveStudentsList ? 'Ocultar listado' : 'Ver listado completo'}
-                    </p>
-                  </button>
-
                   <div className="bg-white rounded-3xl p-4 border border-stone-200/70 shadow-2xs">
-                    <p className="text-xs text-stone-500 font-medium">Abonos por Renovar</p>
-                    <p className="text-2xl font-bold text-amber-700 mt-1">
-                      {overdueOrSoonCount}
-                    </p>
-                    <p className="text-[11px] text-stone-400 mt-1">Vencidos o ≤ 5 días</p>
-                  </div>
-
-                  <div className="bg-white rounded-3xl p-4 border border-stone-200/70 shadow-2xs">
-                    <p className="text-xs text-stone-500 font-medium">Reservas Totales</p>
+                    <p className="text-xs text-stone-500 font-medium">Clases del Día</p>
                     <p className="text-2xl font-bold text-[#2D332F] mt-1">
-                      {totalBookingsCount}
+                      {dayClassesAdmin.length}
                     </p>
-                    <p className="text-[11px] text-stone-400 mt-1">En agenda cargada</p>
+                    <p className="text-[11px] text-stone-400 mt-1">
+                      {formatDateDDMMYYYY(selectedDate)}
+                    </p>
                   </div>
 
                   <div className="bg-white rounded-3xl p-4 border border-stone-200/70 shadow-2xs">
-                    <p className="text-xs text-stone-500 font-medium">Tasa de Asistencia</p>
-                    <p className="text-2xl font-bold text-[#5C7362] mt-1">{attendanceRate}%</p>
-                    <p className="text-[11px] text-stone-400 mt-1">
-                      {totalAttendedCount} asistencias registradas
+                    <p className="text-xs text-stone-500 font-medium">Reservas del Día</p>
+                    <p className="text-2xl font-bold text-[#2D332F] mt-1">
+                      {dayBookings.length}
                     </p>
+                    <p className="text-[11px] text-stone-400 mt-1">Inscripciones totales</p>
+                  </div>
+
+                  <div className="bg-white rounded-3xl p-4 border border-stone-200/70 shadow-2xs">
+                    <p className="text-xs text-stone-500 font-medium">Asistieron</p>
+                    <p className="text-2xl font-bold text-[#5C7362] mt-1">
+                      {dayAttendedCount}
+                    </p>
+                    <p className="text-[11px] text-stone-400 mt-1">Presentes en el día</p>
+                  </div>
+
+                  <div className="bg-white rounded-3xl p-4 border border-stone-200/70 shadow-2xs">
+                    <p className="text-xs text-stone-500 font-medium">No Asistieron</p>
+                    <p className="text-2xl font-bold text-rose-700 mt-1">{dayNoShowCount}</p>
+                    <p className="text-[11px] text-stone-400 mt-1">Ausentes registrados</p>
                   </div>
                 </div>
-
-                {/* Listado desplegable de Alumnos Activos */}
-                {showActiveStudentsList && (
-                  <div className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-3">
-                    <div className="flex items-center justify-between pb-2 border-b border-stone-100">
-                      <h3 className="font-semibold text-base text-[#2D332F]">
-                        Listado de Alumnos Activos ({activeStudentsList.length})
-                      </h3>
-                      <span className="text-xs text-stone-500">Planes vigentes al día</span>
-                    </div>
-
-                    {activeStudentsList.length === 0 ? (
-                      <p className="text-sm text-stone-500 py-3">
-                        No hay alumnos con plan activo en este momento.
-                      </p>
-                    ) : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse text-sm">
-                          <thead>
-                            <tr className="bg-[#F7F5F0] text-xs uppercase tracking-wider text-stone-500">
-                              <th className="py-2.5 px-3 font-medium">Alumno</th>
-                              <th className="py-2.5 px-3 font-medium">Plan</th>
-                              <th className="py-2.5 px-3 font-medium">Abono / Saldo</th>
-                              <th className="py-2.5 px-3 font-medium">Vencimiento</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-stone-100">
-                            {activeStudentsList.map((st) => (
-                              <tr key={st.id} className="hover:bg-stone-50/60">
-                                <td className="py-2.5 px-3">
-                                  <p className="font-semibold">{st.name}</p>
-                                  <p className="text-xs text-stone-500">{st.phone}</p>
-                                </td>
-                                <td className="py-2.5 px-3 text-xs font-medium text-[#5C7362]">
-                                  {st.plan}
-                                </td>
-                                <td className="py-2.5 px-3 text-xs">
-                                  {isUnlimitedPlan(st.plan)
-                                    ? 'Pase Libre'
-                                    : `${st.credits} disp. (${getStudentQuotaDisplay(st)})`}
-                                </td>
-                                <td className="py-2.5 px-3 text-xs text-stone-600">
-                                  {formatDateDDMMYYYY(st.expiryDate)}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                )}
 
                 {/* Listado por Clase: Asistieron vs No asistieron */}
                 <div className="space-y-4">
                   <h3 className="font-semibold text-base">
-                    Asistencia por Clase ({formatDateDDMMYYYY(selectedDate)})
+                    Detalle por Clase ({formatDateDDMMYYYY(selectedDate)})
                   </h3>
 
                   {dayClassesAdmin.length === 0 ? (
@@ -2180,14 +2226,35 @@ export default function App() {
               </div>
             )}
 
-            {/* PESTAÑA 4: PAGOS Y WHATSAPP */}
+            {/* PESTAÑA 4: PAGOS Y WHATSAPP (Incluye métricas de Abonos Activos y Por Renovar) */}
             {adminTab === 'payments' && (
-              <div className="space-y-4">
+              <div className="space-y-5">
                 <div>
                   <h2 className="text-xl font-semibold">Pagos, Fechas y WhatsApp</h2>
                   <p className="text-sm text-stone-500">
-                    Envía recordatorios, renueva, pausa/cancela planes o modifica fechas de inicio y vencimiento
+                    Control de abonos activos y por renovar, recordatorios, renovaciones, pausas y fechas
                   </p>
+                </div>
+
+                {/* Resumen de Abonos */}
+                <div className="grid grid-cols-2 gap-3.5">
+                  <div className="bg-white rounded-3xl p-4 border border-stone-200/70 shadow-2xs">
+                    <p className="text-xs text-stone-500 font-medium">Abonos Activos</p>
+                    <p className="text-2xl font-bold text-[#5C7362] mt-1">
+                      {activeStudentsCount}
+                    </p>
+                    <p className="text-[11px] text-stone-400 mt-1">
+                      De {students.length} registrados
+                    </p>
+                  </div>
+
+                  <div className="bg-white rounded-3xl p-4 border border-stone-200/70 shadow-2xs">
+                    <p className="text-xs text-stone-500 font-medium">Abonos por Renovar</p>
+                    <p className="text-2xl font-bold text-amber-700 mt-1">
+                      {overdueOrSoonCount}
+                    </p>
+                    <p className="text-[11px] text-stone-400 mt-1">Vencidos o ≤ 5 días</p>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2314,6 +2381,43 @@ export default function App() {
             Pagos
           </button>
         </nav>
+      )}
+
+      {/* Modal: Confirmación al editar asistencia ya registrada */}
+      {pendingAttendanceEdit && (
+        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl text-center">
+            <h3 className="font-semibold text-lg">Confirmar edición de asistencia</h3>
+            <p className="text-sm text-stone-600 mt-2 mb-5">
+              ¿Está seguro que desea editar la asistencia de{' '}
+              <strong>{pendingAttendanceEdit.studentName}</strong> a{' '}
+              <strong>
+                {pendingAttendanceEdit.nextStatus === 'attended' ? 'Asistió' : 'No asistió'}
+              </strong>
+              ?
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingAttendanceEdit(null)}
+                className="flex-1 py-2.5 rounded-xl text-xs font-medium bg-stone-100 text-stone-700 hover:bg-stone-200"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const target = pendingAttendanceEdit;
+                  setPendingAttendanceEdit(null);
+                  applyAttendanceStatus(target.bookingId, target.nextStatus);
+                }}
+                className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-[#5C7362] hover:bg-[#4B5F50] text-white"
+              >
+                Sí, confirmar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Modal: PIN Modo Estudio */}
