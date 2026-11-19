@@ -30,7 +30,9 @@ import {
   ChevronLeft,
   ChevronRight,
   UserCog,
-  CalendarRange
+  CalendarRange,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 
 // Conexión a Supabase
@@ -182,7 +184,7 @@ export default function App() {
     return saved ? JSON.parse(saved) : INITIAL_SERVICES;
   });
 
-  // Fechas de inicio y estados pausados persistidos localmente si no están en columnas extra de Supabase
+  // Fechas de inicio y estados pausados persistidos localmente
   const [planMetaMap, setPlanMetaMap] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem('satnam_plan_meta_v1') || '{}');
@@ -202,7 +204,6 @@ export default function App() {
 
   const [students, setStudents] = useState([]);
   const [classes, setClasses] = useState([]);
-  // attendanceStatus: null | 'attended' | 'no_show'
   const [bookings, setBookings] = useState([]);
 
   // Vista Alumno
@@ -212,9 +213,10 @@ export default function App() {
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
   const [profileForm, setProfileForm] = useState({ name: '', phone: '' });
 
-  // Vista Admin: Calendario semanal / mensual
+  // Vista Admin: Calendario semanal / mensual & Dashboard
   const [calendarView, setCalendarView] = useState('week'); // 'week' | 'month'
   const [calendarCursor, setCalendarCursor] = useState(new Date());
+  const [showActiveStudentsList, setShowActiveStudentsList] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
 
   // Modal + Servicio (solo agregar)
@@ -240,7 +242,7 @@ export default function App() {
     weeksCount: 4
   });
 
-  // Modal Crear / Editar Alumno
+  // Modal Crear / Editar Alumno (en edición no permite tocar fechas de plan)
   const [showStudentModal, setShowStudentModal] = useState(false);
   const [editingStudentId, setEditingStudentId] = useState(null);
   const [studentForm, setStudentForm] = useState({
@@ -730,7 +732,7 @@ export default function App() {
     setShowStudentModal(true);
   };
 
-  // Abrir modal para editar alumno existente
+  // Abrir modal para editar alumno existente (sin modificar fechas de plan)
   const handleOpenEditStudent = (st) => {
     setEditingStudentId(st.id);
     setStudentForm({
@@ -750,13 +752,13 @@ export default function App() {
     const finalCredits = isUnlimitedPlan(studentForm.plan) ? 99 : Number(studentForm.credits);
 
     if (editingStudentId) {
+      // En edición de Alumnos no se modifican las fechas de inicio/vencimiento (solo en Pagos)
       const { error } = await supabase
         .from('students')
         .update({
           name: studentForm.name.trim(),
           phone: studentForm.phone.trim(),
           plan: studentForm.plan,
-          expiry_date: studentForm.expiryDate,
           credits: finalCredits
         })
         .eq('id', editingStudentId);
@@ -774,20 +776,11 @@ export default function App() {
                 name: studentForm.name.trim(),
                 phone: studentForm.phone.trim(),
                 plan: studentForm.plan,
-                expiryDate: studentForm.expiryDate,
                 credits: finalCredits
               }
             : s
         )
       );
-
-      savePlanMeta({
-        ...planMetaMap,
-        [editingStudentId]: {
-          ...(planMetaMap[editingStudentId] || {}),
-          startDate: studentForm.startDate
-        }
-      });
 
       setShowStudentModal(false);
       setEditingStudentId(null);
@@ -891,7 +884,7 @@ export default function App() {
     }
   };
 
-  // Abrir modal para editar Fecha de Inicio y Vencimiento
+  // Abrir modal para editar Fecha de Inicio y Vencimiento desde Pagos
   const handleOpenEditDates = (student) => {
     setDatesStudentId(student.id);
     setDatesForm({
@@ -1100,11 +1093,11 @@ export default function App() {
     setCalendarCursor(next);
   };
 
-  // Métricas para Dashboard
+  // Métricas y lista de Alumnos Activos para Dashboard
   const todayISO = toISODate(new Date());
-  const activeStudentsCount = students.filter(
+  const activeStudentsList = students.filter(
     (s) => !isPlanPaused(s) && s.expiryDate >= todayISO
-  ).length;
+  );
   const overdueOrSoonCount = students.filter((s) => {
     if (isPlanPaused(s)) return false;
     const diff = Math.ceil((new Date(s.expiryDate) - new Date(todayISO)) / 86400000);
@@ -1865,14 +1858,14 @@ export default function App() {
               </div>
             )}
 
-            {/* PESTAÑA 2: DASHBOARD (Solo lectura de métricas y listados Asistieron / No asistieron por clase) */}
+            {/* PESTAÑA 2: DASHBOARD (Sencillo: Alumnos Activos desplegable + Asistencia por clase) */}
             {adminTab === 'dashboard' && (
               <div className="space-y-6">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <h2 className="text-xl font-semibold">Dashboard</h2>
                     <p className="text-sm text-stone-500">
-                      Métricas y listado de alumnos que asistieron y no asistieron por clase
+                      Consulta tus alumnos activos y el detalle de asistencia por clase
                     </p>
                   </div>
 
@@ -1884,17 +1877,32 @@ export default function App() {
                   />
                 </div>
 
-                {/* Tarjetas KPI */}
+                {/* Tarjetas KPI (Alumnos Activos clicable para ver su listado) */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
-                  <div className="bg-white rounded-3xl p-4 border border-stone-200/70 shadow-2xs">
-                    <p className="text-xs text-stone-500 font-medium">Alumnos Activos</p>
+                  <button
+                    type="button"
+                    onClick={() => setShowActiveStudentsList((prev) => !prev)}
+                    className={`text-left bg-white rounded-3xl p-4 border transition-all shadow-2xs ${
+                      showActiveStudentsList
+                        ? 'border-[#5C7362] ring-1 ring-[#5C7362]/25'
+                        : 'border-stone-200/70 hover:border-stone-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-stone-500 font-medium">Alumnos Activos</p>
+                      {showActiveStudentsList ? (
+                        <ChevronUp className="w-4 h-4 text-[#5C7362]" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-[#5C7362]" />
+                      )}
+                    </div>
                     <p className="text-2xl font-bold text-[#5C7362] mt-1">
-                      {activeStudentsCount}
+                      {activeStudentsList.length}
                     </p>
-                    <p className="text-[11px] text-stone-400 mt-1">
-                      De {students.length} registrados
+                    <p className="text-[11px] text-[#5C7362] font-medium mt-1">
+                      {showActiveStudentsList ? 'Ocultar listado' : 'Ver listado completo'}
                     </p>
-                  </div>
+                  </button>
 
                   <div className="bg-white rounded-3xl p-4 border border-stone-200/70 shadow-2xs">
                     <p className="text-xs text-stone-500 font-medium">Abonos por Renovar</p>
@@ -1920,6 +1928,58 @@ export default function App() {
                     </p>
                   </div>
                 </div>
+
+                {/* Listado desplegable de Alumnos Activos */}
+                {showActiveStudentsList && (
+                  <div className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-3">
+                    <div className="flex items-center justify-between pb-2 border-b border-stone-100">
+                      <h3 className="font-semibold text-base text-[#2D332F]">
+                        Listado de Alumnos Activos ({activeStudentsList.length})
+                      </h3>
+                      <span className="text-xs text-stone-500">Planes vigentes al día</span>
+                    </div>
+
+                    {activeStudentsList.length === 0 ? (
+                      <p className="text-sm text-stone-500 py-3">
+                        No hay alumnos con plan activo en este momento.
+                      </p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse text-sm">
+                          <thead>
+                            <tr className="bg-[#F7F5F0] text-xs uppercase tracking-wider text-stone-500">
+                              <th className="py-2.5 px-3 font-medium">Alumno</th>
+                              <th className="py-2.5 px-3 font-medium">Plan</th>
+                              <th className="py-2.5 px-3 font-medium">Abono / Saldo</th>
+                              <th className="py-2.5 px-3 font-medium">Vencimiento</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-stone-100">
+                            {activeStudentsList.map((st) => (
+                              <tr key={st.id} className="hover:bg-stone-50/60">
+                                <td className="py-2.5 px-3">
+                                  <p className="font-semibold">{st.name}</p>
+                                  <p className="text-xs text-stone-500">{st.phone}</p>
+                                </td>
+                                <td className="py-2.5 px-3 text-xs font-medium text-[#5C7362]">
+                                  {st.plan}
+                                </td>
+                                <td className="py-2.5 px-3 text-xs">
+                                  {isUnlimitedPlan(st.plan)
+                                    ? 'Pase Libre'
+                                    : `${st.credits} disp. (${getStudentQuotaDisplay(st)})`}
+                                </td>
+                                <td className="py-2.5 px-3 text-xs text-stone-600">
+                                  {formatDateDDMMYYYY(st.expiryDate)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Listado por Clase: Asistieron vs No asistieron */}
                 <div className="space-y-4">
@@ -1966,7 +2026,6 @@ export default function App() {
                           </div>
 
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {/* Asistieron */}
                             <div className="p-3.5 rounded-2xl bg-[#EDF3EE]/60 border border-[#5C7362]/20">
                               <p className="text-xs font-semibold text-[#4C6352] uppercase tracking-wider mb-2">
                                 Asistieron ({attendedList.length})
@@ -1992,7 +2051,6 @@ export default function App() {
                               )}
                             </div>
 
-                            {/* No asistieron */}
                             <div className="p-3.5 rounded-2xl bg-rose-50/50 border border-rose-200/60">
                               <p className="text-xs font-semibold text-rose-800 uppercase tracking-wider mb-2">
                                 No asistieron ({noShowList.length})
@@ -2033,7 +2091,7 @@ export default function App() {
                   <div>
                     <h2 className="text-xl font-semibold">Alumnos & Consultantes</h2>
                     <p className="text-sm text-stone-500">
-                      Crea, edita, elimina o administra abonos de alumnos
+                      Crea, edita o elimina registros (las fechas del plan se gestionan en Pagos)
                     </p>
                   </div>
 
@@ -2629,7 +2687,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Modal: Crear / Editar Alumno */}
+      {/* Modal: Crear / Editar Alumno (en edición las fechas quedan bloqueadas; se modifican en Pagos) */}
       {showStudentModal && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl">
@@ -2712,42 +2770,54 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">
-                    Fecha de Inicio
-                  </label>
-                  <input
-                    required
-                    type="date"
-                    value={studentForm.startDate}
-                    onChange={(e) => {
-                      const nextStart = e.target.value;
-                      setStudentForm({
-                        ...studentForm,
-                        startDate: nextStart,
-                        expiryDate: addDaysToISO(nextStart, 30)
-                      });
-                    }}
-                    className="w-full border border-stone-200 rounded-xl px-3 py-2"
-                  />
+              {editingStudentId ? (
+                <div className="bg-stone-50 border border-stone-200 rounded-xl p-3 text-xs text-stone-600">
+                  <p>
+                    Inicio: <strong>{formatDateDDMMYYYY(studentForm.startDate)}</strong> •
+                    Vencimiento: <strong>{formatDateDDMMYYYY(studentForm.expiryDate)}</strong>
+                  </p>
+                  <p className="text-[11px] text-stone-400 mt-0.5">
+                    Para modificar fechas del plan o renovar, usa la pestaña Pagos & WhatsApp.
+                  </p>
                 </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-stone-600 mb-1">
+                      Fecha de Inicio
+                    </label>
+                    <input
+                      required
+                      type="date"
+                      value={studentForm.startDate}
+                      onChange={(e) => {
+                        const nextStart = e.target.value;
+                        setStudentForm({
+                          ...studentForm,
+                          startDate: nextStart,
+                          expiryDate: addDaysToISO(nextStart, 30)
+                        });
+                      }}
+                      className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                    />
+                  </div>
 
-                <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">
-                    Fecha de Vencimiento
-                  </label>
-                  <input
-                    required
-                    type="date"
-                    value={studentForm.expiryDate}
-                    onChange={(e) =>
-                      setStudentForm({ ...studentForm, expiryDate: e.target.value })
-                    }
-                    className="w-full border border-stone-200 rounded-xl px-3 py-2"
-                  />
+                  <div>
+                    <label className="block text-xs font-medium text-stone-600 mb-1">
+                      Fecha de Vencimiento
+                    </label>
+                    <input
+                      required
+                      type="date"
+                      value={studentForm.expiryDate}
+                      onChange={(e) =>
+                        setStudentForm({ ...studentForm, expiryDate: e.target.value })
+                      }
+                      className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
               <button
                 type="submit"
