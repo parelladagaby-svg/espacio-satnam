@@ -74,14 +74,14 @@ const INITIAL_SERVICES = [
 ];
 
 const INITIAL_PLANS = [
-  { id: 'sin_plan', name: 'Sin Plan (Solo Sesiones / Masajes)', credits: 0, isUnlimited: false, isNone: true },
-  { id: 'sesion_ind', name: 'Sesión Individual (Coaching / PNL / Constelaciones / Estética)', credits: 1, isUnlimited: false },
-  { id: 'taller_const', name: 'Taller de Constelaciones / Evento Especial', credits: 1, isUnlimited: false },
-  { id: 'clase_ind', name: 'Clase Individual', credits: 1, isUnlimited: false },
-  { id: 'm1', name: 'Mensual - 1 vez por semana', credits: 4, isUnlimited: false },
-  { id: 'm2', name: 'Mensual - 2 veces por semana', credits: 8, isUnlimited: false },
-  { id: 'm3', name: 'Mensual - 3 veces por semana', credits: 12, isUnlimited: false },
-  { id: 'pase_libre', name: 'Pase Libre Clases', credits: 99, isUnlimited: true }
+  { id: 'sin_plan', name: 'Sin Plan (Solo Sesiones / Masajes)', credits: 0, price: 0, isUnlimited: false, isNone: true },
+  { id: 'sesion_ind', name: 'Sesión Individual (Coaching / PNL / Constelaciones / Estética)', credits: 1, price: 35000, isUnlimited: false },
+  { id: 'taller_const', name: 'Taller de Constelaciones / Evento Especial', credits: 1, price: 40000, isUnlimited: false },
+  { id: 'clase_ind', name: 'Clase Individual', credits: 1, price: 18000, isUnlimited: false },
+  { id: 'm1', name: 'Mensual - 1 vez por semana', credits: 4, price: 48000, isUnlimited: false },
+  { id: 'm2', name: 'Mensual - 2 veces por semana', credits: 8, price: 78000, isUnlimited: false },
+  { id: 'm3', name: 'Mensual - 3 veces por semana', credits: 12, price: 105000, isUnlimited: false },
+  { id: 'pase_libre', name: 'Pase Libre Clases', credits: 99, price: 130000, isUnlimited: true }
 ];
 
 const DAYS_OF_WEEK = [
@@ -105,6 +105,11 @@ const formatDateDDMMYYYY = (dateStr) => {
   const [year, month, day] = clean.split('-');
   if (!year || !month || !day) return dateStr;
   return `${day}-${month}-${year}`;
+};
+
+const formatPriceARS = (value) => {
+  const num = Number(value || 0);
+  return `$ ${num.toLocaleString('es-AR')}`;
 };
 
 const formatTimestamp = (isoStr) => {
@@ -167,7 +172,7 @@ export default function App() {
   });
 
   const [plans, setPlans] = useState(() => {
-    const saved = localStorage.getItem('satnam_plans_v1');
+    const saved = localStorage.getItem('satnam_plans_v2');
     return saved ? JSON.parse(saved) : INITIAL_PLANS;
   });
 
@@ -224,29 +229,39 @@ export default function App() {
     endDate: addDaysToISO(toISODate(new Date()), 7)
   });
 
+  // Vista Alumno + Calendario interactivo de fechas
   const [activeStudentId, setActiveStudentId] = useState('');
   const [selectedDate, setSelectedDate] = useState(toISODate(new Date()));
-  const [studentRangeMode, setStudentRangeMode] = useState('day');
+  const [studentCalendarMonth, setStudentCalendarMonth] = useState(() => new Date());
   const [pillarFilter, setPillarFilter] = useState('Todas');
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
   const [profileForm, setProfileForm] = useState({ name: '', phone: '' });
 
+  // Vista Admin
   const [calendarView, setCalendarView] = useState('week');
   const [calendarCursor, setCalendarCursor] = useState(new Date());
   const [attendanceServiceFilter, setAttendanceServiceFilter] = useState('ALL');
   const [searchTerm, setSearchTerm] = useState('');
 
+  // Dashboard
   const [openClassesPanel, setOpenClassesPanel] = useState(false);
   const [openBookingsPanel, setOpenBookingsPanel] = useState(false);
   const [expandedDashboardClassId, setExpandedDashboardClassId] = useState(null);
   const [dashboardScope, setDashboardScope] = useState('day');
   const [dashboardMonth, setDashboardMonth] = useState(() => toISODate(new Date()).slice(0, 7));
 
+  // Pagos & Comunicaciones + Planes con precio $$
   const [openPaymentsPanel, setOpenPaymentsPanel] = useState('renew');
   const [showPlanManagerModal, setShowPlanManagerModal] = useState(false);
   const [editingPlanId, setEditingPlanId] = useState(null);
-  const [planForm, setPlanForm] = useState({ name: '', credits: 4, isUnlimited: false });
+  const [planForm, setPlanForm] = useState({
+    name: '',
+    credits: 4,
+    price: 50000,
+    isUnlimited: false
+  });
 
+  // Modales Servicios y Clases
   const [showServiceModal, setShowServiceModal] = useState(false);
   const [editingServiceId, setEditingServiceId] = useState(null);
   const [serviceForm, setServiceForm] = useState({
@@ -302,7 +317,7 @@ export default function App() {
 
   const savePlans = (next) => {
     setPlans(next);
-    localStorage.setItem('satnam_plans_v1', JSON.stringify(next));
+    localStorage.setItem('satnam_plans_v2', JSON.stringify(next));
   };
 
   const saveVacationPeriods = (next) => {
@@ -430,6 +445,7 @@ export default function App() {
     plans.find((p) => p.name === planName) || {
       name: planName,
       credits: 4,
+      price: 0,
       isUnlimited: false,
       isNone: false
     };
@@ -1316,6 +1332,8 @@ export default function App() {
     const cleanName = planForm.name.trim();
     if (!cleanName) return;
 
+    const cleanPrice = Math.max(0, Number(planForm.price) || 0);
+
     if (editingPlanId) {
       const prevPlan = plans.find((p) => p.id === editingPlanId);
       const updatedPlans = plans.map((p) =>
@@ -1323,6 +1341,7 @@ export default function App() {
           ? {
               ...p,
               name: cleanName,
+              price: cleanPrice,
               isUnlimited: Boolean(planForm.isUnlimited),
               credits: planForm.isUnlimited ? 99 : Number(planForm.credits) || 1
             }
@@ -1337,19 +1356,20 @@ export default function App() {
       }
 
       setEditingPlanId(null);
-      setPlanForm({ name: '', credits: 4, isUnlimited: false });
+      setPlanForm({ name: '', credits: 4, price: 50000, isUnlimited: false });
       showToast('Plan actualizado');
     } else {
       const newPlan = {
         id: `plan_${Date.now()}`,
         name: cleanName,
+        price: cleanPrice,
         isUnlimited: Boolean(planForm.isUnlimited),
         credits: planForm.isUnlimited ? 99 : Number(planForm.credits) || 1,
         isNone: false
       };
       savePlans([...plans, newPlan]);
-      setPlanForm({ name: '', credits: 4, isUnlimited: false });
-      showToast('Nuevo plan creado');
+      setPlanForm({ name: '', credits: 4, price: 50000, isUnlimited: false });
+      showToast('Nuevo plan creado y publicado');
     }
   };
 
@@ -1368,26 +1388,12 @@ export default function App() {
     return 'cuerpo';
   };
 
-  const getStudentVisibleDates = () => {
-    if (studentRangeMode === 'day') return [selectedDate];
-    const start = new Date(`${selectedDate}T00:00:00`);
-    const day = start.getDay();
-    const diff = start.getDate() - day + (day === 0 ? -6 : 1);
-    start.setDate(diff);
-    return Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(start);
-      d.setDate(start.getDate() + i);
-      return toISODate(d);
-    });
-  };
-
   const studentAllowed = canStudentOperate(activeStudent);
   const studentHasPlan = hasActiveSubscriptionPlan(activeStudent);
-  const visibleDatesStudent = getStudentVisibleDates();
 
   const studentFilteredClasses = (() => {
     const raw = classes
-      .filter((c) => visibleDatesStudent.includes(c.date))
+      .filter((c) => c.date === selectedDate)
       .filter((c) => {
         if (!studentHasPlan) {
           const srvObj = services.find((s) => s.id === c.category);
@@ -1398,7 +1404,7 @@ export default function App() {
       .filter((c) =>
         pillarFilter === 'Todas' ? true : getPillarForCategory(c.category) === pillarFilter
       )
-      .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
+      .sort((a, b) => a.time.localeCompare(b.time));
 
     const seen = new Set();
     return raw.filter((cls) => {
@@ -1604,6 +1610,8 @@ export default function App() {
     })
     .filter((item) => item.totalSessions > 0 || !hasActiveSubscriptionPlan(item.student));
 
+  const publishedPlansForStudents = plans.filter((p) => !p.isNone);
+
   return (
     <div className="min-h-screen bg-[#F7F5F0] text-[#2D332F] font-sans pb-24 md:pb-14 flex flex-col">
       {notification && (
@@ -1777,71 +1785,142 @@ export default function App() {
               </div>
             )}
 
-            <div className="space-y-3">
+            {/* Planes y Precios publicados en la página de inicio del alumno */}
+            <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="text-base font-semibold">Planes y Precios</h2>
+                <span className="text-xs text-stone-500">Espacio Sat-Nam</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                {publishedPlansForStudents.map((p) => (
+                  <div
+                    key={p.id}
+                    className="p-3 rounded-2xl bg-[#F7F5F0] border border-stone-200/80 flex items-center justify-between gap-2"
+                  >
+                    <div>
+                      <p className="text-xs font-semibold text-[#2D332F]">{p.name}</p>
+                      <p className="text-[11px] text-stone-500">
+                        {p.isUnlimited ? 'Pase Libre' : `${p.credits} ${p.credits === 1 ? 'sesión' : 'clases'}`}
+                      </p>
+                    </div>
+                    <span className="text-xs font-bold text-[#5C7362] bg-[#EDF3EE] px-2.5 py-1 rounded-xl shrink-0">
+                      {formatPriceARS(p.price)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Calendario interactivo para seleccionar fecha y ver clases */}
+            <div className="space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <h2 className="text-xl font-semibold">Agenda y Reservas</h2>
                   <p className="text-sm text-stone-500">
-                    Elige una categoría y fecha para reservar tu espacio
+                    Entrá a una fecha en el calendario para ver sus clases y reservar
                   </p>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="flex items-center bg-white p-1 rounded-xl border border-stone-200/80">
-                    <button
-                      type="button"
-                      onClick={() => setStudentRangeMode('day')}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
-                        studentRangeMode === 'day'
-                          ? 'bg-[#5C7362] text-white'
-                          : 'text-stone-600'
-                      }`}
-                    >
-                      Día
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setStudentRangeMode('week')}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
-                        studentRangeMode === 'week'
-                          ? 'bg-[#5C7362] text-white'
-                          : 'text-stone-600'
-                      }`}
-                    >
-                      Semana
-                    </button>
-                  </div>
-
-                  <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-stone-200/80 shadow-2xs w-fit">
-                    <Calendar className="w-4 h-4 text-[#5C7362]" />
-                    <input
-                      type="date"
-                      value={selectedDate}
-                      max={studentAllowed ? activeStudent?.expiryDate || undefined : todayISO}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (!studentAllowed && val > todayISO) {
-                          showToast(
-                            'Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el espacio para reactivar tu plan.',
-                            'error'
-                          );
-                          return;
-                        }
-                        if (studentAllowed && activeStudent?.expiryDate && val > activeStudent.expiryDate) {
-                          showToast(
-                            'Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el espacio para reactivar tu plan.',
-                            'error'
-                          );
-                          return;
-                        }
-                        setSelectedDate(val);
-                      }}
-                      className="text-sm font-medium bg-transparent focus:outline-none"
-                    />
-                  </div>
+                <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-stone-200/80 shadow-2xs w-fit">
+                  <Calendar className="w-4 h-4 text-[#5C7362]" />
+                  <span className="text-xs font-semibold text-[#2D332F]">
+                    Fecha seleccionada: {formatDateDDMMYYYY(selectedDate)}
+                  </span>
                 </div>
               </div>
 
+              {/* Calendario mensual interactivo */}
+              <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const prev = new Date(studentCalendarMonth);
+                      prev.setMonth(prev.getMonth() - 1);
+                      setStudentCalendarMonth(prev);
+                    }}
+                    className="p-1.5 rounded-xl border border-stone-200 hover:bg-stone-50"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <span className="font-semibold text-sm sm:text-base">
+                    {MONTH_NAMES[studentCalendarMonth.getMonth()]} {studentCalendarMonth.getFullYear()}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = new Date(studentCalendarMonth);
+                      next.setMonth(next.getMonth() + 1);
+                      setStudentCalendarMonth(next);
+                    }}
+                    className="p-1.5 rounded-xl border border-stone-200 hover:bg-stone-50"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold text-stone-400">
+                  <span>Lun</span><span>Mar</span><span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span><span>Dom</span>
+                </div>
+
+                <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
+                  {getMonthGridDays(studentCalendarMonth).map((dayObj, idx) => {
+                    if (!dayObj) return <div key={`st-empty-${idx}`} className="p-2" />;
+                    const iso = toISODate(dayObj);
+                    const isSelected = iso === selectedDate;
+                    const isVac = Boolean(getVacationForDate(iso));
+                    const isBlockedFuture =
+                      (!studentAllowed && iso > todayISO) ||
+                      (studentAllowed && studentHasPlan && activeStudent?.expiryDate && iso > activeStudent.expiryDate);
+                    const dayClassesCount = classes.filter((c) => c.date === iso).length;
+
+                    return (
+                      <button
+                        type="button"
+                        key={iso}
+                        onClick={() => {
+                          if (isBlockedFuture) {
+                            showToast(
+                              'Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el espacio para reactivar tu plan.',
+                              'error'
+                            );
+                            return;
+                          }
+                          setSelectedDate(iso);
+                        }}
+                        className={`p-1.5 sm:p-2 rounded-xl border text-center transition-all flex flex-col items-center justify-center min-h-[54px] ${
+                          isSelected
+                            ? 'bg-[#5C7362] text-white border-[#5C7362]'
+                            : isBlockedFuture
+                            ? 'bg-stone-100/70 text-stone-400 border-stone-200/50'
+                            : isVac
+                            ? 'bg-amber-50 border-amber-200 text-amber-900'
+                            : 'bg-[#F7F5F0]/60 border-stone-200/80 hover:border-stone-300'
+                        }`}
+                      >
+                        <span className="text-xs sm:text-sm font-semibold">{dayObj.getDate()}</span>
+                        {isVac ? (
+                          <span className="mt-0.5 text-[9px] px-1 rounded-full font-semibold bg-amber-100 text-amber-800">
+                            Vac.
+                          </span>
+                        ) : (
+                          dayClassesCount > 0 && (
+                            <span
+                              className={`mt-0.5 text-[10px] px-1.5 rounded-full font-medium ${
+                                isSelected ? 'bg-white/25 text-white' : 'bg-[#EDF3EE] text-[#4C6352]'
+                              }`}
+                            >
+                              {dayClassesCount}
+                            </span>
+                          )
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Filtro por categorías */}
               <div className="flex flex-wrap items-center gap-2">
                 {PILLARS.map((pil) => (
                   <button
@@ -1873,7 +1952,7 @@ export default function App() {
             ) : studentFilteredClasses.length === 0 ? (
               <div className="bg-white rounded-3xl p-10 text-center border border-stone-200/70">
                 <p className="text-stone-500 text-sm">
-                  No hay actividades disponibles para el período seleccionado en esta categoría.
+                  No hay actividades disponibles para el <strong>{formatDateDDMMYYYY(selectedDate)}</strong> en esta categoría.
                 </p>
               </div>
             ) : (
@@ -1928,11 +2007,6 @@ export default function App() {
                         <h3 className="font-semibold text-lg">{cls.title}</h3>
 
                         <div className="flex flex-wrap items-center gap-3 text-sm text-stone-600 mt-3">
-                          {studentRangeMode === 'week' && (
-                            <span className="text-xs font-semibold text-[#5C7362]">
-                              {formatDateDDMMYYYY(cls.date)}
-                            </span>
-                          )}
                           <span className="flex items-center gap-1.5">
                             <Clock className="w-4 h-4 text-[#5C7362]" />
                             {cls.time} hs ({cls.duration} min)
@@ -3063,7 +3137,7 @@ export default function App() {
                   <div>
                     <h2 className="text-xl font-semibold">Pagos & Comunicaciones</h2>
                     <p className="text-sm text-stone-500">
-                      Gestioná planes, recordatorios por WhatsApp, renovaciones, fechas y pausas
+                      Gestioná planes y precios, recordatorios por WhatsApp, renovaciones, fechas y pausas
                     </p>
                   </div>
 
@@ -3071,7 +3145,7 @@ export default function App() {
                     type="button"
                     onClick={() => {
                       setEditingPlanId(null);
-                      setPlanForm({ name: '', credits: 4, isUnlimited: false });
+                      setPlanForm({ name: '', credits: 4, price: 50000, isUnlimited: false });
                       setShowPlanManagerModal(true);
                     }}
                     className="flex items-center gap-1.5 bg-white hover:bg-stone-50 text-[#5C7362] border border-[#5C7362]/40 px-3.5 py-2 rounded-xl text-xs font-semibold w-fit"
@@ -3754,6 +3828,7 @@ export default function App() {
         </div>
       )}
 
+      {/* Modal: Crear / Editar Planes (con campo $$ y listado completo con precios) */}
       {showPlanManagerModal && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto space-y-4">
@@ -3767,10 +3842,31 @@ export default function App() {
             <form onSubmit={handleSavePlanDefinition} className="space-y-3 text-sm border-b border-stone-100 pb-4">
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">Nombre del Plan</label>
-                <input required type="text" placeholder="Ej. Mensual - 4 veces por semana" value={planForm.name} onChange={(e) => setPlanForm({ ...planForm, name: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
+                <input
+                  required
+                  type="text"
+                  placeholder="Ej. Mensual - 4 veces por semana"
+                  value={planForm.name}
+                  onChange={(e) => setPlanForm({ ...planForm, name: e.target.value })}
+                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                />
               </div>
 
-              <div className="grid grid-cols-2 gap-2.5 items-center">
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">Precio ($$)</label>
+                  <input
+                    required
+                    type="number"
+                    min="0"
+                    step="100"
+                    placeholder="Ej. 50000"
+                    value={planForm.price}
+                    onChange={(e) => setPlanForm({ ...planForm, price: e.target.value })}
+                    className="w-full border border-stone-200 rounded-xl px-3 py-2 text-xs"
+                  />
+                </div>
+
                 <div>
                   <label className="block text-xs font-medium text-stone-600 mb-1">Cantidad de clases</label>
                   <input
@@ -3783,50 +3879,74 @@ export default function App() {
                     className="w-full border border-stone-200 rounded-xl px-3 py-2 text-xs disabled:bg-stone-100"
                   />
                 </div>
-
-                <label className="flex items-center gap-2 cursor-pointer text-xs text-stone-700 pt-4">
-                  <input
-                    type="checkbox"
-                    checked={planForm.isUnlimited}
-                    onChange={(e) => setPlanForm({ ...planForm, isUnlimited: e.target.checked })}
-                    className="rounded accent-[#5C7362] w-4 h-4"
-                  />
-                  Pase Libre
-                </label>
               </div>
+
+              <label className="flex items-center gap-2 cursor-pointer text-xs text-stone-700">
+                <input
+                  type="checkbox"
+                  checked={planForm.isUnlimited}
+                  onChange={(e) => setPlanForm({ ...planForm, isUnlimited: e.target.checked })}
+                  className="rounded accent-[#5C7362] w-4 h-4"
+                />
+                Pase Libre
+              </label>
 
               <div className="flex gap-2">
                 {editingPlanId && (
-                  <button type="button" onClick={() => { setEditingPlanId(null); setPlanForm({ name: '', credits: 4, isUnlimited: false }); }} className="px-3 py-2 rounded-xl text-xs font-medium bg-stone-100 text-stone-600">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingPlanId(null);
+                      setPlanForm({ name: '', credits: 4, price: 50000, isUnlimited: false });
+                    }}
+                    className="px-3 py-2 rounded-xl text-xs font-medium bg-stone-100 text-stone-600"
+                  >
                     Cancelar
                   </button>
                 )}
                 <button type="submit" className="flex-1 bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2 rounded-xl text-xs">
-                  {editingPlanId ? 'Guardar Plan' : 'Crear Plan'}
+                  {editingPlanId ? 'Guardar Plan' : 'Crear y Publicar Plan'}
                 </button>
               </div>
             </form>
 
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {plans.filter((p) => !p.isNone).map((p) => (
-                <div key={p.id} className="p-2.5 rounded-xl bg-[#F7F5F0] border border-stone-200/80 flex items-center justify-between gap-2 text-xs">
-                  <div>
-                    <p className="font-semibold text-[#2D332F]">{p.name}</p>
-                    <p className="text-[11px] text-stone-500">{p.isUnlimited ? 'Pase Libre' : `${p.credits} clases`}</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingPlanId(p.id);
-                      setPlanForm({ name: p.name, credits: p.credits, isUnlimited: Boolean(p.isUnlimited) });
-                    }}
-                    className="p-1.5 text-stone-700 bg-white hover:bg-stone-100 rounded-lg border border-stone-200"
-                    title="Editar plan"
+            {/* Todos los planes listados con sus precios */}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider">
+                Todos los planes ({publishedPlansForStudents.length})
+              </p>
+              <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                {publishedPlansForStudents.map((p) => (
+                  <div
+                    key={p.id}
+                    className="p-2.5 rounded-xl bg-[#F7F5F0] border border-stone-200/80 flex items-center justify-between gap-2 text-xs"
                   >
-                    <Edit3 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              ))}
+                    <div>
+                      <p className="font-semibold text-[#2D332F]">{p.name}</p>
+                      <p className="text-[11px] text-stone-500">
+                        {p.isUnlimited ? 'Pase Libre' : `${p.credits} clases`} •{' '}
+                        <strong className="text-[#5C7362]">{formatPriceARS(p.price)}</strong>
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingPlanId(p.id);
+                        setPlanForm({
+                          name: p.name,
+                          credits: p.credits,
+                          price: p.price || 0,
+                          isUnlimited: Boolean(p.isUnlimited)
+                        });
+                      }}
+                      className="p-1.5 text-stone-700 bg-white hover:bg-stone-100 rounded-lg border border-stone-200"
+                      title="Editar plan"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
