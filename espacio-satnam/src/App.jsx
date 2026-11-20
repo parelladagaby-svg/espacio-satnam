@@ -37,7 +37,8 @@ import {
   Palmtree,
   Bell,
   Clock3,
-  ListPlus
+  ListPlus,
+  History
 } from 'lucide-react';
 
 // Conexión a Supabase
@@ -72,14 +73,14 @@ const INITIAL_SERVICES = [
 ];
 
 const INITIAL_PLANS = [
-  { id: 'sin_plan', name: 'Sin Plan (Solo Sesiones / Masajes)', credits: 0, price: 0, isUnlimited: false, isNone: true },
-  { id: 'sesion_ind', name: 'Sesión Individual (Coaching / PNL / Constelaciones / Estética)', credits: 1, price: 35000, isUnlimited: false },
-  { id: 'taller_const', name: 'Taller de Constelaciones / Evento Especial', credits: 1, price: 40000, isUnlimited: false },
-  { id: 'clase_ind', name: 'Clase Individual', credits: 1, price: 18000, isUnlimited: false },
-  { id: 'm1', name: 'Mensual - 1 vez por semana', credits: 4, price: 48000, isUnlimited: false },
-  { id: 'm2', name: 'Mensual - 2 veces por semana', credits: 8, price: 78000, isUnlimited: false },
-  { id: 'm3', name: 'Mensual - 3 veces por semana', credits: 12, price: 105000, isUnlimited: false },
-  { id: 'pase_libre', name: 'Pase Libre Clases', credits: 99, price: 130000, isUnlimited: true }
+  { id: 'sin_plan', name: 'Sin Plan (Solo Sesiones / Masajes)', credits: 0, price: 0, isUnlimited: false, isNone: true, comingSoon: false },
+  { id: 'sesion_ind', name: 'Sesión Individual (Coaching / PNL / Constelaciones / Estética)', credits: 1, price: 35000, isUnlimited: false, comingSoon: false },
+  { id: 'taller_const', name: 'Taller de Constelaciones / Evento Especial', credits: 1, price: 40000, isUnlimited: false, comingSoon: false },
+  { id: 'clase_ind', name: 'Clase Individual', credits: 1, price: 18000, isUnlimited: false, comingSoon: false },
+  { id: 'm1', name: 'Mensual - 1 vez por semana', credits: 4, price: 48000, isUnlimited: false, comingSoon: false },
+  { id: 'm2', name: 'Mensual - 2 veces por semana', credits: 8, price: 78000, isUnlimited: false, comingSoon: false },
+  { id: 'm3', name: 'Mensual - 3 veces por semana', credits: 12, price: 105000, isUnlimited: false, comingSoon: false },
+  { id: 'pase_libre', name: 'Pase Libre Clases', credits: 99, price: 130000, isUnlimited: true, comingSoon: false }
 ];
 
 const DAYS_OF_WEEK = [
@@ -203,6 +204,8 @@ export default function App() {
   const [cancelledTimestamps, setCancelledTimestamps] = useState(() => readLocalJSON('satnam_cancelled_ts_v1', {}));
   const [attendanceMap, setAttendanceMap] = useState(() => readLocalJSON('satnam_attendance_v1', {}));
   const [waitlistMap, setWaitlistMap] = useState(() => readLocalJSON('satnam_waitlist_v1', {}));
+  const [comingSoonClassesMap, setComingSoonClassesMap] = useState(() => readLocalJSON('satnam_coming_soon_classes_v1', {}));
+  const [esteticaHistoryList, setEsteticaHistoryList] = useState(() => readLocalJSON('satnam_estetica_history_v1', []));
 
   const [students, setStudents] = useState([]);
   const [classes, setClasses] = useState([]);
@@ -224,7 +227,6 @@ export default function App() {
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
   const [profileForm, setProfileForm] = useState({ name: '', phone: '' });
 
-  // Menús comprimibles en Vista Alumno: Agenda y Reservas / Planes y Precios
   const [openStudentAgendaPanel, setOpenStudentAgendaPanel] = useState(true);
   const [openStudentPlansPanel, setOpenStudentPlansPanel] = useState(false);
 
@@ -239,6 +241,14 @@ export default function App() {
   const [dashboardScope, setDashboardScope] = useState('day');
   const [dashboardMonth, setDashboardMonth] = useState(() => toISODate(new Date()).slice(0, 7));
 
+  const [showEsteticaHistoryModal, setShowEsteticaHistoryModal] = useState(false);
+  const [esteticaHistoryForm, setEsteticaHistoryForm] = useState({
+    studentId: '',
+    date: addDaysToISO(toISODate(new Date()), -15),
+    treatment: 'Limpieza Facial Profunda',
+    notes: ''
+  });
+
   const [openPaymentsPanel, setOpenPaymentsPanel] = useState('renew');
   const [showPlanManagerModal, setShowPlanManagerModal] = useState(false);
   const [editingPlanId, setEditingPlanId] = useState(null);
@@ -246,7 +256,8 @@ export default function App() {
     name: '',
     credits: 4,
     price: 50000,
-    isUnlimited: false
+    isUnlimited: false,
+    comingSoon: false
   });
 
   const [showServiceModal, setShowServiceModal] = useState(false);
@@ -269,7 +280,8 @@ export default function App() {
     duration: 60,
     capacity: 12,
     selectedDays: [1, 3, 5],
-    weeksCount: 4
+    weeksCount: 4,
+    comingSoon: false
   });
 
   const [showStudentModal, setShowStudentModal] = useState(false);
@@ -304,6 +316,8 @@ export default function App() {
     localStorage.setItem(key, JSON.stringify(value));
   };
 
+  const isClassComingSoon = (cls) => Boolean(cls && comingSoonClassesMap[cls.id]);
+
   const getVacationForDate = (isoDate) =>
     isoDate ? vacationPeriods.find((vp) => isoDate >= vp.startDate && isoDate <= vp.endDate) || null : null;
 
@@ -313,7 +327,8 @@ export default function App() {
       credits: 4,
       price: 0,
       isUnlimited: false,
-      isNone: false
+      isNone: false,
+      comingSoon: false
     };
 
   const hasActiveSubscriptionPlan = (student) => {
@@ -478,6 +493,23 @@ export default function App() {
     }
   };
 
+  const handleSaveEsteticaHistory = (e) => {
+    e.preventDefault();
+    if (!esteticaHistoryForm.studentId || !esteticaHistoryForm.date || !esteticaHistoryForm.treatment.trim()) return;
+
+    const entry = {
+      id: `est_${Date.now()}`,
+      studentId: esteticaHistoryForm.studentId,
+      date: esteticaHistoryForm.date,
+      title: esteticaHistoryForm.treatment.trim(),
+      notes: esteticaHistoryForm.notes.trim()
+    };
+
+    persistState(setEsteticaHistoryList, 'satnam_estetica_history_v1', [entry, ...esteticaHistoryList]);
+    setShowEsteticaHistoryModal(false);
+    showToast('Sesión agregada al historial de estética');
+  };
+
   const handleSaveVacationPeriod = async (e) => {
     e.preventDefault();
     if (!vacationForm.startDate || !vacationForm.endDate) return;
@@ -618,6 +650,11 @@ export default function App() {
 
     const classObj = classes.find((c) => c.id === classId);
     if (!classObj) return;
+
+    if (isClassComingSoon(classObj)) {
+      showToast('Esta actividad figura como Próximamente y aún no admite reservas.', 'error');
+      return;
+    }
 
     const srvObj = services.find((s) => s.id === classObj.category);
     const isRegularClass = srvObj ? Boolean(srvObj.isClass) : true;
@@ -851,9 +888,19 @@ export default function App() {
       duration: 60,
       capacity: firstSrv?.defaultCap || 12,
       selectedDays: [1, 3, 5],
-      weeksCount: 4
+      weeksCount: 4,
+      comingSoon: false
     });
     setShowClassModal(true);
+  };
+
+  const setClassComingSoonFlag = (ids, value) => {
+    const nextMap = { ...comingSoonClassesMap };
+    ids.forEach((id) => {
+      if (value) nextMap[id] = true;
+      else delete nextMap[id];
+    });
+    persistState(setComingSoonClassesMap, 'satnam_coming_soon_classes_v1', nextMap);
   };
 
   const handleSaveClass = async (e) => {
@@ -899,6 +946,7 @@ export default function App() {
       }
 
       setClasses((prev) => prev.map((c) => (c.id === editingClassId ? data : c)));
+      setClassComingSoonFlag([editingClassId], Boolean(classForm.comingSoon));
       setShowClassModal(false);
       setEditingClassId(null);
       showToast('Clase actualizada con éxito');
@@ -953,6 +1001,10 @@ export default function App() {
         return;
       }
 
+      if (classForm.comingSoon && Array.isArray(data)) {
+        setClassComingSoonFlag(data.map((item) => item.id), true);
+      }
+
       setClasses((prev) => [...prev, ...data]);
       setShowClassModal(false);
       showToast(
@@ -975,7 +1027,8 @@ export default function App() {
       duration: cls.duration,
       capacity: cls.capacity,
       selectedDays: [1],
-      weeksCount: 1
+      weeksCount: 1,
+      comingSoon: isClassComingSoon(cls)
     });
     setShowClassModal(true);
   };
@@ -1020,7 +1073,7 @@ export default function App() {
 
   const handleOpenNewStudent = () => {
     const start = toISODate(new Date());
-    const defaultPlan = plans.find((p) => !p.isNone)?.name || plans[0]?.name || '';
+    const defaultPlan = plans.find((p) => !p.isNone && !p.comingSoon)?.name || plans[0]?.name || '';
     setEditingStudentId(null);
     setStudentForm({
       name: '',
@@ -1169,6 +1222,7 @@ export default function App() {
         const nextTs = { ...cancelledTimestamps };
         delete nextTs[id];
         persistState(setCancelledTimestamps, 'satnam_cancelled_ts_v1', nextTs);
+        setClassComingSoonFlag([id], false);
         showToast('Clase eliminada');
       } else {
         showToast('No se pudo eliminar la clase', 'error');
@@ -1201,6 +1255,13 @@ export default function App() {
       }
       if (attendanceServiceFilter === id) setAttendanceServiceFilter('ALL');
       showToast('Servicio eliminado');
+    } else if (type === 'estetica_history') {
+      persistState(
+        setEsteticaHistoryList,
+        'satnam_estetica_history_v1',
+        esteticaHistoryList.filter((item) => item.id !== id)
+      );
+      showToast('Registro histórico eliminado');
     }
   };
 
@@ -1299,7 +1360,7 @@ export default function App() {
     e.preventDefault();
     const cleanName = planForm.name.trim();
     if (!cleanName) return;
-    const cleanPrice = Math.max(0, Number(planForm.price) || 0);
+    const cleanPrice = planForm.comingSoon ? 0 : Math.max(0, Number(planForm.price) || 0);
 
     if (editingPlanId) {
       const prevPlan = plans.find((p) => p.id === editingPlanId);
@@ -1309,6 +1370,7 @@ export default function App() {
               ...p,
               name: cleanName,
               price: cleanPrice,
+              comingSoon: Boolean(planForm.comingSoon),
               isUnlimited: Boolean(planForm.isUnlimited),
               credits: planForm.isUnlimited ? 99 : Number(planForm.credits) || 1
             }
@@ -1323,19 +1385,20 @@ export default function App() {
       }
 
       setEditingPlanId(null);
-      setPlanForm({ name: '', credits: 4, price: 50000, isUnlimited: false });
+      setPlanForm({ name: '', credits: 4, price: 50000, isUnlimited: false, comingSoon: false });
       showToast('Plan actualizado');
     } else {
       const newPlan = {
         id: `plan_${Date.now()}`,
         name: cleanName,
         price: cleanPrice,
+        comingSoon: Boolean(planForm.comingSoon),
         isUnlimited: Boolean(planForm.isUnlimited),
         credits: planForm.isUnlimited ? 99 : Number(planForm.credits) || 1,
         isNone: false
       };
       persistState(setPlans, 'satnam_plans_v2', [...plans, newPlan]);
-      setPlanForm({ name: '', credits: 4, price: 50000, isUnlimited: false });
+      setPlanForm({ name: '', credits: 4, price: 50000, isUnlimited: false, comingSoon: false });
       showToast('Nuevo plan creado y publicado');
     }
   };
@@ -1514,23 +1577,33 @@ export default function App() {
 
     return students
       .map((st) => {
-        const stEstBookings = estBookings
+        const bookedItems = estBookings
           .filter((b) => b.studentId === st.id)
-          .map((b) => ({ ...b, classObj: estClasses.find((item) => item.id === b.classId) }))
-          .filter((item) => item.classObj)
-          .sort((a, b) => b.classObj.date.localeCompare(a.classObj.date));
+          .map((b) => {
+            const c = estClasses.find((item) => item.id === b.classId);
+            return c ? { id: `bk_${b.id}`, date: c.date, title: c.title, notes: '', isManual: false } : null;
+          })
+          .filter(Boolean);
 
-        const lastEntry = stEstBookings[0];
+        const manualRecords = esteticaHistoryList
+          .filter((rec) => rec.studentId === st.id)
+          .map((rec) => ({ ...rec, isManual: true }));
+
+        const combined = [...bookedItems, ...manualRecords].sort((a, b) => b.date.localeCompare(a.date));
+        const lastEntry = combined[0];
+
         return {
           student: st,
-          lastDate: lastEntry?.classObj?.date || null,
-          lastTitle: lastEntry?.classObj?.title || 'Sin sesión previa',
-          suggestedDate: lastEntry ? addDaysToISO(lastEntry.classObj.date, 21) : addDaysToISO(todayISO, 7),
-          totalSessions: stEstBookings.length
+          lastDate: lastEntry?.date || null,
+          lastTitle: lastEntry?.title || 'Sin sesión previa',
+          lastNotes: lastEntry?.notes || '',
+          suggestedDate: lastEntry ? addDaysToISO(lastEntry.date, 21) : addDaysToISO(todayISO, 7),
+          totalSessions: combined.length,
+          manualRecords
         };
       })
       .filter((item) => item.totalSessions > 0 || !hasActiveSubscriptionPlan(item.student));
-  }, [students, classes, bookings, services, plans, todayISO]);
+  }, [students, classes, bookings, esteticaHistoryList, services, plans, todayISO]);
 
   const publishedPlansForStudents = useMemo(() => plans.filter((p) => !p.isNone), [plans]);
   const weekDaysAdmin = useMemo(() => getWeekDays(calendarCursor), [calendarCursor]);
@@ -1710,6 +1783,11 @@ export default function App() {
                     <span className="text-xs font-medium px-2.5 py-0.5 rounded-lg bg-[#EDF3EE] text-[#4C6352]">
                       {cls.time} hs
                     </span>
+                    {isClassComingSoon(cls) && (
+                      <span className="text-xs font-semibold px-2 py-0.5 bg-amber-100 text-amber-800 rounded-lg">
+                        PRÓXIMAMENTE
+                      </span>
+                    )}
                     {cls.is_cancelled && (
                       <span className="text-xs font-semibold px-2 py-0.5 bg-rose-100 text-rose-700 rounded-lg">
                         CANCELADA
@@ -1861,7 +1939,7 @@ export default function App() {
         {loading && students.length === 0 && classes.length === 0 ? (
           <div className="text-center py-16 text-stone-500">Conectando con la agenda de Espacio Sat-Nam...</div>
         ) : role === 'student' ? (
-          /* ================= VISTA ALUMNO (1. Agenda y Reservas comprimible / 2. Planes y Precios comprimible) ================= */
+          /* ================= VISTA ALUMNO ================= */
           <div className="space-y-6">
             <div className="bg-white/80 rounded-3xl px-5 py-4 border border-stone-200/70">
               <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
@@ -2107,6 +2185,7 @@ export default function App() {
                           ? (waitlistMap[cls.id] || []).includes(activeStudent.id)
                           : false;
                         const dateBlocked = isDateBlockedForStudent(activeStudent, cls.date);
+                        const comingSoon = isClassComingSoon(cls);
 
                         const srvObj = services.find((s) => s.id === cls.category);
                         const categoryLabel = (srvObj ? srvObj.label : cls.category || '').trim().toLowerCase();
@@ -2118,9 +2197,11 @@ export default function App() {
                         return (
                           <div
                             key={cls.id}
-                            className={`bg-[#F7F5F0]/45 rounded-3xl p-5 border transition-all flex flex-col justify-between ${
+                            className={`rounded-3xl p-5 border transition-all flex flex-col justify-between ${
                               cls.is_cancelled
                                 ? 'border-stone-200 bg-stone-50/70 opacity-80'
+                                : comingSoon
+                                ? 'border-amber-200 bg-amber-50/30'
                                 : isBooked
                                 ? 'border-[#5C7362] ring-1 ring-[#5C7362]/25 bg-white shadow-sm'
                                 : 'border-stone-200/80 bg-white shadow-2xs hover:border-stone-300'
@@ -2132,6 +2213,10 @@ export default function App() {
                                 {cls.is_cancelled ? (
                                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-100 text-rose-700">
                                     <Ban className="w-3.5 h-3.5" /> Clase cancelada
+                                  </span>
+                                ) : comingSoon ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
+                                    Próximamente
                                   </span>
                                 ) : (
                                   isBooked && (
@@ -2160,6 +2245,8 @@ export default function App() {
                               <div>
                                 {cls.is_cancelled ? (
                                   <span className="text-xs text-stone-500 font-medium">No disponible por hoy</span>
+                                ) : comingSoon ? (
+                                  <span className="text-xs text-amber-800 font-medium">Inscripción aún no habilitada</span>
                                 ) : (
                                   <span
                                     className={`text-xs font-medium px-2.5 py-1 rounded-xl ${
@@ -2173,7 +2260,15 @@ export default function App() {
 
                               {!cls.is_cancelled && (
                                 <div className="flex items-center gap-2">
-                                  {isFull && !isBooked ? (
+                                  {comingSoon ? (
+                                    <button
+                                      type="button"
+                                      disabled
+                                      className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-amber-100/80 text-amber-800 cursor-not-allowed"
+                                    >
+                                      Próximamente
+                                    </button>
+                                  ) : isFull && !isBooked ? (
                                     <button
                                       type="button"
                                       onClick={() => handleToggleWaitlist(cls.id)}
@@ -2240,7 +2335,11 @@ export default function App() {
                   {publishedPlansForStudents.map((p) => (
                     <div
                       key={p.id}
-                      className="p-3 rounded-2xl bg-[#F7F5F0] border border-stone-200/80 flex items-center justify-between gap-2"
+                      className={`p-3 rounded-2xl border flex items-center justify-between gap-2 ${
+                        p.comingSoon
+                          ? 'bg-amber-50/40 border-amber-200/80 opacity-90'
+                          : 'bg-[#F7F5F0] border-stone-200/80'
+                      }`}
                     >
                       <div>
                         <p className="text-xs font-semibold text-[#2D332F]">{p.name}</p>
@@ -2248,9 +2347,15 @@ export default function App() {
                           {p.isUnlimited ? 'Pase Libre' : `${p.credits} ${p.credits === 1 ? 'sesión' : 'clases'}`}
                         </p>
                       </div>
-                      <span className="text-xs font-bold text-[#5C7362] bg-[#EDF3EE] px-2.5 py-1 rounded-xl shrink-0">
-                        {formatPriceARS(p.price)}
-                      </span>
+                      {p.comingSoon ? (
+                        <span className="text-[11px] font-semibold text-amber-800 bg-amber-100 px-2.5 py-1 rounded-xl shrink-0">
+                          Próximamente
+                        </span>
+                      ) : (
+                        <span className="text-xs font-bold text-[#5C7362] bg-[#EDF3EE] px-2.5 py-1 rounded-xl shrink-0">
+                          {formatPriceARS(p.price)}
+                        </span>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -2371,12 +2476,17 @@ export default function App() {
                         const classBookings = bookings.filter((b) => b.classId === cls.id);
                         const cancelledAt = cls.cancelled_at || cancelledTimestamps[cls.id];
                         const waitingCount = (waitlistMap[cls.id] || []).length;
+                        const comingSoon = isClassComingSoon(cls);
 
                         return (
                           <div
                             key={cls.id}
                             className={`bg-white rounded-3xl p-5 border shadow-2xs ${
-                              cls.is_cancelled ? 'border-rose-200 bg-rose-50/20' : 'border-stone-200/70'
+                              cls.is_cancelled
+                                ? 'border-rose-200 bg-rose-50/20'
+                                : comingSoon
+                                ? 'border-amber-200 bg-amber-50/20'
+                                : 'border-stone-200/70'
                             }`}
                           >
                             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -2392,6 +2502,11 @@ export default function App() {
                                   {waitingCount > 0 && (
                                     <span className="text-xs font-medium px-2 py-0.5 bg-amber-100 text-amber-800 rounded-lg">
                                       Espera: {waitingCount}
+                                    </span>
+                                  )}
+                                  {comingSoon && (
+                                    <span className="text-xs font-semibold px-2 py-0.5 bg-amber-100 text-amber-800 rounded-lg">
+                                      PRÓXIMAMENTE
                                     </span>
                                   )}
                                   {cls.is_cancelled && (
@@ -2607,7 +2722,12 @@ export default function App() {
                                   >
                                     <div>
                                       <p className="font-semibold text-sm text-[#2D332F]">
-                                        {cls.time} hs • {cls.title}
+                                        {cls.time} hs • {cls.title}{' '}
+                                        {isClassComingSoon(cls) && (
+                                          <span className="text-[10px] font-semibold px-2 py-0.5 bg-amber-100 text-amber-800 rounded-lg ml-1">
+                                            PRÓXIMAMENTE
+                                          </span>
+                                        )}
                                       </p>
                                       <p className="text-xs text-stone-500 mt-0.5">
                                         Total inscritos: <strong>{clsBookings.length}</strong> / Cupo disponible:{' '}
@@ -2770,20 +2890,39 @@ export default function App() {
 
             {adminTab === 'estetica' && (
               <div className="space-y-5">
-                <div>
-                  <h2 className="text-xl font-semibold">Dashboard de Estética & Cosmiatría</h2>
-                  <p className="text-sm text-stone-500">
-                    Seguimiento de última sesión, sugerencia de próximo turno y notificación push
-                  </p>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-xl font-semibold">Dashboard de Estética & Cosmiatría</h2>
+                    <p className="text-sm text-stone-500">
+                      Seguimiento de tratamientos, carga de historial del mes pasado, sugerencias y recordatorios
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEsteticaHistoryForm({
+                        studentId: students[0]?.id || '',
+                        date: addDaysToISO(todayISO, -15),
+                        treatment: 'Limpieza Facial Profunda',
+                        notes: ''
+                      });
+                      setShowEsteticaHistoryModal(true);
+                    }}
+                    className="flex items-center gap-1.5 bg-[#5C7362] hover:bg-[#4B5F50] text-white shadow-xs px-4 py-2 rounded-xl text-xs font-semibold w-fit"
+                  >
+                    <History className="w-4 h-4" /> Cargar Sesión / Historial
+                  </button>
                 </div>
 
                 {esteticaClientSummaries.length === 0 ? (
                   <div className="bg-white rounded-3xl p-8 text-center border border-stone-200/70 text-sm text-stone-500">
-                    Aún no hay sesiones o personas registradas para seguimiento de estética.
+                    Aún no hay sesiones o personas registradas para seguimiento de estética. Usá{' '}
+                    <strong>Cargar Sesión / Historial</strong> para registrar atenciones previas.
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {esteticaClientSummaries.map(({ student, lastDate, lastTitle, suggestedDate }) => (
+                    {esteticaClientSummaries.map(({ student, lastDate, lastTitle, lastNotes, suggestedDate, manualRecords }) => (
                       <div key={student.id} className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-3">
                         <div className="flex items-start justify-between gap-2">
                           <div>
@@ -2799,11 +2938,42 @@ export default function App() {
                             Última sesión:{' '}
                             <strong>{lastDate ? `${formatDateDDMMYYYY(lastDate)} (${lastTitle})` : 'Sin registro'}</strong>
                           </p>
+                          {lastNotes && <p className="text-[11px] text-stone-500 pl-5">Nota: {lastNotes}</p>}
                           <p className="flex items-center gap-1.5">
                             <Calendar className="w-3.5 h-3.5 text-[#5C7362]" />
                             Sugerencia de turno: <strong>{formatDateDDMMYYYY(suggestedDate)}</strong>
                           </p>
                         </div>
+
+                        {manualRecords.length > 0 && (
+                          <div className="space-y-1">
+                            <p className="text-[11px] font-semibold text-stone-400 uppercase">Historial cargado</p>
+                            {manualRecords.slice(0, 3).map((rec) => (
+                              <div
+                                key={rec.id}
+                                className="flex items-center justify-between text-[11px] bg-stone-50 px-2.5 py-1 rounded-lg border border-stone-200/70"
+                              >
+                                <span>
+                                  {formatDateDDMMYYYY(rec.date)} • <strong>{rec.title}</strong>
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setPendingDeleteConfirm({
+                                      type: 'estetica_history',
+                                      id: rec.id,
+                                      title: `el registro de "${rec.title}" (${formatDateDDMMYYYY(rec.date)})`
+                                    })
+                                  }
+                                  className="text-rose-600 hover:bg-rose-50 p-1 rounded"
+                                  title="Borrar registro histórico"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
 
                         <div className="flex items-center gap-2 pt-1">
                           <button
@@ -2965,7 +3135,7 @@ export default function App() {
                     type="button"
                     onClick={() => {
                       setEditingPlanId(null);
-                      setPlanForm({ name: '', credits: 4, price: 50000, isUnlimited: false });
+                      setPlanForm({ name: '', credits: 4, price: 50000, isUnlimited: false, comingSoon: false });
                       setShowPlanManagerModal(true);
                     }}
                     className="flex items-center gap-1.5 bg-white hover:bg-stone-50 text-[#5C7362] border border-[#5C7362]/40 px-3.5 py-2 rounded-xl text-xs font-semibold w-fit"
@@ -3133,7 +3303,7 @@ export default function App() {
         </nav>
       )}
 
-      {/* Modales únicos */}
+      {/* Modales */}
       {pendingDeleteConfirm && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl text-center">
@@ -3278,6 +3448,84 @@ export default function App() {
                 className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2"
               >
                 Guardar Cambios
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showEsteticaHistoryModal && (
+        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-semibold text-lg flex items-center gap-2">
+                <History className="w-5 h-5 text-[#5C7362]" /> Cargar Sesión de Estética
+              </h3>
+              <button type="button" onClick={() => setShowEsteticaHistoryModal(false)}>
+                <XCircle className="w-5 h-5 text-stone-400" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEsteticaHistory} className="space-y-3.5 text-sm">
+              <div>
+                <label className="block text-xs font-medium text-stone-600 mb-1">Alumno / Persona</label>
+                <select
+                  required
+                  value={esteticaHistoryForm.studentId}
+                  onChange={(e) => setEsteticaHistoryForm({ ...esteticaHistoryForm, studentId: e.target.value })}
+                  className="w-full border border-stone-200 rounded-xl px-3 py-2 bg-white"
+                >
+                  {students.map((st) => (
+                    <option key={st.id} value={st.id}>
+                      {st.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">
+                    Fecha de la Sesión ({formatDateDDMMYYYY(esteticaHistoryForm.date)})
+                  </label>
+                  <input
+                    required
+                    type="date"
+                    value={esteticaHistoryForm.date}
+                    onChange={(e) => setEsteticaHistoryForm({ ...esteticaHistoryForm, date: e.target.value })}
+                    className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">Tratamiento Realizado</label>
+                  <input
+                    required
+                    type="text"
+                    placeholder="Ej. Limpieza Facial, Masaje..."
+                    value={esteticaHistoryForm.treatment}
+                    onChange={(e) => setEsteticaHistoryForm({ ...esteticaHistoryForm, treatment: e.target.value })}
+                    className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-stone-600 mb-1">Observaciones (opcional)</label>
+                <input
+                  type="text"
+                  placeholder="Ej. Piel sensible, recomendar hidratación..."
+                  value={esteticaHistoryForm.notes}
+                  onChange={(e) => setEsteticaHistoryForm({ ...esteticaHistoryForm, notes: e.target.value })}
+                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2"
+              >
+                Guardar en Historial
               </button>
             </form>
           </div>
@@ -3670,6 +3918,16 @@ export default function App() {
                 </div>
               </div>
 
+              <label className="flex items-center gap-2 cursor-pointer bg-amber-50/70 p-2.5 rounded-xl border border-amber-200 text-xs text-amber-900">
+                <input
+                  type="checkbox"
+                  checked={classForm.comingSoon}
+                  onChange={(e) => setClassForm({ ...classForm, comingSoon: e.target.checked })}
+                  className="rounded accent-[#5C7362] w-4 h-4"
+                />
+                Marcar como &ldquo;Próximamente&rdquo; (el alumno la ve pero no puede reservar aún)
+              </label>
+
               <button
                 type="submit"
                 className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2"
@@ -3731,11 +3989,13 @@ export default function App() {
                     }}
                     className="w-full border border-stone-200 rounded-xl px-3 py-2 bg-white"
                   >
-                    {plans.map((p) => (
-                      <option key={p.id} value={p.name}>
-                        {p.name}
-                      </option>
-                    ))}
+                    {plans
+                      .filter((p) => !p.comingSoon)
+                      .map((p) => (
+                        <option key={p.id} value={p.name}>
+                          {p.name}
+                        </option>
+                      ))}
                   </select>
                 </div>
 
@@ -3909,14 +4169,15 @@ export default function App() {
                 <div>
                   <label className="block text-xs font-medium text-stone-600 mb-1">Precio ($$)</label>
                   <input
-                    required
+                    required={!planForm.comingSoon}
                     type="number"
                     min="0"
                     step="100"
+                    disabled={planForm.comingSoon}
                     placeholder="Ej. 50000"
-                    value={planForm.price}
+                    value={planForm.comingSoon ? 0 : planForm.price}
                     onChange={(e) => setPlanForm({ ...planForm, price: e.target.value })}
-                    className="w-full border border-stone-200 rounded-xl px-3 py-2 text-xs"
+                    className="w-full border border-stone-200 rounded-xl px-3 py-2 text-xs disabled:bg-stone-100"
                   />
                 </div>
 
@@ -3934,15 +4195,27 @@ export default function App() {
                 </div>
               </div>
 
-              <label className="flex items-center gap-2 cursor-pointer text-xs text-stone-700">
-                <input
-                  type="checkbox"
-                  checked={planForm.isUnlimited}
-                  onChange={(e) => setPlanForm({ ...planForm, isUnlimited: e.target.checked })}
-                  className="rounded accent-[#5C7362] w-4 h-4"
-                />
-                Pase Libre
-              </label>
+              <div className="flex flex-wrap items-center gap-4">
+                <label className="flex items-center gap-2 cursor-pointer text-xs text-stone-700">
+                  <input
+                    type="checkbox"
+                    checked={planForm.isUnlimited}
+                    onChange={(e) => setPlanForm({ ...planForm, isUnlimited: e.target.checked })}
+                    className="rounded accent-[#5C7362] w-4 h-4"
+                  />
+                  Pase Libre
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer text-xs text-amber-800 font-medium">
+                  <input
+                    type="checkbox"
+                    checked={planForm.comingSoon}
+                    onChange={(e) => setPlanForm({ ...planForm, comingSoon: e.target.checked })}
+                    className="rounded accent-[#5C7362] w-4 h-4"
+                  />
+                  Próximamente (sin precio confirmado aún)
+                </label>
+              </div>
 
               <div className="flex gap-2">
                 {editingPlanId && (
@@ -3950,7 +4223,7 @@ export default function App() {
                     type="button"
                     onClick={() => {
                       setEditingPlanId(null);
-                      setPlanForm({ name: '', credits: 4, price: 50000, isUnlimited: false });
+                      setPlanForm({ name: '', credits: 4, price: 50000, isUnlimited: false, comingSoon: false });
                     }}
                     className="px-3 py-2 rounded-xl text-xs font-medium bg-stone-100 text-stone-600"
                   >
@@ -3980,7 +4253,11 @@ export default function App() {
                       <p className="font-semibold text-[#2D332F]">{p.name}</p>
                       <p className="text-[11px] text-stone-500">
                         {p.isUnlimited ? 'Pase Libre' : `${p.credits} clases`} •{' '}
-                        <strong className="text-[#5C7362]">{formatPriceARS(p.price)}</strong>
+                        {p.comingSoon ? (
+                          <strong className="text-amber-700">Próximamente</strong>
+                        ) : (
+                          <strong className="text-[#5C7362]">{formatPriceARS(p.price)}</strong>
+                        )}
                       </p>
                     </div>
                     <button
@@ -3991,7 +4268,8 @@ export default function App() {
                           name: p.name,
                           credits: p.credits,
                           price: p.price || 0,
-                          isUnlimited: Boolean(p.isUnlimited)
+                          isUnlimited: Boolean(p.isUnlimited),
+                          comingSoon: Boolean(p.comingSoon)
                         });
                       }}
                       className="p-1.5 text-stone-700 bg-white hover:bg-stone-100 rounded-lg border border-stone-200"
