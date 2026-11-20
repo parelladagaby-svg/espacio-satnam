@@ -29,8 +29,6 @@ import {
   BarChart3,
   ChevronLeft,
   ChevronRight,
-  ChevronDown,
-  ChevronUp,
   UserCog,
   CalendarRange,
   ClipboardCheck,
@@ -41,7 +39,8 @@ import {
   Layers,
   CopyPlus,
   Info,
-  BookmarkCheck
+  BookmarkCheck,
+  LogIn
 } from 'lucide-react';
 
 const supabase = createClient(
@@ -53,14 +52,11 @@ const ADMIN_PIN = '1008';
 const DAY_MS = 86_400_000;
 const NO_PLAN_LABEL = 'Sin Plan (Solo Sesiones / Masajes)';
 
-const PILLARS = [
-  { id: 'Todas', label: 'Todas' },
+const SERVICE_PILLARS = [
   { id: 'cuerpo', label: 'Cuerpo & Movimiento' },
   { id: 'mente', label: 'Mente & Procesos' },
   { id: 'estetica', label: 'Cuidado & Estética' }
 ];
-
-const SELECTABLE_PILLARS = PILLARS.filter((p) => p.id !== 'Todas');
 
 const INITIAL_SERVICES = [
   { id: 'Yoga', label: 'Yoga', pillar: 'cuerpo', isClass: true, defaultCap: 12 },
@@ -181,7 +177,10 @@ function SatNamLogo({ className = 'w-11 h-11' }) {
 
 export default function App() {
   const [role, setRole] = useState('student');
-  const [studentSection, setStudentSection] = useState('agenda'); // 'agenda' | 'info'
+  // 'info' es la pestaña de bienvenida a la izquierda (homepage); 'agenda' es la agenda del alumno
+  const [studentSection, setStudentSection] = useState('info');
+  const [hasEnteredAgenda, setHasEnteredAgenda] = useState(false);
+
   const [adminTab, setAdminTab] = useState('schedule');
   const [notification, setNotification] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -212,11 +211,11 @@ export default function App() {
   const todayISO = useMemo(() => toISODate(new Date()), []);
   const [activeStudentId, setActiveStudentId] = useState('');
   const [selectedDate, setSelectedDate] = useState(() => toISODate(new Date()));
-  const [pillarFilter, setPillarFilter] = useState('Todas');
+  // Solo servicios/pilares reales (sin opción "Todas")
+  const [pillarFilter, setPillarFilter] = useState('cuerpo');
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
   const [profileForm, setProfileForm] = useState({ name: '', phone: '' });
 
-  // Grilla semanal compartida y reserva secuencial
   const [weekCursor, setWeekCursor] = useState(() => getMondayOfWeek(new Date()));
   const [selectedStudentClassIds, setSelectedStudentClassIds] = useState([]);
   const [bookingSequence, setBookingSequence] = useState(false);
@@ -517,7 +516,15 @@ export default function App() {
   const activeStudent = students.find((s) => s.id === activeStudentId) || students[0];
   const studentAllowed = canStudentOperate(activeStudent);
   const studentHasPlan = hasActiveSubscriptionPlan(activeStudent);
-  const activeVacationForSelectedDate = getVacationForDate(selectedDate);
+
+  const handleEnterAgendaFromHome = () => {
+    if (!activeStudent) {
+      return showToast('Seleccioná o registrá un alumno primero', 'error');
+    }
+    setHasEnteredAgenda(true);
+    setStudentSection('agenda');
+    showToast(`Bienvenida/o, ${activeStudent.name}`);
+  };
 
   const setClassComingSoonFlag = (ids, value) => {
     const nextMap = { ...comingSoonClassesMap };
@@ -664,7 +671,6 @@ export default function App() {
     showToast(exists ? 'Saliste de la lista de espera' : 'Te sumaste a la lista de espera');
   };
 
-  // Cancela una reserva existente desde "Tus reservas" o desde la grilla
   const handleCancelExistingBooking = async (classId) => {
     if (!activeStudent) return;
     if (!canStudentOperate(activeStudent)) {
@@ -686,7 +692,6 @@ export default function App() {
     showToast('Reserva cancelada correctamente');
   };
 
-  // Reserva una clase individual (validada)
   const reserveSingleClass = async (classObj, currentStudent, currentCredits) => {
     if (!currentStudent || !classObj) return { ok: false, reason: 'Sin perfil activo' };
     if (!canStudentOperate(currentStudent)) {
@@ -749,7 +754,6 @@ export default function App() {
     showToast(`¡Lugar reservado en ${classObj.title}!`);
   };
 
-  // Reserva secuencial de múltiples clases seleccionadas en orden cronológico
   const handleBookSequential = async () => {
     if (!activeStudent || selectedStudentClassIds.length === 0 || bookingSequence) return;
     setBookingSequence(true);
@@ -775,11 +779,7 @@ export default function App() {
 
       setSelectedStudentClassIds([]);
       if (bookedCount > 0) {
-        showToast(
-          bookedCount === 1
-            ? '1 clase reservada en secuencia'
-            : `${bookedCount} clases reservadas en secuencia`
-        );
+        showToast(bookedCount === 1 ? '1 clase reservada en secuencia' : `${bookedCount} clases reservadas en secuencia`);
       } else if (firstError) {
         showToast(firstError, 'error');
       }
@@ -976,7 +976,6 @@ export default function App() {
     showToast(`Horarios programados (cupo ${savedCap} del servicio)`);
   };
 
-  // Grilla semanal compartida
   const weekDaysMonFri = useMemo(() => {
     const monday = getMondayOfWeek(weekCursor);
     return WEEKDAYS_MON_FRI.map((wd, idx) => {
@@ -993,13 +992,14 @@ export default function App() {
       .sort((a, b) => a.time.localeCompare(b.time) || a.date.localeCompare(b.date));
   }, [classes, weekDaysMonFri]);
 
+  // Grilla semanal del alumno filtrada únicamente por servicio/pilar activo (sin "Todas")
   const studentWeekClasses = useMemo(() => {
     return weekClassesMonFri.filter((c) => {
       if (!studentHasPlan) {
         const srvObj = services.find((s) => s.id === c.category);
         if (srvObj?.isClass) return false;
       }
-      return pillarFilter === 'Todas' || getPillarForCategory(c.category) === pillarFilter;
+      return getPillarForCategory(c.category) === pillarFilter;
     });
   }, [weekClassesMonFri, studentHasPlan, services, pillarFilter, getPillarForCategory]);
 
@@ -1008,16 +1008,14 @@ export default function App() {
     return [...new Set(source.map((c) => c.time))].sort();
   }, [role, studentWeekClasses, weekClassesMonFri]);
 
-  // Reservas del alumno seleccionado en formato listado
   const activeStudentBookingsList = useMemo(() => {
     if (!activeStudent) return [];
     const classById = new Map(classes.map((c) => [c.id, c]));
     return bookings
       .filter((b) => b.studentId === activeStudent.id && classById.has(b.classId))
       .map((b) => ({ booking: b, cls: classById.get(b.classId) }))
-      .filter((item) => pillarFilter === 'Todas' || getPillarForCategory(item.cls.category) === pillarFilter)
       .sort((a, b) => a.cls.date.localeCompare(b.cls.date) || a.cls.time.localeCompare(b.cls.time));
-  }, [activeStudent, bookings, classes, pillarFilter, getPillarForCategory]);
+  }, [activeStudent, bookings, classes]);
 
   const handleRepeatNextWeek = async () => {
     if (repeatingWeek) return;
@@ -1639,18 +1637,9 @@ export default function App() {
         ) : role === 'student' ? (
           /* ================= VISTA ALUMNO ================= */
           <div className="space-y-6">
-            {/* Subnavegación de Vista Alumno: Agenda vs Información */}
+            {/* Pestañas a la izquierda: Información (homepage) primero, luego Agenda */}
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-2xl border border-stone-200/80 shadow-2xs">
-                <button
-                  type="button"
-                  onClick={() => setStudentSection('agenda')}
-                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
-                    studentSection === 'agenda' ? 'bg-[#5C7362] text-white shadow-xs' : 'text-stone-600 hover:bg-stone-50'
-                  }`}
-                >
-                  <Calendar className="w-4 h-4" /> Mis Reservas & Grilla
-                </button>
                 <button
                   type="button"
                   onClick={() => setStudentSection('info')}
@@ -1660,76 +1649,224 @@ export default function App() {
                 >
                   <Info className="w-4 h-4" /> Información
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setStudentSection('agenda')}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
+                    studentSection === 'agenda' ? 'bg-[#5C7362] text-white shadow-xs' : 'text-stone-600 hover:bg-stone-50'
+                  }`}
+                >
+                  <Calendar className="w-4 h-4" /> Agenda & Reservas
+                </button>
               </div>
+
+              {hasEnteredAgenda && activeStudent && studentSection === 'agenda' && (
+                <div className="flex flex-wrap items-center gap-2 bg-white px-3 py-1.5 rounded-2xl border border-stone-200/80 text-xs">
+                  <span className="text-stone-400">Perfil:</span>
+                  <select
+                    value={activeStudentId}
+                    onChange={(e) => {
+                      const nextId = e.target.value;
+                      setActiveStudentId(nextId);
+                      setSelectedStudentClassIds([]);
+                      const chosen = students.find((x) => x.id === nextId);
+                      if (chosen && isDateBlockedForStudent(chosen, selectedDate)) setSelectedDate(todayISO);
+                    }}
+                    className="font-semibold bg-[#F7F5F0] border border-stone-200 rounded-lg px-2 py-0.5 focus:outline-none focus:border-[#5C7362]"
+                  >
+                    {students.map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                  <span className="text-[#4C6352] font-medium">
+                    {studentHasPlan && !isUnlimitedPlan(activeStudent.plan)
+                      ? `Saldo: ${activeStudent.credits} (${getStudentQuotaDisplay(activeStudent)})`
+                      : activeStudent.plan}
+                  </span>
+                </div>
+              )}
             </div>
 
-            {/* Tarjeta de perfil del alumno */}
-            {students.length > 0 && (
-              <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-1 h-full bg-[#5C7362]" />
-                <div className="flex items-center gap-3.5 pl-2">
-                  <div className="w-11 h-11 rounded-2xl bg-[#EDF3EE] text-[#4C6352] font-semibold flex items-center justify-center text-base">
-                    {activeStudent?.name.charAt(0)}
+            {studentSection === 'info' ? (
+              /* ================= HOMEPAGE DE BIENVENIDA + INGRESO A LA AGENDA ================= */
+              <div className="space-y-6">
+                <div className="bg-white rounded-3xl p-5 sm:p-6 border border-stone-200/70 shadow-2xs space-y-5 relative overflow-hidden">
+                  <div className="absolute top-0 left-0 w-1.5 h-full bg-[#5C7362]" />
+                  <div className="pl-2 space-y-2">
+                    <span className="inline-block text-[11px] font-semibold uppercase tracking-wider text-[#5C7362] bg-[#EDF3EE] px-2.5 py-0.5 rounded-lg">
+                      Bienvenidos al espacio
+                    </span>
+                    <h2 className="text-2xl font-semibold tracking-tight text-[#2D332F]">
+                      Te damos la bienvenida a <span className="text-[#5C7362]">Espacio Sat-Nam</span>
+                    </h2>
+                    <p className="text-xs sm:text-sm text-stone-600 leading-relaxed max-w-3xl">
+                      Un lugar creado para mejorar tu calidad de vida desde el{' '}
+                      <strong className="font-medium text-stone-800">bienestar integral</strong>: Yoga Terapia y
+                      Restaurativo, Spinning, Pilates y Circuito, Coaching y PNL para acompañar tus procesos de cambio,
+                      Constelaciones, y Estética y Cosmiatría.
+                    </p>
                   </div>
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs text-stone-400 uppercase tracking-wider font-medium">Hola,</span>
-                      <select
-                        value={activeStudentId}
-                        onChange={(e) => {
-                          const nextId = e.target.value;
-                          setActiveStudentId(nextId);
-                          setSelectedStudentClassIds([]);
-                          const chosen = students.find((x) => x.id === nextId);
-                          if (chosen && isDateBlockedForStudent(chosen, selectedDate)) setSelectedDate(todayISO);
-                        }}
-                        className="text-sm font-semibold bg-[#F7F5F0] border border-stone-200 rounded-xl px-2.5 py-1 focus:outline-none focus:border-[#5C7362]"
-                      >
-                        {students.map((s) => (
-                          <option key={s.id} value={s.id}>{s.name}</option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        onClick={handleOpenEditProfile}
-                        className="inline-flex items-center gap-1 text-xs font-medium text-[#5C7362] bg-[#EDF3EE] hover:bg-[#dce8de] px-2.5 py-1 rounded-xl transition-colors"
-                      >
-                        <UserCog className="w-3.5 h-3.5" /> Editar perfil
-                      </button>
-                    </div>
 
-                    <div className="flex flex-wrap items-center gap-2 mt-2">
-                      <span className="text-xs font-medium bg-[#EDF3EE] text-[#4C6352] px-2.5 py-0.5 rounded-lg">
-                        {activeStudent?.plan}
-                      </span>
-                      {activeStudent && getStatusBadge(activeStudent)}
-                      {activeStudent && studentAllowed && studentHasPlan && !isUnlimitedPlan(activeStudent.plan) && (
-                        <span className="text-xs text-stone-600">
-                          • Saldo: <strong>{activeStudent.credits}</strong> disponibles ({getStudentQuotaDisplay(activeStudent)})
-                        </span>
-                      )}
-                    </div>
-
-                    {activeStudent && !studentAllowed && (
-                      <p className="text-xs text-rose-700 font-medium mt-1.5">
-                        Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el espacio para reactivar tu plan.
+                  {/* Acceso / Login a la agenda */}
+                  <div className="bg-[#F7F5F0] rounded-2xl p-4 border border-stone-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-[#5C7362]">Acceso a tu agenda</p>
+                      <p className="text-xs text-stone-600">
+                        Elegí tu perfil para consultar tus reservas, cancelar turnos o reservar en la grilla semanal.
                       </p>
+                    </div>
+
+                    {students.length > 0 ? (
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        <select
+                          value={activeStudentId}
+                          onChange={(e) => {
+                            const nextId = e.target.value;
+                            setActiveStudentId(nextId);
+                            setSelectedStudentClassIds([]);
+                          }}
+                          className="text-xs sm:text-sm font-semibold bg-white border border-stone-200 rounded-xl px-3 py-2 focus:outline-none focus:border-[#5C7362]"
+                        >
+                          {students.map((s) => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                          ))}
+                        </select>
+
+                        <button
+                          type="button"
+                          onClick={handleEnterAgendaFromHome}
+                          className="inline-flex items-center gap-1.5 bg-[#5C7362] hover:bg-[#4B5F50] text-white text-xs sm:text-sm font-semibold px-4 py-2 rounded-xl shadow-xs transition-all"
+                        >
+                          <LogIn className="w-4 h-4" /> Entrar a la agenda
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-stone-500">Aún no hay alumnos registrados.</span>
                     )}
                   </div>
                 </div>
 
-                {activeStudent && studentHasPlan && (
-                  <div className="text-xs text-stone-500 sm:text-right border-t sm:border-t-0 pt-2.5 sm:pt-0 border-stone-100 pl-2 sm:pl-0">
-                    Vencimiento:
-                    <span className="block font-semibold text-sm">{formatDateDDMMYYYY(activeStudent?.expiryDate)}</span>
+                {/* Clases y Servicios */}
+                <div className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-base font-semibold">Clases y Servicios</h3>
+                    <span className="text-xs text-stone-500">{services.length} disponibles</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    {services.map((srv) => (
+                      <div key={srv.id} className="p-3.5 rounded-2xl bg-[#F7F5F0] border border-stone-200/80 space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          {getCategoryBadge(srv.id)}
+                          <span className="text-[11px] font-medium text-stone-500">
+                            {srv.isClass ? 'Clase grupal' : 'Sesión / Tratamiento'}
+                          </span>
+                        </div>
+                        <p className="text-sm font-semibold text-[#2D332F]">{srv.label}</p>
+                        <p className="text-xs text-stone-500">Cupo hasta {srv.defaultCap} {srv.defaultCap === 1 ? 'persona' : 'personas'}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Planes y Precios */}
+                <div className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-base font-semibold">Planes y Precios</h3>
+                    <span className="text-xs text-stone-500">{publishedPlansForStudents.length} opciones</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    {publishedPlansForStudents.map((p) => (
+                      <div
+                        key={p.id}
+                        className={`p-3.5 rounded-2xl border flex items-center justify-between gap-2 ${
+                          p.comingSoon ? 'bg-amber-50/40 border-amber-200/80 opacity-90' : 'bg-[#F7F5F0] border-stone-200/80'
+                        }`}
+                      >
+                        <div>
+                          <p className="text-xs font-semibold text-[#2D332F]">{p.name}</p>
+                          <p className="text-[11px] text-stone-500">
+                            {p.isUnlimited ? 'Pase Libre' : `${p.credits} ${p.credits === 1 ? 'sesión' : 'clases'}`}
+                          </p>
+                        </div>
+                        {p.comingSoon ? (
+                          <span className="text-[11px] font-semibold text-amber-800 bg-amber-100 px-2.5 py-1 rounded-xl shrink-0">Próximamente</span>
+                        ) : (
+                          <span className="text-xs font-bold text-[#5C7362] bg-[#EDF3EE] px-2.5 py-1 rounded-xl shrink-0">{formatPriceARS(p.price)}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* ================= AGENDA Y RESERVAS DEL ALUMNO ================= */
+              <div className="space-y-6">
+                {students.length > 0 && (
+                  <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative overflow-hidden">
+                    <div className="absolute top-0 left-0 w-1 h-full bg-[#5C7362]" />
+                    <div className="flex items-center gap-3.5 pl-2">
+                      <div className="w-11 h-11 rounded-2xl bg-[#EDF3EE] text-[#4C6352] font-semibold flex items-center justify-center text-base">
+                        {activeStudent?.name.charAt(0)}
+                      </div>
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs text-stone-400 uppercase tracking-wider font-medium">Hola,</span>
+                          <select
+                            value={activeStudentId}
+                            onChange={(e) => {
+                              const nextId = e.target.value;
+                              setActiveStudentId(nextId);
+                              setSelectedStudentClassIds([]);
+                              const chosen = students.find((x) => x.id === nextId);
+                              if (chosen && isDateBlockedForStudent(chosen, selectedDate)) setSelectedDate(todayISO);
+                            }}
+                            className="text-sm font-semibold bg-[#F7F5F0] border border-stone-200 rounded-xl px-2.5 py-1 focus:outline-none focus:border-[#5C7362]"
+                          >
+                            {students.map((s) => (
+                              <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={handleOpenEditProfile}
+                            className="inline-flex items-center gap-1 text-xs font-medium text-[#5C7362] bg-[#EDF3EE] hover:bg-[#dce8de] px-2.5 py-1 rounded-xl transition-colors"
+                          >
+                            <UserCog className="w-3.5 h-3.5" /> Editar perfil
+                          </button>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 mt-2">
+                          <span className="text-xs font-medium bg-[#EDF3EE] text-[#4C6352] px-2.5 py-0.5 rounded-lg">
+                            {activeStudent?.plan}
+                          </span>
+                          {activeStudent && getStatusBadge(activeStudent)}
+                          {activeStudent && studentAllowed && studentHasPlan && !isUnlimitedPlan(activeStudent.plan) && (
+                            <span className="text-xs text-stone-600">
+                              • Saldo: <strong>{activeStudent.credits}</strong> disponibles ({getStudentQuotaDisplay(activeStudent)})
+                            </span>
+                          )}
+                        </div>
+
+                        {activeStudent && !studentAllowed && (
+                          <p className="text-xs text-rose-700 font-medium mt-1.5">
+                            Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el espacio para reactivar tu plan.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {activeStudent && studentHasPlan && (
+                      <div className="text-xs text-stone-500 sm:text-right border-t sm:border-t-0 pt-2.5 sm:pt-0 border-stone-100 pl-2 sm:pl-0">
+                        Vencimiento:
+                        <span className="block font-semibold text-sm">{formatDateDDMMYYYY(activeStudent?.expiryDate)}</span>
+                      </div>
+                    )}
                   </div>
                 )}
-              </div>
-            )}
 
-            {studentSection === 'agenda' ? (
-              <>
-                {/* 1. "Tus reservas" en formato listado con opción directa de cancelar */}
+                {/* 1. "Tus reservas" en formato listado */}
                 <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
@@ -1746,7 +1883,7 @@ export default function App() {
 
                   {activeStudentBookingsList.length === 0 ? (
                     <div className="bg-[#F7F5F0]/70 rounded-2xl p-6 text-center border border-stone-200/70 text-xs sm:text-sm text-stone-500">
-                      Todavía no tenés reservas activas. Elegí un horario en la <strong>Grilla semanal</strong> de abajo para reservar.
+                      Todavía no tenés reservas activas. Elegí un servicio y un horario en la <strong>Grilla semanal</strong> de abajo para reservar.
                     </div>
                   ) : (
                     <div className="divide-y divide-stone-100 border border-stone-200/70 rounded-2xl overflow-hidden">
@@ -1786,13 +1923,13 @@ export default function App() {
                   )}
                 </div>
 
-                {/* 2. "Grilla semanal" invitando a reservar + reserva secuencial */}
+                {/* 2. "Grilla semanal" invitando a reservar (solo servicios, sin "Todas") */}
                 <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <h2 className="text-lg font-semibold">Grilla semanal</h2>
                       <p className="text-xs sm:text-sm text-stone-500">
-                        Tocá una actividad para reservar o activá <strong>Reserva secuencial</strong> para elegir varios horarios seguidos
+                        Elegí un servicio y tocá un horario para reservar, o activá <strong>Reserva secuencial</strong>
                       </p>
                     </div>
 
@@ -1825,14 +1962,16 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Filtro por pilar + modo reserva secuencial */}
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      {PILLARS.map((pil) => (
+                      {SERVICE_PILLARS.map((pil) => (
                         <button
                           type="button"
                           key={pil.id}
-                          onClick={() => setPillarFilter(pil.id)}
+                          onClick={() => {
+                            setPillarFilter(pil.id);
+                            setSelectedStudentClassIds([]);
+                          }}
                           className={`px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all border ${
                             pillarFilter === pil.id
                               ? 'bg-[#5C7362] text-white border-transparent shadow-xs'
@@ -1865,7 +2004,7 @@ export default function App() {
                         <button
                           type="button"
                           onClick={handleBookSequential}
-                          disabled={bookingSequence ? !studentAllowed : false}
+                          disabled={!studentAllowed}
                           className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-[#5C7362] hover:bg-[#4B5F50] text-white shadow-xs"
                         >
                           <CheckCircle2 className="w-3.5 h-3.5" />
@@ -1877,7 +2016,7 @@ export default function App() {
 
                   {matrixTimes.length === 0 ? (
                     <div className="py-8 text-center text-sm text-stone-500 bg-[#F7F5F0]/60 rounded-2xl border border-stone-200/70">
-                      No hay horarios disponibles en esta semana para el filtro seleccionado.
+                      No hay horarios cargados en este servicio para esta semana.
                     </div>
                   ) : (
                     <div className="overflow-x-auto">
@@ -1928,7 +2067,6 @@ export default function App() {
                                         const classBookings = bookings.filter((b) => b.classId === cls.id);
                                         const isBooked = activeStudent ? classBookings.some((b) => b.studentId === activeStudent.id) : false;
                                         const isFull = classBookings.length >= cls.capacity;
-                                        const onWaitlist = activeStudent ? (waitlistMap[cls.id] || []).includes(activeStudent.id) : false;
                                         const comingSoon = isClassComingSoon(cls);
                                         const dateBlocked = isDateBlockedForStudent(activeStudent, cls.date);
                                         const inSequence = selectedStudentClassIds.includes(cls.id);
@@ -1992,73 +2130,6 @@ export default function App() {
                       </table>
                     </div>
                   )}
-                </div>
-              </>
-            ) : (
-              /* ================= SECCIÓN "INFORMACIÓN" (CLASES, SERVICIOS Y PRECIOS) ================= */
-              <div className="space-y-6">
-                <div className="bg-white/90 rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-2">
-                  <h2 className="text-xl font-semibold">Información del Estudio</h2>
-                  <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
-                    Un lugar creado para mejorar tu calidad de vida desde el{' '}
-                    <strong className="font-medium text-stone-800">bienestar integral</strong>: Yoga Terapia y
-                    Restaurativo, Spinning, Pilates y Circuito, Coaching y PNL para acompañar tus procesos de cambio,
-                    Constelaciones, y Estética y Cosmiatría.
-                  </p>
-                </div>
-
-                {/* Clases y Servicios */}
-                <div className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-base font-semibold">Clases y Servicios</h3>
-                    <span className="text-xs text-stone-500">{services.length} disponibles</span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                    {services.map((srv) => (
-                      <div key={srv.id} className="p-3.5 rounded-2xl bg-[#F7F5F0] border border-stone-200/80 space-y-1.5">
-                        <div className="flex items-center justify-between gap-2">
-                          {getCategoryBadge(srv.id)}
-                          <span className="text-[11px] font-medium text-stone-500">
-                            {srv.isClass ? 'Clase grupal' : 'Sesión / Tratamiento'}
-                          </span>
-                        </div>
-                        <p className="text-sm font-semibold text-[#2D332F]">{srv.label}</p>
-                        <p className="text-xs text-stone-500">Cupo hasta {srv.defaultCap} {srv.defaultCap === 1 ? 'persona' : 'personas'}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Planes y Precios */}
-                <div className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-base font-semibold">Planes y Precios</h3>
-                    <span className="text-xs text-stone-500">{publishedPlansForStudents.length} opciones</span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                    {publishedPlansForStudents.map((p) => (
-                      <div
-                        key={p.id}
-                        className={`p-3.5 rounded-2xl border flex items-center justify-between gap-2 ${
-                          p.comingSoon ? 'bg-amber-50/40 border-amber-200/80 opacity-90' : 'bg-[#F7F5F0] border-stone-200/80'
-                        }`}
-                      >
-                        <div>
-                          <p className="text-xs font-semibold text-[#2D332F]">{p.name}</p>
-                          <p className="text-[11px] text-stone-500">
-                            {p.isUnlimited ? 'Pase Libre' : `${p.credits} ${p.credits === 1 ? 'sesión' : 'clases'}`}
-                          </p>
-                        </div>
-                        {p.comingSoon ? (
-                          <span className="text-[11px] font-semibold text-amber-800 bg-amber-100 px-2.5 py-1 rounded-xl shrink-0">Próximamente</span>
-                        ) : (
-                          <span className="text-xs font-bold text-[#5C7362] bg-[#EDF3EE] px-2.5 py-1 rounded-xl shrink-0">{formatPriceARS(p.price)}</span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
                 </div>
               </div>
             )}
@@ -3325,7 +3396,7 @@ export default function App() {
                 <div>
                   <label className="block text-xs font-medium text-stone-600 mb-1">Categoría</label>
                   <select value={serviceForm.pillar} onChange={(e) => setServiceForm({ ...serviceForm, pillar: e.target.value })} className="w-full border border-stone-200 rounded-xl px-2.5 py-2 bg-white text-xs">
-                    {SELECTABLE_PILLARS.map((p) => (
+                    {SERVICE_PILLARS.map((p) => (
                       <option key={p.id} value={p.id}>{p.label}</option>
                     ))}
                   </select>
