@@ -40,7 +40,11 @@ import {
   CopyPlus,
   Info,
   BookmarkCheck,
-  LogIn
+  ArrowRight,
+  LogIn,
+  UserPlus,
+  LogOut,
+  FlaskConical
 } from 'lucide-react';
 
 const supabase = createClient(
@@ -175,11 +179,27 @@ function SatNamLogo({ className = 'w-11 h-11' }) {
   );
 }
 
+function GoogleIcon({ className = 'w-4 h-4' }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <path fill="#4285F4" d="M23.49 12.27c0-.78-.07-1.54-.2-2.27H12v4.51h6.47a5.54 5.54 0 0 1-2.4 3.63v3.02h3.88c2.27-2.09 3.54-5.17 3.54-8.8Z" />
+      <path fill="#34A853" d="M12 24c3.24 0 5.95-1.07 7.94-2.91l-3.88-3.02c-1.07.72-2.45 1.15-4.06 1.15-3.12 0-5.77-2.11-6.71-4.95H1.22v3.12A11.99 11.99 0 0 0 12 24Z" />
+      <path fill="#FBBC05" d="M5.29 14.27A7.2 7.2 0 0 1 4.91 12c0-.79.14-1.56.38-2.27V6.61H1.22A11.99 11.99 0 0 0 0 12c0 1.94.46 3.77 1.22 5.39l4.07-3.12Z" />
+      <path fill="#EA4335" d="M12 4.78c1.76 0 3.34.61 4.58 1.8l3.44-3.44C17.94 1.19 15.23 0 12 0A11.99 11.99 0 0 0 1.22 6.61l4.07 3.12c.94-2.84 3.59-4.95 6.71-4.95Z" />
+    </svg>
+  );
+}
+
 export default function App() {
   const [role, setRole] = useState('student');
-  // 'info' es la pestaña de bienvenida a la izquierda (homepage); 'agenda' es la agenda del alumno
-  const [studentSection, setStudentSection] = useState('info');
-  const [hasEnteredAgenda, setHasEnteredAgenda] = useState(false);
+  const [studentSection, setStudentSection] = useState('info'); // 'info' (homepage) | 'agenda'
+
+  // Sesión privada del alumno + modo prueba para testeo en estudio
+  const [signedInStudentId, setSignedInStudentId] = useState(() => readLocalJSON('satnam_signed_student_id_v1', ''));
+  const [testingProfilesMode, setTestingProfilesMode] = useState(() => readLocalJSON('satnam_testing_profiles_v1', false));
+  const [authMode, setAuthMode] = useState('create'); // 'create' | 'google' | 'signin'
+  const [authForm, setAuthForm] = useState({ name: '', phone: '', email: '', lookup: '' });
+  const [authSubmitting, setAuthSubmitting] = useState(false);
 
   const [adminTab, setAdminTab] = useState('schedule');
   const [notification, setNotification] = useState(null);
@@ -209,9 +229,7 @@ export default function App() {
   const [pendingDeleteConfirm, setPendingDeleteConfirm] = useState(null);
 
   const todayISO = useMemo(() => toISODate(new Date()), []);
-  const [activeStudentId, setActiveStudentId] = useState('');
   const [selectedDate, setSelectedDate] = useState(() => toISODate(new Date()));
-  // Solo servicios/pilares reales (sin opción "Todas")
   const [pillarFilter, setPillarFilter] = useState('cuerpo');
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
   const [profileForm, setProfileForm] = useState({ name: '', phone: '' });
@@ -291,9 +309,6 @@ export default function App() {
   });
 
   const toastTimerRef = useRef(null);
-  const activeStudentIdRef = useRef(activeStudentId);
-  activeStudentIdRef.current = activeStudentId;
-
   const showToast = useCallback((message, type = 'success') => {
     setNotification({ message, type });
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -305,6 +320,11 @@ export default function App() {
   const persistState = useCallback((setter, key, value) => {
     setter(value);
     writeLocalJSON(key, value);
+  }, []);
+
+  const setCurrentPrivateStudent = useCallback((id) => {
+    setSignedInStudentId(id || '');
+    writeLocalJSON('satnam_signed_student_id_v1', id || '');
   }, []);
 
   const getServiceDefaultCapacity = useCallback(
@@ -471,20 +491,17 @@ export default function App() {
       if (classesRes.error) throw classesRes.error;
       if (bookingsRes.error) throw bookingsRes.error;
 
-      const loadedStudents = studentsRes.data.map((s) => ({
-        id: s.id,
-        name: s.name,
-        phone: s.phone || '',
-        plan: s.plan,
-        status: s.status,
-        expiryDate: s.expiry_date,
-        credits: s.credits
-      }));
-
-      setStudents(loadedStudents);
-      if (loadedStudents.length > 0 && !activeStudentIdRef.current) {
-        setActiveStudentId(loadedStudents[0].id);
-      }
+      setStudents(
+        studentsRes.data.map((s) => ({
+          id: s.id,
+          name: s.name,
+          phone: s.phone || '',
+          plan: s.plan,
+          status: s.status,
+          expiryDate: s.expiry_date,
+          credits: s.credits
+        }))
+      );
 
       setClasses(classesRes.data);
 
@@ -513,17 +530,106 @@ export default function App() {
     fetchAllData();
   }, [fetchAllData]);
 
-  const activeStudent = students.find((s) => s.id === activeStudentId) || students[0];
+  // Perfil privado activo (nunca se expone la lista de todos los alumnos salvo en Modo Prueba)
+  const activeStudent = useMemo(() => {
+    if (signedInStudentId) {
+      return students.find((s) => s.id === signedInStudentId) || null;
+    }
+    if (testingProfilesMode && students.length > 0) {
+      return students[0];
+    }
+    return null;
+  }, [signedInStudentId, testingProfilesMode, students]);
+
   const studentAllowed = canStudentOperate(activeStudent);
   const studentHasPlan = hasActiveSubscriptionPlan(activeStudent);
 
-  const handleEnterAgendaFromHome = () => {
-    if (!activeStudent) {
-      return showToast('Seleccioná o registrá un alumno primero', 'error');
+  // Crear cuenta / Sign up con Google / Sign in privado
+  const createPrivateStudentAccount = async ({ name, phone }) => {
+    const cleanName = String(name || '').trim();
+    const cleanPhone = String(phone || '').trim() || '+5491100000000';
+    if (!cleanName) return showToast('Ingresá tu nombre y apellido', 'error');
+
+    setAuthSubmitting(true);
+    try {
+      const { data, error } = await supabase
+        .from('students')
+        .insert([
+          {
+            name: cleanName,
+            phone: cleanPhone,
+            plan: NO_PLAN_LABEL,
+            status: 'active',
+            expiry_date: addDaysToISO(todayISO, 30),
+            credits: 0
+          }
+        ])
+        .select()
+        .single();
+
+      if (error) return showToast('No se pudo crear tu cuenta', 'error');
+
+      const created = {
+        id: data.id,
+        name: data.name,
+        phone: data.phone || '',
+        plan: data.plan,
+        status: data.status,
+        expiryDate: data.expiry_date,
+        credits: data.credits
+      };
+
+      setStudents((prev) => [...prev, created]);
+      setCurrentPrivateStudent(created.id);
+      setStudentSection('info');
+      setAuthForm({ name: '', phone: '', email: '', lookup: '' });
+      showToast(`¡Cuenta creada! Bienvenida/o, ${created.name}`);
+    } finally {
+      setAuthSubmitting(false);
     }
-    setHasEnteredAgenda(true);
-    setStudentSection('agenda');
-    showToast(`Bienvenida/o, ${activeStudent.name}`);
+  };
+
+  const handleCreateAccountSubmit = async (e) => {
+    e.preventDefault();
+    await createPrivateStudentAccount({ name: authForm.name, phone: authForm.phone });
+  };
+
+  const handleGoogleSignUpSubmit = async (e) => {
+    e.preventDefault();
+    const emailClean = authForm.email.trim();
+    const derivedName = authForm.name.trim() || (emailClean ? emailClean.split('@')[0].replace(/[._-]+/g, ' ') : '');
+    if (!derivedName) return showToast('Ingresá tu correo de Google o nombre', 'error');
+    await createPrivateStudentAccount({ name: derivedName, phone: authForm.phone });
+  };
+
+  const handleSignInSubmit = async (e) => {
+    e.preventDefault();
+    const q = authForm.lookup.trim().toLowerCase();
+    if (!q) return showToast('Ingresá tu teléfono o nombre registrado', 'error');
+
+    const cleanDigits = q.replace(/\D/g, '');
+    const match = students.find((s) => {
+      const phoneDigits = (s.phone || '').replace(/\D/g, '');
+      const phoneMatch = cleanDigits.length >= 6 && phoneDigits.includes(cleanDigits);
+      const nameMatch = s.name.toLowerCase() === q;
+      return phoneMatch || nameMatch;
+    });
+
+    if (!match) {
+      return showToast('No encontramos un perfil con ese dato. Podés crear una cuenta nueva.', 'error');
+    }
+
+    setCurrentPrivateStudent(match.id);
+    setStudentSection('info');
+    setAuthForm({ name: '', phone: '', email: '', lookup: '' });
+    showToast(`Hola de nuevo, ${match.name}`);
+  };
+
+  const handleLogoutPrivateStudent = () => {
+    setCurrentPrivateStudent('');
+    setSelectedStudentClassIds([]);
+    setStudentSection('info');
+    showToast('Sesión cerrada');
   };
 
   const setClassComingSoonFlag = (ids, value) => {
@@ -658,7 +764,7 @@ export default function App() {
   };
 
   const handleToggleWaitlist = (classId) => {
-    if (!activeStudent) return showToast('Selecciona un perfil primero', 'error');
+    if (!activeStudent) return showToast('Creá o iniciá sesión en tu cuenta primero', 'error');
     if (!canStudentOperate(activeStudent)) {
       return showToast('Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el espacio para reactivar tu plan.', 'error');
     }
@@ -744,7 +850,7 @@ export default function App() {
   };
 
   const handleToggleBooking = async (classId) => {
-    if (!activeStudent) return showToast('Primero solicita tu alta en el espacio', 'error');
+    if (!activeStudent) return showToast('Creá o iniciá sesión en tu cuenta para reservar', 'error');
     const existing = bookings.find((b) => b.classId === classId && b.studentId === activeStudent.id);
     if (existing) return handleCancelExistingBooking(classId);
 
@@ -992,7 +1098,6 @@ export default function App() {
       .sort((a, b) => a.time.localeCompare(b.time) || a.date.localeCompare(b.date));
   }, [classes, weekDaysMonFri]);
 
-  // Grilla semanal del alumno filtrada únicamente por servicio/pilar activo (sin "Todas")
   const studentWeekClasses = useMemo(() => {
     return weekClassesMonFri.filter((c) => {
       if (!studentHasPlan) {
@@ -1214,7 +1319,7 @@ export default function App() {
       [created.id]: { startDate: studentForm.startDate, isPaused: pausedByReason, absenceReason: reason }
     });
     setStudents((prev) => [...prev, created]);
-    if (!activeStudentId) setActiveStudentId(created.id);
+    if (!signedInStudentId) setCurrentPrivateStudent(created.id);
     setShowStudentModal(false);
     showToast('Registrado con éxito');
   };
@@ -1246,7 +1351,7 @@ export default function App() {
       const nextMeta = { ...planMetaMap };
       delete nextMeta[id];
       persistState(setPlanMetaMap, 'satnam_plan_meta_v2', nextMeta);
-      if (activeStudentId === id) setActiveStudentId(remaining[0]?.id || '');
+      if (signedInStudentId === id) setCurrentPrivateStudent('');
       showToast('Alumno eliminado del registro');
     } else if (type === 'service') {
       persistState(setServices, 'satnam_services_v3', services.filter((s) => s.id !== id));
@@ -1636,504 +1741,612 @@ export default function App() {
           <div className="text-center py-16 text-stone-500">Conectando con la agenda de Espacio Sat-Nam...</div>
         ) : role === 'student' ? (
           /* ================= VISTA ALUMNO ================= */
-          <div className="space-y-6">
-            {/* Pestañas a la izquierda: Información (homepage) primero, luego Agenda */}
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-2xl border border-stone-200/80 shadow-2xs">
+          !activeStudent ? (
+            /* Pantalla de creación de cuenta / Sign up Google / Sign in privado */
+            <div className="max-w-md mx-auto bg-white rounded-3xl p-6 border border-stone-200/80 shadow-xs space-y-5 relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-1.5 h-full bg-[#5C7362]" />
+              <div className="pl-2 space-y-1">
+                <span className="inline-block text-[11px] font-semibold uppercase tracking-wider text-[#5C7362] bg-[#EDF3EE] px-2.5 py-0.5 rounded-lg">
+                  Espacio Sat-Nam
+                </span>
+                <h2 className="text-xl font-semibold text-[#2D332F]">Tu espacio personal</h2>
+                <p className="text-xs text-stone-500">
+                  Creá tu cuenta o iniciá sesión para acceder a la bienvenida y a tu agenda privada.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-3 gap-1.5 bg-[#F7F5F0] p-1 rounded-2xl border border-stone-200/70 text-xs font-semibold">
                 <button
                   type="button"
-                  onClick={() => setStudentSection('info')}
-                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
-                    studentSection === 'info' ? 'bg-[#5C7362] text-white shadow-xs' : 'text-stone-600 hover:bg-stone-50'
+                  onClick={() => setAuthMode('create')}
+                  className={`py-2 rounded-xl transition-all ${
+                    authMode === 'create' ? 'bg-[#5C7362] text-white shadow-2xs' : 'text-stone-600'
                   }`}
                 >
-                  <Info className="w-4 h-4" /> Información
+                  Create account
                 </button>
                 <button
                   type="button"
-                  onClick={() => setStudentSection('agenda')}
-                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
-                    studentSection === 'agenda' ? 'bg-[#5C7362] text-white shadow-xs' : 'text-stone-600 hover:bg-stone-50'
+                  onClick={() => setAuthMode('google')}
+                  className={`py-2 rounded-xl transition-all ${
+                    authMode === 'google' ? 'bg-[#5C7362] text-white shadow-2xs' : 'text-stone-600'
                   }`}
                 >
-                  <Calendar className="w-4 h-4" /> Agenda & Reservas
+                  Sign up Google
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAuthMode('signin')}
+                  className={`py-2 rounded-xl transition-all ${
+                    authMode === 'signin' ? 'bg-[#5C7362] text-white shadow-2xs' : 'text-stone-600'
+                  }`}
+                >
+                  Sign in
                 </button>
               </div>
 
-              {hasEnteredAgenda && activeStudent && studentSection === 'agenda' && (
-                <div className="flex flex-wrap items-center gap-2 bg-white px-3 py-1.5 rounded-2xl border border-stone-200/80 text-xs">
-                  <span className="text-stone-400">Perfil:</span>
-                  <select
-                    value={activeStudentId}
-                    onChange={(e) => {
-                      const nextId = e.target.value;
-                      setActiveStudentId(nextId);
-                      setSelectedStudentClassIds([]);
-                      const chosen = students.find((x) => x.id === nextId);
-                      if (chosen && isDateBlockedForStudent(chosen, selectedDate)) setSelectedDate(todayISO);
-                    }}
-                    className="font-semibold bg-[#F7F5F0] border border-stone-200 rounded-lg px-2 py-0.5 focus:outline-none focus:border-[#5C7362]"
+              {authMode === 'create' && (
+                <form onSubmit={handleCreateAccountSubmit} className="space-y-3.5 text-sm">
+                  <div>
+                    <label className="block text-xs font-medium text-stone-600 mb-1">Nombre y Apellido</label>
+                    <input
+                      required
+                      type="text"
+                      placeholder="Ej. Lucía Pérez"
+                      value={authForm.name}
+                      onChange={(e) => setAuthForm({ ...authForm, name: e.target.value })}
+                      className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-stone-600 mb-1">Teléfono WhatsApp</label>
+                    <input
+                      required
+                      type="text"
+                      placeholder="Ej. +5491155551234"
+                      value={authForm.phone}
+                      onChange={(e) => setAuthForm({ ...authForm, phone: e.target.value })}
+                      className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={authSubmitting}
+                    className="w-full inline-flex items-center justify-center gap-2 bg-[#5C7362] hover:bg-[#4B5F50] text-white font-semibold py-2.5 rounded-xl shadow-xs disabled:opacity-50"
                   >
-                    {students.map((s) => (
-                      <option key={s.id} value={s.id}>{s.name}</option>
-                    ))}
-                  </select>
-                  <span className="text-[#4C6352] font-medium">
-                    {studentHasPlan && !isUnlimitedPlan(activeStudent.plan)
-                      ? `Saldo: ${activeStudent.credits} (${getStudentQuotaDisplay(activeStudent)})`
-                      : activeStudent.plan}
-                  </span>
-                </div>
+                    <UserPlus className="w-4 h-4" />
+                    {authSubmitting ? 'Creando cuenta...' : 'Create account'}
+                  </button>
+                </form>
+              )}
+
+              {authMode === 'google' && (
+                <form onSubmit={handleGoogleSignUpSubmit} className="space-y-3.5 text-sm">
+                  <div>
+                    <label className="block text-xs font-medium text-stone-600 mb-1">Correo de Google</label>
+                    <input
+                      required
+                      type="email"
+                      placeholder="tunombre@gmail.com"
+                      value={authForm.email}
+                      onChange={(e) => setAuthForm({ ...authForm, email: e.target.value })}
+                      className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-stone-600 mb-1">Nombre completo (opcional)</label>
+                    <input
+                      type="text"
+                      placeholder="Ej. Lucía Pérez"
+                      value={authForm.name}
+                      onChange={(e) => setAuthForm({ ...authForm, name: e.target.value })}
+                      className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-stone-600 mb-1">Teléfono WhatsApp (opcional)</label>
+                    <input
+                      type="text"
+                      placeholder="Ej. +5491155551234"
+                      value={authForm.phone}
+                      onChange={(e) => setAuthForm({ ...authForm, phone: e.target.value })}
+                      className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={authSubmitting}
+                    className="w-full inline-flex items-center justify-center gap-2 bg-white hover:bg-stone-50 text-[#2D332F] border border-stone-300 font-semibold py-2.5 rounded-xl shadow-2xs disabled:opacity-50"
+                  >
+                    <GoogleIcon className="w-4 h-4" />
+                    {authSubmitting ? 'Conectando...' : 'Create account with Google'}
+                  </button>
+                </form>
+              )}
+
+              {authMode === 'signin' && (
+                <form onSubmit={handleSignInSubmit} className="space-y-3.5 text-sm">
+                  <div>
+                    <label className="block text-xs font-medium text-stone-600 mb-1">Teléfono o Nombre registrado</label>
+                    <input
+                      required
+                      type="text"
+                      placeholder="Ej. +5491155551234 o Lucía Pérez"
+                      value={authForm.lookup}
+                      onChange={(e) => setAuthForm({ ...authForm, lookup: e.target.value })}
+                      className="w-full border border-stone-200 rounded-xl px-3 py-2"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="w-full inline-flex items-center justify-center gap-2 bg-[#5C7362] hover:bg-[#4B5F50] text-white font-semibold py-2.5 rounded-xl shadow-xs"
+                  >
+                    <LogIn className="w-4 h-4" /> Sign in
+                  </button>
+                </form>
               )}
             </div>
+          ) : (
+            /* Usuario autenticado / privado activo */
+            <div className="space-y-6">
+              {/* Pestañas a la izquierda: Información (homepage) primero, luego Agenda */}
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-2xl border border-stone-200/80 shadow-2xs">
+                  <button
+                    type="button"
+                    onClick={() => setStudentSection('info')}
+                    className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
+                      studentSection === 'info' ? 'bg-[#5C7362] text-white shadow-xs' : 'text-stone-600 hover:bg-stone-50'
+                    }`}
+                  >
+                    <Info className="w-4 h-4" /> Información
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStudentSection('agenda')}
+                    className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
+                      studentSection === 'agenda' ? 'bg-[#5C7362] text-white shadow-xs' : 'text-stone-600 hover:bg-stone-50'
+                    }`}
+                  >
+                    <Calendar className="w-4 h-4" /> Agenda
+                  </button>
+                </div>
 
-            {studentSection === 'info' ? (
-              /* ================= HOMEPAGE DE BIENVENIDA + INGRESO A LA AGENDA ================= */
-              <div className="space-y-6">
-                <div className="bg-white rounded-3xl p-5 sm:p-6 border border-stone-200/70 shadow-2xs space-y-5 relative overflow-hidden">
-                  <div className="absolute top-0 left-0 w-1.5 h-full bg-[#5C7362]" />
-                  <div className="pl-2 space-y-2">
-                    <span className="inline-block text-[11px] font-semibold uppercase tracking-wider text-[#5C7362] bg-[#EDF3EE] px-2.5 py-0.5 rounded-lg">
-                      Bienvenidos al espacio
-                    </span>
-                    <h2 className="text-2xl font-semibold tracking-tight text-[#2D332F]">
-                      Te damos la bienvenida a <span className="text-[#5C7362]">Espacio Sat-Nam</span>
-                    </h2>
-                    <p className="text-xs sm:text-sm text-stone-600 leading-relaxed max-w-3xl">
-                      Un lugar creado para mejorar tu calidad de vida desde el{' '}
-                      <strong className="font-medium text-stone-800">bienestar integral</strong>: Yoga Terapia y
-                      Restaurativo, Spinning, Pilates y Circuito, Coaching y PNL para acompañar tus procesos de cambio,
-                      Constelaciones, y Estética y Cosmiatría.
-                    </p>
+                {signedInStudentId && (
+                  <button
+                    type="button"
+                    onClick={handleLogoutPrivateStudent}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-stone-600 hover:text-stone-900 bg-white px-3 py-1.5 rounded-xl border border-stone-200/80"
+                  >
+                    <LogOut className="w-3.5 h-3.5" /> Salir de mi cuenta
+                  </button>
+                )}
+              </div>
+
+              {/* Tarjeta de perfil */}
+              <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-1 h-full bg-[#5C7362]" />
+                <div className="flex items-center gap-3.5 pl-2">
+                  <div className="w-11 h-11 rounded-2xl bg-[#EDF3EE] text-[#4C6352] font-semibold flex items-center justify-center text-base">
+                    {activeStudent.name.charAt(0)}
                   </div>
-
-                  {/* Acceso / Login a la agenda */}
-                  <div className="bg-[#F7F5F0] rounded-2xl p-4 border border-stone-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div className="space-y-1">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-[#5C7362]">Acceso a tu agenda</p>
-                      <p className="text-xs text-stone-600">
-                        Elegí tu perfil para consultar tus reservas, cancelar turnos o reservar en la grilla semanal.
-                      </p>
-                    </div>
-
-                    {students.length > 0 ? (
-                      <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs text-stone-400 uppercase tracking-wider font-medium">Hola,</span>
+                      {testingProfilesMode ? (
                         <select
-                          value={activeStudentId}
+                          value={activeStudent.id}
                           onChange={(e) => {
                             const nextId = e.target.value;
-                            setActiveStudentId(nextId);
+                            setCurrentPrivateStudent(nextId);
                             setSelectedStudentClassIds([]);
+                            const chosen = students.find((x) => x.id === nextId);
+                            if (chosen && isDateBlockedForStudent(chosen, selectedDate)) setSelectedDate(todayISO);
                           }}
-                          className="text-xs sm:text-sm font-semibold bg-white border border-stone-200 rounded-xl px-3 py-2 focus:outline-none focus:border-[#5C7362]"
+                          className="text-sm font-semibold bg-[#F7F5F0] border border-stone-200 rounded-xl px-2.5 py-1 focus:outline-none focus:border-[#5C7362]"
                         >
                           {students.map((s) => (
                             <option key={s.id} value={s.id}>{s.name}</option>
                           ))}
                         </select>
+                      ) : (
+                        <span className="text-sm font-semibold text-[#2D332F]">{activeStudent.name}</span>
+                      )}
 
-                        <button
-                          type="button"
-                          onClick={handleEnterAgendaFromHome}
-                          className="inline-flex items-center gap-1.5 bg-[#5C7362] hover:bg-[#4B5F50] text-white text-xs sm:text-sm font-semibold px-4 py-2 rounded-xl shadow-xs transition-all"
-                        >
-                          <LogIn className="w-4 h-4" /> Entrar a la agenda
-                        </button>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-stone-500">Aún no hay alumnos registrados.</span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Clases y Servicios */}
-                <div className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-base font-semibold">Clases y Servicios</h3>
-                    <span className="text-xs text-stone-500">{services.length} disponibles</span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                    {services.map((srv) => (
-                      <div key={srv.id} className="p-3.5 rounded-2xl bg-[#F7F5F0] border border-stone-200/80 space-y-1.5">
-                        <div className="flex items-center justify-between gap-2">
-                          {getCategoryBadge(srv.id)}
-                          <span className="text-[11px] font-medium text-stone-500">
-                            {srv.isClass ? 'Clase grupal' : 'Sesión / Tratamiento'}
-                          </span>
-                        </div>
-                        <p className="text-sm font-semibold text-[#2D332F]">{srv.label}</p>
-                        <p className="text-xs text-stone-500">Cupo hasta {srv.defaultCap} {srv.defaultCap === 1 ? 'persona' : 'personas'}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Planes y Precios */}
-                <div className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-base font-semibold">Planes y Precios</h3>
-                    <span className="text-xs text-stone-500">{publishedPlansForStudents.length} opciones</span>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                    {publishedPlansForStudents.map((p) => (
-                      <div
-                        key={p.id}
-                        className={`p-3.5 rounded-2xl border flex items-center justify-between gap-2 ${
-                          p.comingSoon ? 'bg-amber-50/40 border-amber-200/80 opacity-90' : 'bg-[#F7F5F0] border-stone-200/80'
-                        }`}
-                      >
-                        <div>
-                          <p className="text-xs font-semibold text-[#2D332F]">{p.name}</p>
-                          <p className="text-[11px] text-stone-500">
-                            {p.isUnlimited ? 'Pase Libre' : `${p.credits} ${p.credits === 1 ? 'sesión' : 'clases'}`}
-                          </p>
-                        </div>
-                        {p.comingSoon ? (
-                          <span className="text-[11px] font-semibold text-amber-800 bg-amber-100 px-2.5 py-1 rounded-xl shrink-0">Próximamente</span>
-                        ) : (
-                          <span className="text-xs font-bold text-[#5C7362] bg-[#EDF3EE] px-2.5 py-1 rounded-xl shrink-0">{formatPriceARS(p.price)}</span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              /* ================= AGENDA Y RESERVAS DEL ALUMNO ================= */
-              <div className="space-y-6">
-                {students.length > 0 && (
-                  <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative overflow-hidden">
-                    <div className="absolute top-0 left-0 w-1 h-full bg-[#5C7362]" />
-                    <div className="flex items-center gap-3.5 pl-2">
-                      <div className="w-11 h-11 rounded-2xl bg-[#EDF3EE] text-[#4C6352] font-semibold flex items-center justify-center text-base">
-                        {activeStudent?.name.charAt(0)}
-                      </div>
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-xs text-stone-400 uppercase tracking-wider font-medium">Hola,</span>
-                          <select
-                            value={activeStudentId}
-                            onChange={(e) => {
-                              const nextId = e.target.value;
-                              setActiveStudentId(nextId);
-                              setSelectedStudentClassIds([]);
-                              const chosen = students.find((x) => x.id === nextId);
-                              if (chosen && isDateBlockedForStudent(chosen, selectedDate)) setSelectedDate(todayISO);
-                            }}
-                            className="text-sm font-semibold bg-[#F7F5F0] border border-stone-200 rounded-xl px-2.5 py-1 focus:outline-none focus:border-[#5C7362]"
-                          >
-                            {students.map((s) => (
-                              <option key={s.id} value={s.id}>{s.name}</option>
-                            ))}
-                          </select>
-                          <button
-                            type="button"
-                            onClick={handleOpenEditProfile}
-                            className="inline-flex items-center gap-1 text-xs font-medium text-[#5C7362] bg-[#EDF3EE] hover:bg-[#dce8de] px-2.5 py-1 rounded-xl transition-colors"
-                          >
-                            <UserCog className="w-3.5 h-3.5" /> Editar perfil
-                          </button>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-2 mt-2">
-                          <span className="text-xs font-medium bg-[#EDF3EE] text-[#4C6352] px-2.5 py-0.5 rounded-lg">
-                            {activeStudent?.plan}
-                          </span>
-                          {activeStudent && getStatusBadge(activeStudent)}
-                          {activeStudent && studentAllowed && studentHasPlan && !isUnlimitedPlan(activeStudent.plan) && (
-                            <span className="text-xs text-stone-600">
-                              • Saldo: <strong>{activeStudent.credits}</strong> disponibles ({getStudentQuotaDisplay(activeStudent)})
-                            </span>
-                          )}
-                        </div>
-
-                        {activeStudent && !studentAllowed && (
-                          <p className="text-xs text-rose-700 font-medium mt-1.5">
-                            Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el espacio para reactivar tu plan.
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    {activeStudent && studentHasPlan && (
-                      <div className="text-xs text-stone-500 sm:text-right border-t sm:border-t-0 pt-2.5 sm:pt-0 border-stone-100 pl-2 sm:pl-0">
-                        Vencimiento:
-                        <span className="block font-semibold text-sm">{formatDateDDMMYYYY(activeStudent?.expiryDate)}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* 1. "Tus reservas" en formato listado */}
-                <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <BookmarkCheck className="w-5 h-5 text-[#5C7362]" />
-                      <div>
-                        <h2 className="text-lg font-semibold">Tus reservas</h2>
-                        <p className="text-xs text-stone-500">Listado de turnos reservados • Podés cancelar cualquiera cuando lo necesites</p>
-                      </div>
-                    </div>
-                    <span className="text-xs font-semibold bg-[#EDF3EE] text-[#4C6352] px-3 py-1 rounded-full">
-                      {activeStudentBookingsList.length} {activeStudentBookingsList.length === 1 ? 'reserva' : 'reservas'}
-                    </span>
-                  </div>
-
-                  {activeStudentBookingsList.length === 0 ? (
-                    <div className="bg-[#F7F5F0]/70 rounded-2xl p-6 text-center border border-stone-200/70 text-xs sm:text-sm text-stone-500">
-                      Todavía no tenés reservas activas. Elegí un servicio y un horario en la <strong>Grilla semanal</strong> de abajo para reservar.
-                    </div>
-                  ) : (
-                    <div className="divide-y divide-stone-100 border border-stone-200/70 rounded-2xl overflow-hidden">
-                      {activeStudentBookingsList.map(({ booking, cls }) => (
-                        <div
-                          key={booking.id}
-                          className="p-3.5 sm:px-4 bg-white hover:bg-[#F7F5F0]/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors"
-                        >
-                          <div className="space-y-0.5">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="text-xs font-bold text-[#5C7362] bg-[#EDF3EE] px-2.5 py-0.5 rounded-lg">
-                                {formatDateDDMMYYYY(cls.date)} • {cls.time} hs
-                              </span>
-                              <span className="font-semibold text-sm text-[#2D332F]">{cls.title}</span>
-                              {cls.is_cancelled && (
-                                <span className="text-[11px] font-semibold bg-rose-100 text-rose-700 px-2 py-0.5 rounded-lg">
-                                  Cancelada por el estudio
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-xs text-stone-500">
-                              {cls.duration} min • Facilitadora: {cls.instructor}
-                            </p>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() => handleCancelExistingBooking(cls.id)}
-                            disabled={!studentAllowed}
-                            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200/80 disabled:opacity-40 disabled:cursor-not-allowed shrink-0 transition-colors"
-                          >
-                            <XCircle className="w-3.5 h-3.5" /> Cancelar reserva
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* 2. "Grilla semanal" invitando a reservar (solo servicios, sin "Todas") */}
-                <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <h2 className="text-lg font-semibold">Grilla semanal</h2>
-                      <p className="text-xs sm:text-sm text-stone-500">
-                        Elegí un servicio y tocá un horario para reservar, o activá <strong>Reserva secuencial</strong>
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => {
-                          const prev = new Date(weekCursor);
-                          prev.setDate(prev.getDate() - 7);
-                          setWeekCursor(prev);
-                        }}
-                        className="p-1.5 rounded-xl border border-stone-200 hover:bg-stone-50"
+                        onClick={handleOpenEditProfile}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-[#5C7362] bg-[#EDF3EE] hover:bg-[#dce8de] px-2.5 py-1 rounded-xl transition-colors"
                       >
-                        <ChevronLeft className="w-4 h-4" />
+                        <UserCog className="w-3.5 h-3.5" /> Editar perfil
                       </button>
-                      <span className="text-xs sm:text-sm font-semibold">
-                        {formatDateDDMMYYYY(weekDaysMonFri[0].iso)} al {formatDateDDMMYYYY(weekDaysMonFri[4].iso)}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 mt-2">
+                      <span className="text-xs font-medium bg-[#EDF3EE] text-[#4C6352] px-2.5 py-0.5 rounded-lg">
+                        {activeStudent.plan}
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const next = new Date(weekCursor);
-                          next.setDate(next.getDate() + 7);
-                          setWeekCursor(next);
-                        }}
-                        className="p-1.5 rounded-xl border border-stone-200 hover:bg-stone-50"
-                      >
-                        <ChevronRight className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {SERVICE_PILLARS.map((pil) => (
-                        <button
-                          type="button"
-                          key={pil.id}
-                          onClick={() => {
-                            setPillarFilter(pil.id);
-                            setSelectedStudentClassIds([]);
-                          }}
-                          className={`px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all border ${
-                            pillarFilter === pil.id
-                              ? 'bg-[#5C7362] text-white border-transparent shadow-xs'
-                              : 'bg-[#F7F5F0] text-stone-600 border-stone-200/80 hover:border-stone-300'
-                          }`}
-                        >
-                          {pil.label}
-                        </button>
-                      ))}
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setBookingSequence((prev) => !prev);
-                          setSelectedStudentClassIds([]);
-                        }}
-                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
-                          bookingSequence
-                            ? 'bg-[#EDF3EE] text-[#4C6352] border-[#5C7362]/40'
-                            : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50'
-                        }`}
-                      >
-                        <ListPlus className="w-3.5 h-3.5" />
-                        {bookingSequence ? 'Secuencia activa' : 'Reserva secuencial'}
-                      </button>
-
-                      {bookingSequence && selectedStudentClassIds.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={handleBookSequential}
-                          disabled={!studentAllowed}
-                          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-[#5C7362] hover:bg-[#4B5F50] text-white shadow-xs"
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          Reservar {selectedStudentClassIds.length} en secuencia
-                        </button>
+                      {getStatusBadge(activeStudent)}
+                      {studentAllowed && studentHasPlan && !isUnlimitedPlan(activeStudent.plan) && (
+                        <span className="text-xs text-stone-600">
+                          • Saldo: <strong>{activeStudent.credits}</strong> disponibles ({getStudentQuotaDisplay(activeStudent)})
+                        </span>
                       )}
                     </div>
+
+                    {!studentAllowed && (
+                      <p className="text-xs text-rose-700 font-medium mt-1.5">
+                        Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el espacio para reactivar tu plan.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {studentHasPlan && (
+                  <div className="text-xs text-stone-500 sm:text-right border-t sm:border-t-0 pt-2.5 sm:pt-0 border-stone-100 pl-2 sm:pl-0">
+                    Vencimiento:
+                    <span className="block font-semibold text-sm">{formatDateDDMMYYYY(activeStudent.expiryDate)}</span>
+                  </div>
+                )}
+              </div>
+
+              {studentSection === 'info' ? (
+                /* ================= INFORMACIÓN DE BIENVENIDA + BOTÓN IR A LA AGENDA ================= */
+                <div className="space-y-6">
+                  <div className="bg-white rounded-3xl p-5 sm:p-6 border border-stone-200/70 shadow-2xs space-y-5 relative overflow-hidden">
+                    <div className="absolute top-0 left-0 w-1.5 h-full bg-[#5C7362]" />
+                    <div className="pl-2 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="space-y-2 max-w-2xl">
+                        <span className="inline-block text-[11px] font-semibold uppercase tracking-wider text-[#5C7362] bg-[#EDF3EE] px-2.5 py-0.5 rounded-lg">
+                          Bienvenida
+                        </span>
+                        <h2 className="text-2xl font-semibold tracking-tight text-[#2D332F]">
+                          Te damos la bienvenida a <span className="text-[#5C7362]">Espacio Sat-Nam</span>
+                        </h2>
+                        <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
+                          Un lugar creado para mejorar tu calidad de vida desde el{' '}
+                          <strong className="font-medium text-stone-800">bienestar integral</strong>: Yoga Terapia y
+                          Restaurativo, Spinning, Pilates y Circuito, Coaching y PNL para acompañar tus procesos de cambio,
+                          Constelaciones, y Estética y Cosmiatría.
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setStudentSection('agenda')}
+                        className="inline-flex items-center justify-center gap-2 bg-[#5C7362] hover:bg-[#4B5F50] text-white font-semibold text-sm px-5 py-3 rounded-2xl shadow-xs shrink-0 transition-all"
+                      >
+                        Ir a la agenda <ArrowRight className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
 
-                  {matrixTimes.length === 0 ? (
-                    <div className="py-8 text-center text-sm text-stone-500 bg-[#F7F5F0]/60 rounded-2xl border border-stone-200/70">
-                      No hay horarios cargados en este servicio para esta semana.
+                  {/* Clases y Servicios */}
+                  <div className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-base font-semibold">Clases y Servicios</h3>
+                      <span className="text-xs text-stone-500">{services.length} disponibles</span>
                     </div>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full border-separate border-spacing-2 text-center">
-                        <thead>
-                          <tr>
-                            <th className="bg-[#D5DFD8] text-[#2D332F] text-xs font-bold py-2.5 px-3 rounded-full w-24">HORA</th>
-                            {weekDaysMonFri.map((wd) => (
-                              <th key={wd.dayId} className="bg-[#D5DFD8] text-[#2D332F] text-xs font-bold py-2.5 px-2 rounded-full">
-                                <div>{wd.label}</div>
-                                <div className="text-[10px] font-medium text-[#4C6352]">{wd.dateObj.getDate()}/{wd.dateObj.getMonth() + 1}</div>
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {matrixTimes.map((timeSlot) => (
-                            <tr key={timeSlot}>
-                              <td className="bg-[#D5DFD8] text-[#2D332F] text-xs font-bold py-3 px-2 rounded-full align-middle">
-                                {timeSlot}
-                              </td>
-                              {weekDaysMonFri.map((wd) => {
-                                const cellClasses = studentWeekClasses.filter((c) => c.date === wd.iso && c.time === timeSlot);
-                                const isVac = Boolean(getVacationForDate(wd.iso));
 
-                                if (isVac) {
-                                  return (
-                                    <td key={wd.iso} className="bg-amber-100/70 text-amber-900 text-[11px] font-semibold rounded-full py-2.5 px-2">
-                                      Vacaciones
-                                    </td>
-                                  );
-                                }
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                      {services.map((srv) => (
+                        <div key={srv.id} className="p-3.5 rounded-2xl bg-[#F7F5F0] border border-stone-200/80 space-y-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            {getCategoryBadge(srv.id)}
+                            <span className="text-[11px] font-medium text-stone-500">
+                              {srv.isClass ? 'Clase grupal' : 'Sesión / Tratamiento'}
+                            </span>
+                          </div>
+                          <p className="text-sm font-semibold text-[#2D332F]">{srv.label}</p>
+                          <p className="text-xs text-stone-500">Cupo hasta {srv.defaultCap} {srv.defaultCap === 1 ? 'persona' : 'personas'}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
 
-                                if (cellClasses.length === 0) {
+                  {/* Planes y Precios */}
+                  <div className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-base font-semibold">Planes y Precios</h3>
+                      <span className="text-xs text-stone-500">{publishedPlansForStudents.length} opciones</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                      {publishedPlansForStudents.map((p) => (
+                        <div
+                          key={p.id}
+                          className={`p-3.5 rounded-2xl border flex items-center justify-between gap-2 ${
+                            p.comingSoon ? 'bg-amber-50/40 border-amber-200/80 opacity-90' : 'bg-[#F7F5F0] border-stone-200/80'
+                          }`}
+                        >
+                          <div>
+                            <p className="text-xs font-semibold text-[#2D332F]">{p.name}</p>
+                            <p className="text-[11px] text-stone-500">
+                              {p.isUnlimited ? 'Pase Libre' : `${p.credits} ${p.credits === 1 ? 'sesión' : 'clases'}`}
+                            </p>
+                          </div>
+                          {p.comingSoon ? (
+                            <span className="text-[11px] font-semibold text-amber-800 bg-amber-100 px-2.5 py-1 rounded-xl shrink-0">Próximamente</span>
+                          ) : (
+                            <span className="text-xs font-bold text-[#5C7362] bg-[#EDF3EE] px-2.5 py-1 rounded-xl shrink-0">{formatPriceARS(p.price)}</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* ================= AGENDA: TUS RESERVAS + GRILLA SEMANAL ================= */
+                <div className="space-y-6">
+                  {/* 1. "Tus reservas" en formato listado */}
+                  <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <BookmarkCheck className="w-5 h-5 text-[#5C7362]" />
+                        <div>
+                          <h2 className="text-lg font-semibold">Tus reservas</h2>
+                          <p className="text-xs text-stone-500">Listado de turnos reservados • Podés cancelar cualquiera cuando lo necesites</p>
+                        </div>
+                      </div>
+                      <span className="text-xs font-semibold bg-[#EDF3EE] text-[#4C6352] px-3 py-1 rounded-full">
+                        {activeStudentBookingsList.length} {activeStudentBookingsList.length === 1 ? 'reserva' : 'reservas'}
+                      </span>
+                    </div>
+
+                    {activeStudentBookingsList.length === 0 ? (
+                      <div className="bg-[#F7F5F0]/70 rounded-2xl p-6 text-center border border-stone-200/70 text-xs sm:text-sm text-stone-500">
+                        Todavía no tenés reservas activas. Elegí un servicio y un horario en la <strong>Grilla semanal</strong> de abajo para reservar.
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-stone-100 border border-stone-200/70 rounded-2xl overflow-hidden">
+                        {activeStudentBookingsList.map(({ booking, cls }) => (
+                          <div
+                            key={booking.id}
+                            className="p-3.5 sm:px-4 bg-white hover:bg-[#F7F5F0]/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors"
+                          >
+                            <div className="space-y-0.5">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-xs font-bold text-[#5C7362] bg-[#EDF3EE] px-2.5 py-0.5 rounded-lg">
+                                  {formatDateDDMMYYYY(cls.date)} • {cls.time} hs
+                                </span>
+                                <span className="font-semibold text-sm text-[#2D332F]">{cls.title}</span>
+                                {cls.is_cancelled && (
+                                  <span className="text-[11px] font-semibold bg-rose-100 text-rose-700 px-2 py-0.5 rounded-lg">
+                                    Cancelada por el estudio
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-stone-500">
+                                {cls.duration} min • Facilitadora: {cls.instructor}
+                              </p>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleCancelExistingBooking(cls.id)}
+                              disabled={!studentAllowed}
+                              className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200/80 disabled:opacity-40 disabled:cursor-not-allowed shrink-0 transition-colors"
+                            >
+                              <XCircle className="w-3.5 h-3.5" /> Cancelar reserva
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 2. "Grilla semanal" invitando a reservar (solo servicios, sin "Todas") */}
+                  <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h2 className="text-lg font-semibold">Grilla semanal</h2>
+                        <p className="text-xs sm:text-sm text-stone-500">
+                          Elegí un servicio y tocá un horario para reservar, o activá <strong>Reserva secuencial</strong>
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const prev = new Date(weekCursor);
+                            prev.setDate(prev.getDate() - 7);
+                            setWeekCursor(prev);
+                          }}
+                          className="p-1.5 rounded-xl border border-stone-200 hover:bg-stone-50"
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                        </button>
+                        <span className="text-xs sm:text-sm font-semibold">
+                          {formatDateDDMMYYYY(weekDaysMonFri[0].iso)} al {formatDateDDMMYYYY(weekDaysMonFri[4].iso)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = new Date(weekCursor);
+                            next.setDate(next.getDate() + 7);
+                            setWeekCursor(next);
+                          }}
+                          className="p-1.5 rounded-xl border border-stone-200 hover:bg-stone-50"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {SERVICE_PILLARS.map((pil) => (
+                          <button
+                            type="button"
+                            key={pil.id}
+                            onClick={() => {
+                              setPillarFilter(pil.id);
+                              setSelectedStudentClassIds([]);
+                            }}
+                            className={`px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all border ${
+                              pillarFilter === pil.id
+                                ? 'bg-[#5C7362] text-white border-transparent shadow-xs'
+                                : 'bg-[#F7F5F0] text-stone-600 border-stone-200/80 hover:border-stone-300'
+                            }`}
+                          >
+                            {pil.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBookingSequence((prev) => !prev);
+                            setSelectedStudentClassIds([]);
+                          }}
+                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+                            bookingSequence
+                              ? 'bg-[#EDF3EE] text-[#4C6352] border-[#5C7362]/40'
+                              : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50'
+                          }`}
+                        >
+                          <ListPlus className="w-3.5 h-3.5" />
+                          {bookingSequence ? 'Secuencia activa' : 'Reserva secuencial'}
+                        </button>
+
+                        {bookingSequence && selectedStudentClassIds.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={handleBookSequential}
+                            disabled={!studentAllowed || bookingSequence}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-[#5C7362] hover:bg-[#4B5F50] text-white shadow-xs"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            Reservar {selectedStudentClassIds.length} en secuencia
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {matrixTimes.length === 0 ? (
+                      <div className="py-8 text-center text-sm text-stone-500 bg-[#F7F5F0]/60 rounded-2xl border border-stone-200/70">
+                        No hay horarios cargados en este servicio para esta semana.
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full border-separate border-spacing-2 text-center">
+                          <thead>
+                            <tr>
+                              <th className="bg-[#D5DFD8] text-[#2D332F] text-xs font-bold py-2.5 px-3 rounded-full w-24">HORA</th>
+                              {weekDaysMonFri.map((wd) => (
+                                <th key={wd.dayId} className="bg-[#D5DFD8] text-[#2D332F] text-xs font-bold py-2.5 px-2 rounded-full">
+                                  <div>{wd.label}</div>
+                                  <div className="text-[10px] font-medium text-[#4C6352]">{wd.dateObj.getDate()}/{wd.dateObj.getMonth() + 1}</div>
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {matrixTimes.map((timeSlot) => (
+                              <tr key={timeSlot}>
+                                <td className="bg-[#D5DFD8] text-[#2D332F] text-xs font-bold py-3 px-2 rounded-full align-middle">
+                                  {timeSlot}
+                                </td>
+                                {weekDaysMonFri.map((wd) => {
+                                  const cellClasses = studentWeekClasses.filter((c) => c.date === wd.iso && c.time === timeSlot);
+                                  const isVac = Boolean(getVacationForDate(wd.iso));
+
+                                  if (isVac) {
+                                    return (
+                                      <td key={wd.iso} className="bg-amber-100/70 text-amber-900 text-[11px] font-semibold rounded-full py-2.5 px-2">
+                                        Vacaciones
+                                      </td>
+                                    );
+                                  }
+
+                                  if (cellClasses.length === 0) {
+                                    return (
+                                      <td key={wd.iso} className="p-0">
+                                        <div className="w-full h-11 rounded-full bg-[#DCE4DF]/40 flex items-center justify-center text-stone-300 text-xs">
+                                          —
+                                        </div>
+                                      </td>
+                                    );
+                                  }
+
                                   return (
                                     <td key={wd.iso} className="p-0">
-                                      <div className="w-full h-11 rounded-full bg-[#DCE4DF]/40 flex items-center justify-center text-stone-300 text-xs">
-                                        —
+                                      <div className="flex flex-col gap-1">
+                                        {cellClasses.map((cls) => {
+                                          const classBookings = bookings.filter((b) => b.classId === cls.id);
+                                          const isBooked = classBookings.some((b) => b.studentId === activeStudent.id);
+                                          const isFull = classBookings.length >= cls.capacity;
+                                          const comingSoon = isClassComingSoon(cls);
+                                          const dateBlocked = isDateBlockedForStudent(activeStudent, cls.date);
+                                          const inSequence = selectedStudentClassIds.includes(cls.id);
+                                          const canBookThis = !cls.is_cancelled && !comingSoon && !isFull && !isBooked && studentAllowed && !dateBlocked;
+
+                                          return (
+                                            <button
+                                              type="button"
+                                              key={cls.id}
+                                              onClick={() => {
+                                                if (cls.is_cancelled) return showToast('Esta clase se encuentra cancelada.', 'error');
+                                                if (comingSoon) return showToast('Próximamente: inscripción aún no habilitada.', 'error');
+                                                if (isFull && !isBooked) return handleToggleWaitlist(cls.id);
+
+                                                if (bookingSequence && !isBooked) {
+                                                  if (!canBookThis) return showToast('No disponible para reservar en este horario.', 'error');
+                                                  setSelectedStudentClassIds((prev) =>
+                                                    prev.includes(cls.id) ? prev.filter((x) => x !== cls.id) : [...prev, cls.id]
+                                                  );
+                                                  return;
+                                                }
+
+                                                handleToggleBooking(cls.id);
+                                              }}
+                                              className={`w-full py-2.5 px-2 rounded-full text-xs font-semibold transition-all truncate flex items-center justify-center gap-1 ${
+                                                cls.is_cancelled
+                                                  ? 'bg-rose-100/80 text-rose-700 line-through'
+                                                  : isBooked
+                                                  ? 'bg-[#5C7362] text-white shadow-xs'
+                                                  : inSequence
+                                                  ? 'bg-[#2D332F] text-white ring-2 ring-[#5C7362]'
+                                                  : comingSoon
+                                                  ? 'bg-amber-100 text-amber-900'
+                                                  : isFull
+                                                  ? 'bg-amber-50 text-amber-900 border border-amber-200'
+                                                  : 'bg-[#DCE4DF] hover:bg-[#CAD6CE] text-[#2D332F]'
+                                              }`}
+                                              title={
+                                                isBooked
+                                                  ? `${cls.title} (Reservado — tocá para cancelar)`
+                                                  : isFull
+                                                  ? `${cls.title} (Completa — tocá para lista de espera)`
+                                                  : `${cls.title} (${cls.time} hs) — Tocá para reservar`
+                                              }
+                                            >
+                                              {isBooked && <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />}
+                                              <span className="truncate">
+                                                {cls.title}
+                                                {!isBooked && isFull && !cls.is_cancelled && !comingSoon ? ' • Espera' : ''}
+                                              </span>
+                                            </button>
+                                          );
+                                        })}
                                       </div>
                                     </td>
                                   );
-                                }
-
-                                return (
-                                  <td key={wd.iso} className="p-0">
-                                    <div className="flex flex-col gap-1">
-                                      {cellClasses.map((cls) => {
-                                        const classBookings = bookings.filter((b) => b.classId === cls.id);
-                                        const isBooked = activeStudent ? classBookings.some((b) => b.studentId === activeStudent.id) : false;
-                                        const isFull = classBookings.length >= cls.capacity;
-                                        const comingSoon = isClassComingSoon(cls);
-                                        const dateBlocked = isDateBlockedForStudent(activeStudent, cls.date);
-                                        const inSequence = selectedStudentClassIds.includes(cls.id);
-                                        const canBookThis = !cls.is_cancelled && !comingSoon && !isFull && !isBooked && studentAllowed && !dateBlocked;
-
-                                        return (
-                                          <button
-                                            type="button"
-                                            key={cls.id}
-                                            onClick={() => {
-                                              if (cls.is_cancelled) return showToast('Esta clase se encuentra cancelada.', 'error');
-                                              if (comingSoon) return showToast('Próximamente: inscripción aún no habilitada.', 'error');
-                                              if (isFull && !isBooked) return handleToggleWaitlist(cls.id);
-
-                                              if (bookingSequence && !isBooked) {
-                                                if (!canBookThis) return showToast('No disponible para reservar en este horario.', 'error');
-                                                setSelectedStudentClassIds((prev) =>
-                                                  prev.includes(cls.id) ? prev.filter((x) => x !== cls.id) : [...prev, cls.id]
-                                                );
-                                                return;
-                                              }
-
-                                              handleToggleBooking(cls.id);
-                                            }}
-                                            className={`w-full py-2.5 px-2 rounded-full text-xs font-semibold transition-all truncate flex items-center justify-center gap-1 ${
-                                              cls.is_cancelled
-                                                ? 'bg-rose-100/80 text-rose-700 line-through'
-                                                : isBooked
-                                                ? 'bg-[#5C7362] text-white shadow-xs'
-                                                : inSequence
-                                                ? 'bg-[#2D332F] text-white ring-2 ring-[#5C7362]'
-                                                : comingSoon
-                                                ? 'bg-amber-100 text-amber-900'
-                                                : isFull
-                                                ? 'bg-amber-50 text-amber-900 border border-amber-200'
-                                                : 'bg-[#DCE4DF] hover:bg-[#CAD6CE] text-[#2D332F]'
-                                            }`}
-                                            title={
-                                              isBooked
-                                                ? `${cls.title} (Reservado — tocá para cancelar)`
-                                                : isFull
-                                                ? `${cls.title} (Completa — tocá para lista de espera)`
-                                                : `${cls.title} (${cls.time} hs) — Tocá para reservar`
-                                            }
-                                          >
-                                            {isBooked && <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />}
-                                            <span className="truncate">
-                                              {cls.title}
-                                              {!isBooked && isFull && !cls.is_cancelled && !comingSoon ? ' • Espera' : ''}
-                                            </span>
-                                          </button>
-                                        );
-                                      })}
-                                    </div>
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
+                                })}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )
         ) : (
           /* ================= MODO ESTUDIO ================= */
           <div className="space-y-6">
@@ -2153,17 +2366,36 @@ export default function App() {
                 ))}
               </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setIsAdminUnlocked(false);
-                  setRole('student');
-                  showToast('Sesión de estudio bloqueada');
-                }}
-                className="text-xs font-medium text-stone-600 hover:text-stone-900 flex items-center gap-1.5 bg-white px-3.5 py-2 rounded-xl border border-stone-200/80"
-              >
-                <Lock className="w-3.5 h-3.5 text-[#5C7362]" /> Bloquear Modo Estudio
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !testingProfilesMode;
+                    persistState(setTestingProfilesMode, 'satnam_testing_profiles_v1', next);
+                    showToast(next ? 'Modo prueba activado (selector de perfiles visible)' : 'Modo prueba desactivado (perfiles privados)');
+                  }}
+                  className={`text-xs font-medium flex items-center gap-1.5 px-3 py-2 rounded-xl border transition-all ${
+                    testingProfilesMode
+                      ? 'bg-amber-100 text-amber-900 border-amber-300'
+                      : 'bg-white text-stone-600 hover:text-stone-900 border-stone-200/80'
+                  }`}
+                >
+                  <FlaskConical className="w-3.5 h-3.5" />
+                  {testingProfilesMode ? 'Modo Prueba: ON' : 'Modo Prueba: OFF'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAdminUnlocked(false);
+                    setRole('student');
+                    showToast('Sesión de estudio bloqueada');
+                  }}
+                  className="text-xs font-medium text-stone-600 hover:text-stone-900 flex items-center gap-1.5 bg-white px-3.5 py-2 rounded-xl border border-stone-200/80"
+                >
+                  <Lock className="w-3.5 h-3.5 text-[#5C7362]" /> Bloquear Modo Estudio
+                </button>
+              </div>
             </div>
 
             {adminTab === 'schedule' && (
@@ -3101,734 +3333,4 @@ export default function App() {
                                   <button
                                     type="button"
                                     onClick={() => handleOpenRenewOrDates(st)}
-                                    className="flex items-center justify-center gap-1 bg-[#EDF3EE] hover:bg-[#dce8de] text-[#4C6352] py-2 px-3 rounded-xl text-xs font-semibold transition-all"
-                                  >
-                                    <CalendarRange className="w-3.5 h-3.5" /> Renovar / Fechas
-                                  </button>
-                                </div>
-
-                                <button
-                                  type="button"
-                                  onClick={() => handleTogglePausePlan(st)}
-                                  className={`w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-semibold border transition-all ${
-                                    paused ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100' : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
-                                  }`}
-                                >
-                                  <Ban className="w-3.5 h-3.5" />
-                                  {paused ? 'Reactivar Plan' : 'Pausar / Cancelar Plan'}
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-      </main>
-
-      <footer className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-[#E5E0D8] py-2 px-4 text-center z-30">
-        <p className="text-xs text-stone-600 tracking-wide">
-          © {new Date().getFullYear()} <strong className="font-semibold text-stone-800">Espacio Sat-Nam</strong> •{' '}
-          <span className="font-medium text-[#5C7362]">by Patricia Aleman</span>. Todos los derechos reservados.
-        </p>
-      </footer>
-
-      {role === 'admin' && (
-        <nav className="md:hidden fixed bottom-8 left-0 right-0 bg-white border-t border-stone-200 flex justify-around py-2 px-1 z-40">
-          {adminNavItems.map(({ id, shortLabel, Icon }) => (
-            <button
-              type="button"
-              key={id}
-              onClick={() => setAdminTab(id)}
-              className={`flex flex-col items-center gap-0.5 text-[10px] font-medium ${
-                adminTab === id ? 'text-[#5C7362]' : 'text-stone-400'
-              }`}
-            >
-              <Icon className="w-4 h-4" /> {shortLabel}
-            </button>
-          ))}
-        </nav>
-      )}
-
-      {/* ================= MODALES ================= */}
-      {pendingDeleteConfirm && (
-        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl text-center">
-            <h3 className="font-semibold text-lg text-rose-700">Confirmar eliminación</h3>
-            <p className="text-sm text-stone-600 mt-2 mb-5">
-              ¿Estás seguro de que querés borrar definitivamente <strong>{pendingDeleteConfirm.title}</strong>?
-            </p>
-            <div className="flex gap-2">
-              <button type="button" onClick={() => setPendingDeleteConfirm(null)} className="flex-1 py-2.5 rounded-xl text-xs font-medium bg-stone-100 text-stone-700 hover:bg-stone-200">
-                Cancelar
-              </button>
-              <button type="button" onClick={handleConfirmDelete} className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white">
-                Sí, borrar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {pendingAttendanceEdit && (
-        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl text-center">
-            <h3 className="font-semibold text-lg">Confirmar edición de asistencia</h3>
-            <p className="text-sm text-stone-600 mt-2 mb-5">
-              ¿Está seguro que desea editar la asistencia de <strong>{pendingAttendanceEdit.studentName}</strong> a{' '}
-              <strong>{pendingAttendanceEdit.nextStatus === 'attended' ? 'Asistió' : 'No asistió'}</strong>?
-            </p>
-            <div className="flex gap-2">
-              <button type="button" onClick={() => setPendingAttendanceEdit(null)} className="flex-1 py-2.5 rounded-xl text-xs font-medium bg-stone-100 text-stone-700 hover:bg-stone-200">
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const target = pendingAttendanceEdit;
-                  setPendingAttendanceEdit(null);
-                  applyAttendanceStatus(target.bookingId, target.nextStatus);
-                }}
-                className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-[#5C7362] hover:bg-[#4B5F50] text-white"
-              >
-                Sí, confirmar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showPinModal && (
-        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl max-w-xs w-full p-6 shadow-xl text-center">
-            <div className="w-12 h-12 rounded-2xl bg-[#EDF3EE] text-[#4C6352] flex items-center justify-center mx-auto mb-3">
-              <Lock className="w-6 h-6" />
-            </div>
-            <h3 className="font-semibold text-lg">Acceso Modo Estudio</h3>
-            <p className="text-xs text-stone-500 mt-1 mb-4">Ingresa el PIN de 4 dígitos para administrar la agenda y los turnos</p>
-
-            <form onSubmit={handleVerifyPin} className="space-y-3">
-              <input
-                type="password"
-                inputMode="numeric"
-                maxLength={4}
-                autoFocus
-                placeholder="••••"
-                value={pinInput}
-                onChange={(e) => {
-                  setPinInput(e.target.value.replace(/\D/g, ''));
-                  setPinError(false);
-                }}
-                className={`w-full text-center tracking-[0.6em] text-2xl font-bold border rounded-2xl py-2.5 focus:outline-none ${
-                  pinError ? 'border-rose-500 bg-rose-50 text-rose-700' : 'border-stone-200 focus:border-[#5C7362]'
-                }`}
-              />
-              {pinError && <p className="text-xs text-rose-600 font-medium">PIN incorrecto. Intenta nuevamente.</p>}
-
-              <div className="flex gap-2 pt-2">
-                <button type="button" onClick={() => setShowPinModal(false)} className="flex-1 py-2.5 rounded-xl text-xs font-medium bg-stone-100 text-stone-600 hover:bg-stone-200">
-                  Cancelar
-                </button>
-                <button type="submit" className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-[#5C7362] hover:bg-[#4B5F50] text-white">
-                  Ingresar
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {showEditProfileModal && (
-        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-semibold text-lg">Editar Mi Perfil</h3>
-              <button type="button" onClick={() => setShowEditProfileModal(false)}>
-                <XCircle className="w-5 h-5 text-stone-400" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveProfile} className="space-y-3.5 text-sm">
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">Nombre y Apellido</label>
-                <input required type="text" value={profileForm.name} onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">Teléfono WhatsApp</label>
-                <input required type="text" value={profileForm.phone} onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
-              </div>
-              <button type="submit" className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2">
-                Guardar Cambios
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {showEsteticaHistoryModal && (
-        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-semibold text-lg flex items-center gap-2">
-                <History className="w-5 h-5 text-[#5C7362]" /> Cargar Sesión de Estética
-              </h3>
-              <button type="button" onClick={() => setShowEsteticaHistoryModal(false)}>
-                <XCircle className="w-5 h-5 text-stone-400" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveEsteticaHistory} className="space-y-3.5 text-sm">
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">Alumno / Persona</label>
-                <select required value={esteticaHistoryForm.studentId} onChange={(e) => setEsteticaHistoryForm({ ...esteticaHistoryForm, studentId: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2 bg-white">
-                  {students.map((st) => (
-                    <option key={st.id} value={st.id}>{st.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">
-                    Fecha de la Sesión ({formatDateDDMMYYYY(esteticaHistoryForm.date)})
-                  </label>
-                  <input required type="date" value={esteticaHistoryForm.date} onChange={(e) => setEsteticaHistoryForm({ ...esteticaHistoryForm, date: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">Tratamiento Realizado</label>
-                  <input required type="text" placeholder="Ej. Limpieza Facial, Masaje..." value={esteticaHistoryForm.treatment} onChange={(e) => setEsteticaHistoryForm({ ...esteticaHistoryForm, treatment: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">Observaciones (opcional)</label>
-                <input type="text" placeholder="Ej. Piel sensible, recomendar hidratación..." value={esteticaHistoryForm.notes} onChange={(e) => setEsteticaHistoryForm({ ...esteticaHistoryForm, notes: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
-              </div>
-
-              <button type="submit" className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2">
-                Guardar en Historial
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {showVacationModal && (
-        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto space-y-4">
-            <div className="flex justify-between items-center">
-              <h3 className="font-semibold text-lg flex items-center gap-2">
-                <Palmtree className="w-5 h-5 text-[#5C7362]" /> Licencia / Vacaciones
-              </h3>
-              <button type="button" onClick={() => setShowVacationModal(false)}>
-                <XCircle className="w-5 h-5 text-stone-400" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveVacationPeriod} className="space-y-3.5 text-sm border-b border-stone-100 pb-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">Desde ({formatDateDDMMYYYY(vacationForm.startDate)})</label>
-                  <input required type="date" value={vacationForm.startDate} onChange={(e) => setVacationForm({ ...vacationForm, startDate: e.target.value })} className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">Hasta ({formatDateDDMMYYYY(vacationForm.endDate)})</label>
-                  <input required type="date" value={vacationForm.endDate} onChange={(e) => setVacationForm({ ...vacationForm, endDate: e.target.value })} className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs" />
-                </div>
-              </div>
-
-              <button type="submit" className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl">
-                Bloquear Días y Cancelar Clases
-              </button>
-            </form>
-
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider">Períodos Configurados ({vacationPeriods.length})</p>
-              {vacationPeriods.length === 0 ? (
-                <p className="text-xs text-stone-400 italic">No hay licencias o vacaciones cargadas.</p>
-              ) : (
-                <div className="space-y-2 max-h-40 overflow-y-auto">
-                  {vacationPeriods.map((vp) => (
-                    <div key={vp.id} className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200 flex items-center justify-between text-xs">
-                      <span>Del <strong>{formatDateDDMMYYYY(vp.startDate)}</strong> al <strong>{formatDateDDMMYYYY(vp.endDate)}</strong></span>
-                      <button type="button" onClick={() => handleRemoveVacationPeriod(vp.id)} className="text-rose-600 hover:bg-rose-100 p-1 rounded-lg" title="Quitar período y reactivar clases">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showServiceModal && (
-        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto space-y-5">
-            <div className="flex justify-between items-center">
-              <h3 className="font-semibold text-lg">{editingServiceId ? 'Editar Servicio y Cupo' : 'Servicios & Cupos Base'}</h3>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowServiceModal(false);
-                  setEditingServiceId(null);
-                  setServiceForm(EMPTY_SERVICE_FORM);
-                }}
-              >
-                <XCircle className="w-5 h-5 text-stone-400" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveService} className="space-y-3 text-sm border-b border-stone-100 pb-4">
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">Nombre del Servicio</label>
-                <input required type="text" placeholder="Ej. Yoga, Spinning, Estética..." value={serviceForm.label} onChange={(e) => setServiceForm({ ...serviceForm, label: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">Categoría</label>
-                  <select value={serviceForm.pillar} onChange={(e) => setServiceForm({ ...serviceForm, pillar: e.target.value })} className="w-full border border-stone-200 rounded-xl px-2.5 py-2 bg-white text-xs">
-                    {SERVICE_PILLARS.map((p) => (
-                      <option key={p.id} value={p.id}>{p.label}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">Cupo Guardado</label>
-                  <input required type="number" min="1" max="60" value={serviceForm.defaultCap} onChange={(e) => setServiceForm({ ...serviceForm, defaultCap: e.target.value })} className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs" />
-                </div>
-              </div>
-
-              <label className="flex items-center gap-2 cursor-pointer text-xs text-stone-700">
-                <input type="checkbox" checked={serviceForm.isClass} onChange={(e) => setServiceForm({ ...serviceForm, isClass: e.target.checked })} className="rounded accent-[#5C7362] w-4 h-4" />
-                Es clase grupal regular (requiere plan para alumnos; sin plan acceden a sesiones/tratamientos)
-              </label>
-
-              <div className="flex gap-2 pt-1">
-                {editingServiceId && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingServiceId(null);
-                      setServiceForm(EMPTY_SERVICE_FORM);
-                    }}
-                    className="px-3 py-2 rounded-xl text-xs font-medium bg-stone-100 text-stone-600"
-                  >
-                    Cancelar
-                  </button>
-                )}
-                <button type="submit" className="flex-1 bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2 rounded-xl text-xs">
-                  {editingServiceId ? 'Guardar Cupo y Servicio' : 'Guardar Servicio'}
-                </button>
-              </div>
-            </form>
-
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider">Servicios Existentes ({services.length})</p>
-              <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
-                {services.map((srv) => (
-                  <div key={srv.id} className="p-2.5 rounded-xl bg-[#F7F5F0] border border-stone-200/80 flex items-center justify-between gap-2">
-                    <div>
-                      <p className="text-xs font-semibold text-[#2D332F]">{srv.label}</p>
-                      <p className="text-[11px] text-stone-500">
-                        {srv.isClass ? 'Clase regular' : 'Sesión / Tratamiento'} • Cupo guardado: <strong>{srv.defaultCap}</strong>
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditingServiceId(srv.id);
-                          setServiceForm({ label: srv.label, pillar: srv.pillar, isClass: Boolean(srv.isClass), defaultCap: srv.defaultCap });
-                        }}
-                        className="p-1.5 text-stone-700 bg-white hover:bg-stone-100 rounded-lg border border-stone-200"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" />
-                      </button>
-                      <button type="button" onClick={() => handleRequestDeleteService(srv)} className="p-1.5 text-rose-600 bg-white hover:bg-rose-50 rounded-lg border border-rose-200">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showClassModal && (
-        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-semibold text-lg">{editingClassId ? 'Editar Horario' : 'Nuevo Horario'}</h3>
-              <button type="button" onClick={() => setShowClassModal(false)}>
-                <XCircle className="w-5 h-5 text-stone-400" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveClass} className="space-y-3.5 text-sm">
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-medium text-stone-600">Servicio</label>
-                  <span className="text-[11px] text-[#5C7362] font-semibold">
-                    Cupo del servicio: {getServiceDefaultCapacity(classForm.category)}
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {services.map((srv) => (
-                    <button
-                      type="button"
-                      key={srv.id}
-                      onClick={() =>
-                        setClassForm((prev) => ({
-                          ...prev,
-                          category: srv.id,
-                          title: prev.isCustomTitle ? prev.title : srv.label
-                        }))
-                      }
-                      className={`py-2 px-2.5 rounded-xl border text-xs font-medium text-left transition-all ${
-                        classForm.category === srv.id ? 'bg-[#5C7362] text-white border-transparent' : 'bg-[#F7F5F0] text-stone-600 border-stone-200'
-                      }`}
-                    >
-                      {srv.label} ({srv.defaultCap})
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-medium text-stone-600">Nombre en grilla</label>
-                  <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-stone-500">
-                    <input
-                      type="checkbox"
-                      checked={classForm.isCustomTitle}
-                      onChange={(e) => {
-                        const custom = e.target.checked;
-                        const srv = services.find((s) => s.id === classForm.category);
-                        setClassForm({ ...classForm, isCustomTitle: custom, title: custom ? classForm.title : srv?.label || '' });
-                      }}
-                      className="rounded accent-[#5C7362] w-3.5 h-3.5"
-                    />
-                    Personalizar
-                  </label>
-                </div>
-
-                <input
-                  required
-                  type="text"
-                  disabled={!classForm.isCustomTitle}
-                  value={classForm.isCustomTitle ? classForm.title : services.find((s) => s.id === classForm.category)?.label || ''}
-                  onChange={(e) => setClassForm({ ...classForm, title: e.target.value })}
-                  className={`w-full border border-stone-200 rounded-xl px-3 py-2 text-sm ${
-                    !classForm.isCustomTitle ? 'bg-stone-50 text-stone-700 font-medium' : 'bg-white'
-                  }`}
-                />
-              </div>
-
-              {!editingClassId && (
-                <>
-                  <div>
-                    <label className="block text-xs font-medium text-stone-600 mb-1.5">
-                      Días (desde {formatDateDDMMYYYY(selectedDate)}):
-                    </label>
-                    <div className="grid grid-cols-7 gap-1">
-                      {DAYS_OF_WEEK_ALL.map((day) => {
-                        const isSelected = classForm.selectedDays.includes(day.id);
-                        return (
-                          <button
-                            type="button"
-                            key={day.id}
-                            onClick={() => {
-                              const updated = isSelected ? classForm.selectedDays.filter((d) => d !== day.id) : [...classForm.selectedDays, day.id];
-                              setClassForm({ ...classForm, selectedDays: updated });
-                            }}
-                            className={`py-2 rounded-xl text-xs font-medium border text-center transition-all ${
-                              isSelected ? 'bg-[#5C7362] text-white border-transparent' : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
-                            }`}
-                          >
-                            {day.short}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-stone-600 mb-1">Repetición semanal</label>
-                    <select value={classForm.weeksCount} onChange={(e) => setClassForm({ ...classForm, weeksCount: Number(e.target.value) })} className="w-full border border-stone-200 rounded-xl px-3 py-2 bg-white text-sm">
-                      <option value={1}>Solo esta semana (1 semana)</option>
-                      <option value={2}>Durante 2 semanas</option>
-                      <option value={4}>Durante 4 semanas (1 mes)</option>
-                    </select>
-                  </div>
-                </>
-              )}
-
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">Hora</label>
-                  <input required type="time" value={classForm.time} onChange={(e) => setClassForm({ ...classForm, time: e.target.value })} className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">Duración (min)</label>
-                  <input required type="number" min="15" max="480" value={classForm.duration} onChange={(e) => setClassForm({ ...classForm, duration: e.target.value })} className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs" />
-                </div>
-              </div>
-
-              <label className="flex items-center gap-2 cursor-pointer bg-amber-50/70 p-2.5 rounded-xl border border-amber-200 text-xs text-amber-900">
-                <input type="checkbox" checked={classForm.comingSoon} onChange={(e) => setClassForm({ ...classForm, comingSoon: e.target.checked })} className="rounded accent-[#5C7362] w-4 h-4" />
-                Marcar como “Próximamente”
-              </label>
-
-              <button type="submit" className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2">
-                {editingClassId ? 'Guardar Cambios' : 'Guardar Horario'}
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {showStudentModal && (
-        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-semibold text-lg">{editingStudentId ? 'Editar Registro' : 'Nuevo Registro'}</h3>
-              <button type="button" onClick={() => setShowStudentModal(false)}>
-                <XCircle className="w-5 h-5 text-stone-400" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveStudent} className="space-y-3.5 text-sm">
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">Nombre Completo</label>
-                <input required type="text" placeholder="Ej. María Gómez" value={studentForm.name} onChange={(e) => setStudentForm({ ...studentForm, name: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">Teléfono WhatsApp</label>
-                <input required type="text" placeholder="Ej. +5491123456789" value={studentForm.phone} onChange={(e) => setStudentForm({ ...studentForm, phone: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">Plan / Modalidad</label>
-                  <select
-                    value={studentForm.plan}
-                    onChange={(e) => {
-                      const chosenPlan = e.target.value;
-                      setStudentForm({ ...studentForm, plan: chosenPlan, credits: getDefaultCreditsForPlan(chosenPlan) });
-                    }}
-                    className="w-full border border-stone-200 rounded-xl px-3 py-2 bg-white"
-                  >
-                    {plans.filter((p) => !p.comingSoon).map((p) => (
-                      <option key={p.id} value={p.name}>{p.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">Sesiones / Clases</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="99"
-                    disabled={isUnlimitedPlan(studentForm.plan) || getPlanConfig(studentForm.plan).isNone}
-                    value={getPlanConfig(studentForm.plan).isNone ? 0 : isUnlimitedPlan(studentForm.plan) ? 99 : studentForm.credits}
-                    onChange={(e) => setStudentForm({ ...studentForm, credits: e.target.value })}
-                    className="w-full border border-stone-200 rounded-xl px-3 py-2 disabled:bg-stone-100"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">Seguimiento de clases</label>
-                <select value={studentForm.absenceReason} onChange={(e) => setStudentForm({ ...studentForm, absenceReason: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2 bg-white text-xs">
-                  <option value="none">Normal / Activo</option>
-                  <option value="vacation_pause">Suspensión por vacaciones</option>
-                  <option value="not_renewed">No renovó</option>
-                </select>
-              </div>
-
-              {!editingStudentId && hasActiveSubscriptionPlan({ plan: studentForm.plan }) && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-stone-600 mb-1">Fecha de Inicio</label>
-                    <input
-                      required
-                      type="date"
-                      value={studentForm.startDate}
-                      onChange={(e) => {
-                        const nextStart = e.target.value;
-                        setStudentForm({ ...studentForm, startDate: nextStart, expiryDate: addDaysToISO(nextStart, 30) });
-                      }}
-                      className="w-full border border-stone-200 rounded-xl px-3 py-2"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-stone-600 mb-1">Fecha de Vencimiento</label>
-                    <input required type="date" value={studentForm.expiryDate} onChange={(e) => setStudentForm({ ...studentForm, expiryDate: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
-                  </div>
-                </div>
-              )}
-
-              <button type="submit" className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2">
-                {editingStudentId ? 'Guardar Cambios' : 'Guardar Registro'}
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {showRenewDatesModal && (
-        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-semibold text-lg">Renovar / Modificar Fechas</h3>
-              <button type="button" onClick={() => setShowRenewDatesModal(false)}>
-                <XCircle className="w-5 h-5 text-stone-400" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveRenewAndDates} className="space-y-3.5 text-sm">
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">Fecha de Inicio del Plan</label>
-                <input
-                  required
-                  type="date"
-                  value={renewDatesForm.startDate}
-                  onChange={(e) => {
-                    const nextStart = e.target.value;
-                    setRenewDatesForm({ ...renewDatesForm, startDate: nextStart, expiryDate: addDaysToISO(nextStart, 30) });
-                  }}
-                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">Fecha de Vencimiento</label>
-                <input required type="date" value={renewDatesForm.expiryDate} onChange={(e) => setRenewDatesForm({ ...renewDatesForm, expiryDate: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
-              </div>
-
-              <label className="flex items-center gap-2 cursor-pointer bg-[#F7F5F0] p-2.5 rounded-xl border border-stone-200 text-xs">
-                <input type="checkbox" checked={renewDatesForm.resetCredits} onChange={(e) => setRenewDatesForm({ ...renewDatesForm, resetCredits: e.target.checked })} className="rounded accent-[#5C7362] w-4 h-4" />
-                Restablecer sesiones del plan al renovar
-              </label>
-
-              <button type="submit" className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2">
-                Guardar Renovación / Fechas
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {showPlanManagerModal && (
-        <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto space-y-4">
-            <div className="flex justify-between items-center">
-              <h3 className="font-semibold text-lg">{editingPlanId ? 'Editar Plan' : 'Crear y Editar Planes'}</h3>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowPlanManagerModal(false);
-                  setEditingPlanId(null);
-                  setPlanForm(EMPTY_PLAN_FORM);
-                }}
-              >
-                <XCircle className="w-5 h-5 text-stone-400" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSavePlanDefinition} className="space-y-3 text-sm border-b border-stone-100 pb-4">
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">Nombre del Plan</label>
-                <input required type="text" placeholder="Ej. Mensual - 4 veces por semana" value={planForm.name} onChange={(e) => setPlanForm({ ...planForm, name: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">Precio ($$)</label>
-                  <input required={!planForm.comingSoon} type="number" min="0" step="100" disabled={planForm.comingSoon} value={planForm.comingSoon ? 0 : planForm.price} onChange={(e) => setPlanForm({ ...planForm, price: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2 text-xs disabled:bg-stone-100" />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">Cantidad de clases</label>
-                  <input type="number" min="1" max="99" disabled={planForm.isUnlimited} value={planForm.isUnlimited ? 99 : planForm.credits} onChange={(e) => setPlanForm({ ...planForm, credits: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2 text-xs disabled:bg-stone-100" />
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-4">
-                <label className="flex items-center gap-2 cursor-pointer text-xs text-stone-700">
-                  <input type="checkbox" checked={planForm.isUnlimited} onChange={(e) => setPlanForm({ ...planForm, isUnlimited: e.target.checked })} className="rounded accent-[#5C7362] w-4 h-4" />
-                  Pase Libre
-                </label>
-
-                <label className="flex items-center gap-2 cursor-pointer text-xs text-amber-800 font-medium">
-                  <input type="checkbox" checked={planForm.comingSoon} onChange={(e) => setPlanForm({ ...planForm, comingSoon: e.target.checked })} className="rounded accent-[#5C7362] w-4 h-4" />
-                  Próximamente (sin precio confirmado aún)
-                </label>
-              </div>
-
-              <div className="flex gap-2">
-                {editingPlanId && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingPlanId(null);
-                      setPlanForm(EMPTY_PLAN_FORM);
-                    }}
-                    className="px-3 py-2 rounded-xl text-xs font-medium bg-stone-100 text-stone-600"
-                  >
-                    Cancelar
-                  </button>
-                )}
-                <button type="submit" className="flex-1 bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2 rounded-xl text-xs">
-                  {editingPlanId ? 'Guardar Plan' : 'Crear y Publicar Plan'}
-                </button>
-              </div>
-            </form>
-
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider">Todos los planes ({publishedPlansForStudents.length})</p>
-              <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
-                {publishedPlansForStudents.map((p) => (
-                  <div key={p.id} className="p-2.5 rounded-xl bg-[#F7F5F0] border border-stone-200/80 flex items-center justify-between gap-2 text-xs">
-                    <div>
-                      <p className="font-semibold text-[#2D332F]">{p.name}</p>
-                      <p className="text-[11px] text-stone-500">
-                        {p.isUnlimited ? 'Pase Libre' : `${p.credits} clases`} •{' '}
-                        {p.comingSoon ? <strong className="text-amber-700">Próximamente</strong> : <strong className="text-[#5C7362]">{formatPriceARS(p.price)}</strong>}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingPlanId(p.id);
-                        setPlanForm({ name: p.name, credits: p.credits, price: p.price || 0, isUnlimited: Boolean(p.isUnlimited), comingSoon: Boolean(p.comingSoon) });
-                      }}
-                      className="p-1.5 text-stone-700 bg-white hover:bg-stone-100 rounded-lg border border-stone-200"
-                      title="Editar plan"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+                                    className="flex items-center justify-center gap-1 bg-[#EDF3EE] hover:bg-[#dce8de] text-[#4C63
