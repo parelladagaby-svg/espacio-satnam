@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import {
   Calendar,
@@ -35,18 +35,21 @@ import {
   CalendarRange,
   ClipboardCheck,
   Palmtree,
-  Bell,
   Clock3,
   ListPlus,
-  History
+  History,
+  Layers,
+  CopyPlus
 } from 'lucide-react';
 
-// Conexión a Supabase
-const supabaseUrl = 'https://miwktvtdygetyzqvccal.supabase.co';
-const supabaseKey = 'sb_publishable_45-FeV94kQsHYfau3pJPjg_DOo7R6yx';
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabase = createClient(
+  'https://miwktvtdygetyzqvccal.supabase.co',
+  'sb_publishable_45-FeV94kQsHYfau3pJPjg_DOo7R6yx'
+);
 
 const ADMIN_PIN = '1008';
+const DAY_MS = 86_400_000;
+const NO_PLAN_LABEL = 'Sin Plan (Solo Sesiones / Masajes)';
 
 const PILLARS = [
   { id: 'Todas', label: 'Todas' },
@@ -55,11 +58,7 @@ const PILLARS = [
   { id: 'estetica', label: 'Cuidado & Estética' }
 ];
 
-const SELECTABLE_PILLARS = [
-  { id: 'cuerpo', label: 'Cuerpo & Movimiento' },
-  { id: 'mente', label: 'Mente & Procesos' },
-  { id: 'estetica', label: 'Cuidado & Estética' }
-];
+const SELECTABLE_PILLARS = PILLARS.filter((p) => p.id !== 'Todas');
 
 const INITIAL_SERVICES = [
   { id: 'Yoga', label: 'Yoga', pillar: 'cuerpo', isClass: true, defaultCap: 12 },
@@ -73,7 +72,7 @@ const INITIAL_SERVICES = [
 ];
 
 const INITIAL_PLANS = [
-  { id: 'sin_plan', name: 'Sin Plan (Solo Sesiones / Masajes)', credits: 0, price: 0, isUnlimited: false, isNone: true, comingSoon: false },
+  { id: 'sin_plan', name: NO_PLAN_LABEL, credits: 0, price: 0, isUnlimited: false, isNone: true, comingSoon: false },
   { id: 'sesion_ind', name: 'Sesión Individual (Coaching / PNL / Constelaciones / Estética)', credits: 1, price: 35000, isUnlimited: false, comingSoon: false },
   { id: 'taller_const', name: 'Taller de Constelaciones / Evento Especial', credits: 1, price: 40000, isUnlimited: false, comingSoon: false },
   { id: 'clase_ind', name: 'Clase Individual', credits: 1, price: 18000, isUnlimited: false, comingSoon: false },
@@ -83,14 +82,22 @@ const INITIAL_PLANS = [
   { id: 'pase_libre', name: 'Pase Libre Clases', credits: 99, price: 130000, isUnlimited: true, comingSoon: false }
 ];
 
-const DAYS_OF_WEEK = [
-  { id: 1, short: 'Lun', label: 'Lunes' },
-  { id: 2, short: 'Mar', label: 'Martes' },
-  { id: 3, short: 'Mié', label: 'Miércoles' },
-  { id: 4, short: 'Jue', label: 'Jueves' },
-  { id: 5, short: 'Vie', label: 'Viernes' },
-  { id: 6, short: 'Sáb', label: 'Sábado' },
-  { id: 0, short: 'Dom', label: 'Domingo' }
+const WEEKDAYS_MON_FRI = [
+  { dayId: 1, label: 'LUNES', short: 'Lun' },
+  { dayId: 2, label: 'MARTES', short: 'Mar' },
+  { dayId: 3, label: 'MIÉRCOLES', short: 'Mié' },
+  { dayId: 4, label: 'JUEVES', short: 'Jue' },
+  { dayId: 5, label: 'VIERNES', short: 'Vie' }
+];
+
+const DAYS_OF_WEEK_ALL = [
+  { id: 1, short: 'Lun' },
+  { id: 2, short: 'Mar' },
+  { id: 3, short: 'Mié' },
+  { id: 4, short: 'Jue' },
+  { id: 5, short: 'Vie' },
+  { id: 6, short: 'Sáb' },
+  { id: 0, short: 'Dom' }
 ];
 
 const MONTH_NAMES = [
@@ -98,7 +105,8 @@ const MONTH_NAMES = [
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
 ];
 
-const DAY_SHORT_NAMES = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+const EMPTY_SERVICE_FORM = { label: '', pillar: 'cuerpo', isClass: true, defaultCap: 10 };
+const EMPTY_PLAN_FORM = { name: '', credits: 4, price: 50000, isUnlimited: false, comingSoon: false };
 
 const readLocalJSON = (key, fallback) => {
   try {
@@ -109,26 +117,10 @@ const readLocalJSON = (key, fallback) => {
   }
 };
 
-const formatDateDDMMYYYY = (dateStr) => {
-  if (!dateStr) return '';
-  const clean = String(dateStr).split('T')[0];
-  const [year, month, day] = clean.split('-');
-  if (!year || !month || !day) return dateStr;
-  return `${day}-${month}-${year}`;
-};
-
-const formatPriceARS = (value) => `$ ${Number(value || 0).toLocaleString('es-AR')}`;
-
-const formatTimestamp = (isoStr) => {
-  if (!isoStr) return '';
-  const d = new Date(isoStr);
-  if (Number.isNaN(d.getTime())) return isoStr;
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const year = d.getFullYear();
-  const hh = String(d.getHours()).padStart(2, '0');
-  const mm = String(d.getMinutes()).padStart(2, '0');
-  return `${day}-${month}-${year} ${hh}:${mm}`;
+const writeLocalJSON = (key, value) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {}
 };
 
 const toISODate = (dateObj) => {
@@ -145,16 +137,34 @@ const addDaysToISO = (isoDate, days) => {
   return toISODate(base);
 };
 
-const getWeekDays = (cursor) => {
-  const start = new Date(cursor);
-  const day = start.getDay();
-  const diff = start.getDate() - day + (day === 0 ? -6 : 1);
-  start.setDate(diff);
-  return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(start);
-    d.setDate(start.getDate() + i);
-    return d;
-  });
+const diffDaysISO = (targetISO, baseISO) => {
+  const a = new Date(`${targetISO}T00:00:00`).getTime();
+  const b = new Date(`${baseISO}T00:00:00`).getTime();
+  return Math.ceil((a - b) / DAY_MS);
+};
+
+const formatDateDDMMYYYY = (dateStr) => {
+  if (!dateStr) return '';
+  const [year, month, day] = String(dateStr).split('T')[0].split('-');
+  return year && month && day ? `${day}-${month}-${year}` : dateStr;
+};
+
+const formatPriceARS = (value) => `$ ${Number(value || 0).toLocaleString('es-AR')}`;
+
+const formatTimestamp = (isoStr) => {
+  if (!isoStr) return '';
+  const d = new Date(isoStr);
+  if (Number.isNaN(d.getTime())) return isoStr;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+const getMondayOfWeek = (cursor) => {
+  const d = new Date(cursor);
+  const day = d.getDay();
+  d.setDate(d.getDate() - day + (day === 0 ? -6 : 1));
+  d.setHours(0, 0, 0, 0);
+  return d;
 };
 
 const getMonthGridDays = (cursor) => {
@@ -163,17 +173,15 @@ const getMonthGridDays = (cursor) => {
   const firstDay = new Date(year, month, 1);
   const lastDay = new Date(year, month + 1, 0);
   const startOffset = (firstDay.getDay() + 6) % 7;
-  const days = [];
-  for (let i = 0; i < startOffset; i++) days.push(null);
-  for (let d = 1; d <= lastDay.getDate(); d++) days.push(new Date(year, month, d));
-  return days;
+  return [
+    ...Array.from({ length: startOffset }, () => null),
+    ...Array.from({ length: lastDay.getDate() }, (_, idx) => new Date(year, month, idx + 1))
+  ];
 };
 
 function SatNamLogo({ className = 'w-11 h-11' }) {
   return (
-    <div
-      className={`${className} rounded-2xl bg-[#5C7362] p-1.5 flex items-center justify-center text-white shadow-xs shrink-0`}
-    >
+    <div className={`${className} rounded-2xl bg-[#5C7362] p-1.5 flex items-center justify-center text-white shadow-xs shrink-0`}>
       <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
         <path d="M32 7C25.5 18.5 23 30 32 44.5C41 30 38.5 18.5 32 7Z" fill="white" fillOpacity="0.96" />
         <path d="M28.5 43.5C17 36.8 11.2 25.2 13.6 14C22.8 18.8 27.6 29.5 28.5 43.5Z" fill="white" fillOpacity="0.78" />
@@ -206,6 +214,7 @@ export default function App() {
   const [waitlistMap, setWaitlistMap] = useState(() => readLocalJSON('satnam_waitlist_v1', {}));
   const [comingSoonClassesMap, setComingSoonClassesMap] = useState(() => readLocalJSON('satnam_coming_soon_classes_v1', {}));
   const [esteticaHistoryList, setEsteticaHistoryList] = useState(() => readLocalJSON('satnam_estetica_history_v1', []));
+  const [esteticaWeeksMap, setEsteticaWeeksMap] = useState(() => readLocalJSON('satnam_estetica_weeks_v1', {}));
 
   const [students, setStudents] = useState([]);
   const [classes, setClasses] = useState([]);
@@ -214,14 +223,9 @@ export default function App() {
   const [pendingAttendanceEdit, setPendingAttendanceEdit] = useState(null);
   const [pendingDeleteConfirm, setPendingDeleteConfirm] = useState(null);
 
-  const [showVacationModal, setShowVacationModal] = useState(false);
-  const [vacationForm, setVacationForm] = useState({
-    startDate: toISODate(new Date()),
-    endDate: addDaysToISO(toISODate(new Date()), 7)
-  });
-
+  const todayISO = useMemo(() => toISODate(new Date()), []);
   const [activeStudentId, setActiveStudentId] = useState('');
-  const [selectedDate, setSelectedDate] = useState(toISODate(new Date()));
+  const [selectedDate, setSelectedDate] = useState(() => toISODate(new Date()));
   const [studentCalendarMonth, setStudentCalendarMonth] = useState(() => new Date());
   const [pillarFilter, setPillarFilter] = useState('Todas');
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
@@ -230,8 +234,11 @@ export default function App() {
   const [openStudentAgendaPanel, setOpenStudentAgendaPanel] = useState(true);
   const [openStudentPlansPanel, setOpenStudentPlansPanel] = useState(false);
 
-  const [calendarView, setCalendarView] = useState('week');
-  const [calendarCursor, setCalendarCursor] = useState(new Date());
+  const [weekCursor, setWeekCursor] = useState(() => getMondayOfWeek(new Date()));
+  const [selectedSequenceIds, setSelectedSequenceIds] = useState([]);
+  const [bulkTimeInput, setBulkTimeInput] = useState('');
+  const [repeatingWeek, setRepeatingWeek] = useState(false);
+
   const [attendanceServiceFilter, setAttendanceServiceFilter] = useState('ALL');
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -244,7 +251,7 @@ export default function App() {
   const [showEsteticaHistoryModal, setShowEsteticaHistoryModal] = useState(false);
   const [esteticaHistoryForm, setEsteticaHistoryForm] = useState({
     studentId: '',
-    date: addDaysToISO(toISODate(new Date()), -15),
+    date: addDaysToISO(toISODate(new Date()), -21),
     treatment: 'Limpieza Facial Profunda',
     notes: ''
   });
@@ -252,22 +259,11 @@ export default function App() {
   const [openPaymentsPanel, setOpenPaymentsPanel] = useState('renew');
   const [showPlanManagerModal, setShowPlanManagerModal] = useState(false);
   const [editingPlanId, setEditingPlanId] = useState(null);
-  const [planForm, setPlanForm] = useState({
-    name: '',
-    credits: 4,
-    price: 50000,
-    isUnlimited: false,
-    comingSoon: false
-  });
+  const [planForm, setPlanForm] = useState(EMPTY_PLAN_FORM);
 
   const [showServiceModal, setShowServiceModal] = useState(false);
   const [editingServiceId, setEditingServiceId] = useState(null);
-  const [serviceForm, setServiceForm] = useState({
-    label: '',
-    pillar: 'cuerpo',
-    isClass: true,
-    defaultCap: 10
-  });
+  const [serviceForm, setServiceForm] = useState(EMPTY_SERVICE_FORM);
 
   const [showClassModal, setShowClassModal] = useState(false);
   const [editingClassId, setEditingClassId] = useState(null);
@@ -276,9 +272,8 @@ export default function App() {
     title: 'Yoga',
     isCustomTitle: false,
     instructor: 'Patricia Aleman',
-    time: '10:00',
+    time: '08:00',
     duration: 60,
-    capacity: 12,
     selectedDays: [1, 3, 5],
     weeksCount: 4,
     comingSoon: false
@@ -290,8 +285,8 @@ export default function App() {
     name: '',
     phone: '',
     plan: 'Mensual - 2 veces por semana',
-    startDate: toISODate(new Date()),
-    expiryDate: toISODate(new Date(Date.now() + 30 * 86400000)),
+    startDate: todayISO,
+    expiryDate: addDaysToISO(todayISO, 30),
     credits: 8,
     absenceReason: 'none'
   });
@@ -299,116 +294,186 @@ export default function App() {
   const [showRenewDatesModal, setShowRenewDatesModal] = useState(false);
   const [renewDatesStudentId, setRenewDatesStudentId] = useState(null);
   const [renewDatesForm, setRenewDatesForm] = useState({
-    startDate: toISODate(new Date()),
-    expiryDate: toISODate(new Date(Date.now() + 30 * 86400000)),
+    startDate: todayISO,
+    expiryDate: addDaysToISO(todayISO, 30),
     resetCredits: true
   });
 
-  const todayISO = toISODate(new Date());
+  const [showVacationModal, setShowVacationModal] = useState(false);
+  const [vacationForm, setVacationForm] = useState({
+    startDate: todayISO,
+    endDate: addDaysToISO(todayISO, 7)
+  });
 
-  const showToast = (message, type = 'success') => {
+  const toastTimerRef = useRef(null);
+  const activeStudentIdRef = useRef(activeStudentId);
+  activeStudentIdRef.current = activeStudentId;
+
+  const showToast = useCallback((message, type = 'success') => {
     setNotification({ message, type });
-    setTimeout(() => setNotification(null), 3500);
-  };
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setNotification(null), 3500);
+  }, []);
 
-  const persistState = (setter, key, value) => {
+  useEffect(() => () => toastTimerRef.current && clearTimeout(toastTimerRef.current), []);
+
+  const persistState = useCallback((setter, key, value) => {
     setter(value);
-    localStorage.setItem(key, JSON.stringify(value));
-  };
+    writeLocalJSON(key, value);
+  }, []);
 
-  const isClassComingSoon = (cls) => Boolean(cls && comingSoonClassesMap[cls.id]);
+  const getServiceDefaultCapacity = useCallback(
+    (categoryId) => Number(services.find((s) => s.id === categoryId)?.defaultCap) || 10,
+    [services]
+  );
 
-  const getVacationForDate = (isoDate) =>
-    isoDate ? vacationPeriods.find((vp) => isoDate >= vp.startDate && isoDate <= vp.endDate) || null : null;
+  const isClassComingSoon = useCallback((cls) => Boolean(cls && comingSoonClassesMap[cls.id]), [comingSoonClassesMap]);
 
-  const getPlanConfig = (planName) =>
-    plans.find((p) => p.name === planName) || {
-      name: planName,
-      credits: 4,
-      price: 0,
-      isUnlimited: false,
-      isNone: false,
-      comingSoon: false
-    };
+  const getVacationForDate = useCallback(
+    (isoDate) => (isoDate ? vacationPeriods.find((vp) => isoDate >= vp.startDate && isoDate <= vp.endDate) || null : null),
+    [vacationPeriods]
+  );
 
-  const hasActiveSubscriptionPlan = (student) => {
-    if (!student) return false;
-    const cfg = getPlanConfig(student.plan);
-    return !cfg.isNone && student.plan !== 'Sin Plan (Solo Sesiones / Masajes)';
-  };
+  const getPlanConfig = useCallback(
+    (planName) =>
+      plans.find((p) => p.name === planName) || {
+        name: planName,
+        credits: 4,
+        price: 0,
+        isUnlimited: false,
+        isNone: false,
+        comingSoon: false
+      },
+    [plans]
+  );
 
-  const isUnlimitedPlan = (planName) => Boolean(getPlanConfig(planName).isUnlimited);
+  const hasActiveSubscriptionPlan = useCallback(
+    (student) => Boolean(student && !getPlanConfig(student.plan).isNone && student.plan !== NO_PLAN_LABEL),
+    [getPlanConfig]
+  );
 
-  const getDefaultCreditsForPlan = (planName) => {
-    const cfg = getPlanConfig(planName);
-    if (cfg.isNone) return 0;
-    if (cfg.isUnlimited) return 99;
-    return Number(cfg.credits) || 1;
-  };
+  const isUnlimitedPlan = useCallback((planName) => Boolean(getPlanConfig(planName).isUnlimited), [getPlanConfig]);
 
-  const isPlanPaused = (student) => {
-    if (!student) return false;
-    const reason = planMetaMap[student.id]?.absenceReason;
-    return (
-      student.status === 'paused' ||
-      Boolean(planMetaMap[student.id]?.isPaused) ||
-      reason === 'vacation_pause' ||
-      reason === 'not_renewed'
-    );
-  };
+  const getDefaultCreditsForPlan = useCallback(
+    (planName) => {
+      const cfg = getPlanConfig(planName);
+      if (cfg.isNone) return 0;
+      if (cfg.isUnlimited) return 99;
+      return Number(cfg.credits) || 1;
+    },
+    [getPlanConfig]
+  );
 
-  const isPlanExpired = (student) => {
-    if (!student || !hasActiveSubscriptionPlan(student) || !student.expiryDate) return false;
-    return student.expiryDate < todayISO || student.status === 'overdue';
-  };
+  const isPlanPaused = useCallback(
+    (student) => {
+      if (!student) return false;
+      const meta = planMetaMap[student.id];
+      return (
+        student.status === 'paused' ||
+        Boolean(meta?.isPaused) ||
+        meta?.absenceReason === 'vacation_pause' ||
+        meta?.absenceReason === 'not_renewed'
+      );
+    },
+    [planMetaMap]
+  );
 
-  const isPlanExpiringSoon = (student) => {
-    if (!student || !hasActiveSubscriptionPlan(student) || isPlanPaused(student) || !student.expiryDate)
+  const isPlanExpired = useCallback(
+    (student) =>
+      Boolean(student && hasActiveSubscriptionPlan(student) && student.expiryDate && (student.expiryDate < todayISO || student.status === 'overdue')),
+    [hasActiveSubscriptionPlan, todayISO]
+  );
+
+  const isPlanExpiringSoon = useCallback(
+    (student) => {
+      if (!student || !hasActiveSubscriptionPlan(student) || isPlanPaused(student) || !student.expiryDate) return false;
+      return diffDaysISO(student.expiryDate, todayISO) <= 5;
+    },
+    [hasActiveSubscriptionPlan, isPlanPaused, todayISO]
+  );
+
+  const canStudentOperate = useCallback((student) => Boolean(student && !isPlanPaused(student) && !isPlanExpired(student)), [isPlanPaused, isPlanExpired]);
+
+  const isDateBlockedForStudent = useCallback(
+    (student, isoDate) => {
+      if (!student || !isoDate) return false;
+      if (!canStudentOperate(student) && isoDate > todayISO) return true;
+      if (canStudentOperate(student) && hasActiveSubscriptionPlan(student) && student.expiryDate && isoDate > student.expiryDate) {
+        return true;
+      }
       return false;
-    const diff = Math.ceil((new Date(student.expiryDate) - new Date(todayISO)) / 86400000);
-    return diff <= 5;
+    },
+    [canStudentOperate, hasActiveSubscriptionPlan, todayISO]
+  );
+
+  const getStudentStartDate = useCallback(
+    (student) => (student ? planMetaMap[student.id]?.startDate || addDaysToISO(student.expiryDate, -30) : ''),
+    [planMetaMap]
+  );
+
+  const getStudentQuotaDisplay = useCallback(
+    (student) => {
+      if (!student) return '';
+      if (!hasActiveSubscriptionPlan(student)) return 'Sin plan';
+      if (isUnlimitedPlan(student.plan)) return 'Pase Libre';
+      const total = getDefaultCreditsForPlan(student.plan);
+      const used = Math.max(0, total - Number(student.credits || 0));
+      return `${used}/${total}`;
+    },
+    [hasActiveSubscriptionPlan, isUnlimitedPlan, getDefaultCreditsForPlan]
+  );
+
+  const getAbsenceLabel = useCallback(
+    (student) => {
+      const reason = planMetaMap[student?.id]?.absenceReason;
+      if (reason === 'vacation_pause') return 'Suspensión por vacaciones';
+      if (reason === 'not_renewed') return 'No renovó';
+      return null;
+    },
+    [planMetaMap]
+  );
+
+  const getPillarForCategory = useCallback(
+    (categoryId) => {
+      const srv = services.find((s) => s.id === categoryId);
+      if (srv) return srv.pillar;
+      if (categoryId === 'Estetica' || categoryId === 'Bienestar') return 'estetica';
+      if (['Coaching', 'Constelaciones', 'Eventos'].includes(categoryId)) return 'mente';
+      return 'cuerpo';
+    },
+    [services]
+  );
+
+  const adjustStudentCredits = async (student, delta) => {
+    if (!student || !hasActiveSubscriptionPlan(student) || isUnlimitedPlan(student.plan)) return;
+    const nextCredits = Math.max(0, Number(student.credits || 0) + delta);
+    await supabase.from('students').update({ credits: nextCredits }).eq('id', student.id);
+    setStudents((prev) => prev.map((s) => (s.id === student.id ? { ...s, credits: nextCredits } : s)));
   };
 
-  const canStudentOperate = (student) => Boolean(student && !isPlanPaused(student) && !isPlanExpired(student));
+  const applyStudentPlanDates = async (studentId, { startDate, expiryDate, resetCredits = true }) => {
+    const student = students.find((s) => s.id === studentId);
+    if (!student) return false;
 
-  const isDateBlockedForStudent = (student, isoDate) => {
-    if (!student || !isoDate) return false;
-    if (!canStudentOperate(student) && isoDate > todayISO) return true;
-    if (canStudentOperate(student) && hasActiveSubscriptionPlan(student) && student.expiryDate && isoDate > student.expiryDate) {
-      return true;
-    }
-    return false;
+    const updatedCredits = resetCredits ? getDefaultCreditsForPlan(student.plan) : student.credits;
+    const nextStatus = expiryDate >= todayISO ? 'active' : 'overdue';
+
+    const { error } = await supabase
+      .from('students')
+      .update({ status: nextStatus, expiry_date: expiryDate, credits: updatedCredits })
+      .eq('id', studentId);
+
+    if (error) return false;
+
+    setStudents((prev) => prev.map((s) => (s.id === studentId ? { ...s, status: nextStatus, expiryDate, credits: updatedCredits } : s)));
+    persistState(setPlanMetaMap, 'satnam_plan_meta_v2', {
+      ...planMetaMap,
+      [studentId]: { ...(planMetaMap[studentId] || {}), startDate, isPaused: false, absenceReason: 'none' }
+    });
+    return true;
   };
 
-  const getStudentStartDate = (student) =>
-    student ? planMetaMap[student.id]?.startDate || addDaysToISO(student.expiryDate, -30) : '';
-
-  const getStudentQuotaDisplay = (student) => {
-    if (!student) return '';
-    if (!hasActiveSubscriptionPlan(student)) return 'Sin plan';
-    if (isUnlimitedPlan(student.plan)) return 'Pase Libre';
-    const total = getDefaultCreditsForPlan(student.plan);
-    const used = Math.max(0, total - Number(student.credits || 0));
-    return `${used}/${total}`;
-  };
-
-  const getAbsenceLabel = (student) => {
-    const reason = planMetaMap[student.id]?.absenceReason;
-    if (reason === 'vacation_pause') return 'Suspensión por vacaciones';
-    if (reason === 'not_renewed') return 'No renovó';
-    return null;
-  };
-
-  const getPillarForCategory = (categoryId) => {
-    const srv = services.find((s) => s.id === categoryId);
-    if (srv) return srv.pillar;
-    if (categoryId === 'Estetica' || categoryId === 'Bienestar') return 'estetica';
-    if (categoryId === 'Coaching' || categoryId === 'Constelaciones' || categoryId === 'Eventos')
-      return 'mente';
-    return 'cuerpo';
-  };
-
-  const fetchAllData = async () => {
+  const fetchAllData = useCallback(async () => {
     setLoading(true);
     try {
       const [studentsRes, classesRes, bookingsRes] = await Promise.all([
@@ -432,7 +497,7 @@ export default function App() {
       }));
 
       setStudents(loadedStudents);
-      if (loadedStudents.length > 0 && !activeStudentId) {
+      if (loadedStudents.length > 0 && !activeStudentIdRef.current) {
         setActiveStudentId(loadedStudents[0].id);
       }
 
@@ -441,8 +506,7 @@ export default function App() {
       const savedAtt = readLocalJSON('satnam_attendance_v1', {});
       setBookings(
         bookingsRes.data.map((b) => {
-          const fromDbStatus = b.attendance_status || (b.attended ? 'attended' : null);
-          const resolvedStatus = savedAtt[b.id] || fromDbStatus;
+          const resolvedStatus = savedAtt[b.id] || b.attendance_status || (b.attended ? 'attended' : null);
           return {
             id: b.id,
             classId: b.class_id,
@@ -458,16 +522,22 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [showToast]);
 
   useEffect(() => {
     fetchAllData();
-  }, []);
+  }, [fetchAllData]);
 
   const activeStudent = students.find((s) => s.id === activeStudentId) || students[0];
   const studentAllowed = canStudentOperate(activeStudent);
   const studentHasPlan = hasActiveSubscriptionPlan(activeStudent);
   const activeVacationForSelectedDate = getVacationForDate(selectedDate);
+
+  const setClassComingSoonFlag = (ids, value) => {
+    const nextMap = { ...comingSoonClassesMap };
+    ids.forEach((id) => (value ? (nextMap[id] = true) : delete nextMap[id]));
+    persistState(setComingSoonClassesMap, 'satnam_coming_soon_classes_v1', nextMap);
+  };
 
   const handleSelectAdminMode = () => {
     if (isAdminUnlocked) setRole('admin');
@@ -510,12 +580,19 @@ export default function App() {
     showToast('Sesión agregada al historial de estética');
   };
 
+  const handleChangeEsteticaInterval = (studentId, weeks) => {
+    persistState(setEsteticaWeeksMap, 'satnam_estetica_weeks_v1', {
+      ...esteticaWeeksMap,
+      [studentId]: Number(weeks)
+    });
+    showToast(`Recordatorio configurado cada ${weeks} semanas`);
+  };
+
   const handleSaveVacationPeriod = async (e) => {
     e.preventDefault();
     if (!vacationForm.startDate || !vacationForm.endDate) return;
     if (vacationForm.endDate < vacationForm.startDate) {
-      showToast('La fecha de fin no puede ser anterior a la de inicio', 'error');
-      return;
+      return showToast('La fecha de fin no puede ser anterior a la de inicio', 'error');
     }
 
     const newPeriod = {
@@ -523,25 +600,19 @@ export default function App() {
       startDate: vacationForm.startDate,
       endDate: vacationForm.endDate
     };
-
     persistState(setVacationPeriods, 'satnam_vacations_v1', [...vacationPeriods, newPeriod]);
 
-    const affectedClasses = classes.filter(
-      (c) => c.date >= vacationForm.startDate && c.date <= vacationForm.endDate
-    );
+    const affectedIds = classes
+      .filter((c) => c.date >= vacationForm.startDate && c.date <= vacationForm.endDate)
+      .map((c) => c.id);
 
-    if (affectedClasses.length > 0) {
+    if (affectedIds.length > 0) {
       const nowISO = new Date().toISOString();
-      const idsToCancel = affectedClasses.map((c) => c.id);
-      await supabase.from('classes').update({ is_cancelled: true }).in('id', idsToCancel);
-      setClasses((prev) =>
-        prev.map((c) => (idsToCancel.includes(c.id) ? { ...c, is_cancelled: true } : c))
-      );
+      await supabase.from('classes').update({ is_cancelled: true }).in('id', affectedIds);
+      setClasses((prev) => prev.map((c) => (affectedIds.includes(c.id) ? { ...c, is_cancelled: true } : c)));
 
       const nextTs = { ...cancelledTimestamps };
-      idsToCancel.forEach((id) => {
-        nextTs[id] = nowISO;
-      });
+      affectedIds.forEach((id) => (nextTs[id] = nowISO));
       persistState(setCancelledTimestamps, 'satnam_cancelled_ts_v1', nextTs);
     }
 
@@ -555,24 +626,17 @@ export default function App() {
     persistState(setVacationPeriods, 'satnam_vacations_v1', remainingPeriods);
 
     if (target) {
-      const stillInOtherVacation = (iso) =>
-        remainingPeriods.some((vp) => iso >= vp.startDate && iso <= vp.endDate);
+      const stillInVacation = (iso) => remainingPeriods.some((vp) => iso >= vp.startDate && iso <= vp.endDate);
+      const idsToReactivate = classes
+        .filter((c) => c.date >= target.startDate && c.date <= target.endDate && !stillInVacation(c.date))
+        .map((c) => c.id);
 
-      const classesToReactivate = classes.filter(
-        (c) => c.date >= target.startDate && c.date <= target.endDate && !stillInOtherVacation(c.date)
-      );
-
-      if (classesToReactivate.length > 0) {
-        const idsToReactivate = classesToReactivate.map((c) => c.id);
+      if (idsToReactivate.length > 0) {
         await supabase.from('classes').update({ is_cancelled: false }).in('id', idsToReactivate);
-        setClasses((prev) =>
-          prev.map((c) => (idsToReactivate.includes(c.id) ? { ...c, is_cancelled: false } : c))
-        );
+        setClasses((prev) => prev.map((c) => (idsToReactivate.includes(c.id) ? { ...c, is_cancelled: false } : c)));
 
         const nextTs = { ...cancelledTimestamps };
-        idsToReactivate.forEach((id) => {
-          delete nextTs[id];
-        });
+        idsToReactivate.forEach((id) => delete nextTs[id]);
         persistState(setCancelledTimestamps, 'satnam_cancelled_ts_v1', nextTs);
       }
     }
@@ -590,169 +654,90 @@ export default function App() {
     e.preventDefault();
     if (!activeStudent || !profileForm.name.trim()) return;
 
-    const { error } = await supabase
-      .from('students')
-      .update({ name: profileForm.name.trim(), phone: profileForm.phone.trim() })
-      .eq('id', activeStudent.id);
+    const cleanName = profileForm.name.trim();
+    const cleanPhone = profileForm.phone.trim();
+    const { error } = await supabase.from('students').update({ name: cleanName, phone: cleanPhone }).eq('id', activeStudent.id);
+    if (error) return showToast('No se pudo actualizar tu perfil', 'error');
 
-    if (error) {
-      showToast('No se pudo actualizar tu perfil', 'error');
-      return;
-    }
-
-    setStudents((prev) =>
-      prev.map((s) =>
-        s.id === activeStudent.id
-          ? { ...s, name: profileForm.name.trim(), phone: profileForm.phone.trim() }
-          : s
-      )
-    );
+    setStudents((prev) => prev.map((s) => (s.id === activeStudent.id ? { ...s, name: cleanName, phone: cleanPhone } : s)));
     setShowEditProfileModal(false);
     showToast('Perfil actualizado correctamente');
   };
 
   const handleToggleWaitlist = (classId) => {
-    if (!activeStudent) {
-      showToast('Selecciona un perfil primero', 'error');
-      return;
-    }
+    if (!activeStudent) return showToast('Selecciona un perfil primero', 'error');
     if (!canStudentOperate(activeStudent)) {
-      showToast(
-        'Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el espacio para reactivar tu plan.',
-        'error'
-      );
-      return;
+      return showToast('Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el espacio para reactivar tu plan.', 'error');
     }
 
     const currentList = waitlistMap[classId] || [];
     const exists = currentList.includes(activeStudent.id);
-    const nextList = exists
-      ? currentList.filter((id) => id !== activeStudent.id)
-      : [...currentList, activeStudent.id];
+    const nextList = exists ? currentList.filter((id) => id !== activeStudent.id) : [...currentList, activeStudent.id];
 
     persistState(setWaitlistMap, 'satnam_waitlist_v1', { ...waitlistMap, [classId]: nextList });
     showToast(exists ? 'Saliste de la lista de espera' : 'Te sumaste a la lista de espera');
   };
 
   const handleToggleBooking = async (classId) => {
-    if (!activeStudent) {
-      showToast('Primero solicita tu alta en el espacio', 'error');
-      return;
-    }
-
+    if (!activeStudent) return showToast('Primero solicita tu alta en el espacio', 'error');
     if (!canStudentOperate(activeStudent)) {
-      showToast(
-        'Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el espacio para reactivar tu plan.',
-        'error'
-      );
-      return;
+      return showToast('Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el espacio para reactivar tu plan.', 'error');
     }
 
     const classObj = classes.find((c) => c.id === classId);
     if (!classObj) return;
-
-    if (isClassComingSoon(classObj)) {
-      showToast('Esta actividad figura como Próximamente y aún no admite reservas.', 'error');
-      return;
-    }
+    if (isClassComingSoon(classObj)) return showToast('Esta actividad figura como Próximamente y aún no admite reservas.', 'error');
 
     const srvObj = services.find((s) => s.id === classObj.category);
-    const isRegularClass = srvObj ? Boolean(srvObj.isClass) : true;
-
-    if (isRegularClass && !hasActiveSubscriptionPlan(activeStudent)) {
-      showToast('Para reservar clases regulares necesitás un plan activo.', 'error');
-      return;
+    if ((srvObj ? Boolean(srvObj.isClass) : true) && !hasActiveSubscriptionPlan(activeStudent)) {
+      return showToast('Para reservar clases regulares necesitás un plan activo.', 'error');
     }
+    if (getVacationForDate(classObj.date)) return showToast('Cerrado por vacaciones en esta fecha.', 'error');
 
-    if (getVacationForDate(classObj.date)) {
-      showToast('Cerrado por vacaciones en esta fecha.', 'error');
-      return;
-    }
-
-    const existingBooking = bookings.find(
-      (b) => b.classId === classId && b.studentId === activeStudent.id
-    );
+    const existingBooking = bookings.find((b) => b.classId === classId && b.studentId === activeStudent.id);
 
     if (existingBooking) {
       const { error } = await supabase.from('bookings').delete().eq('id', existingBooking.id);
-      if (error) {
-        showToast('No se pudo cancelar la reserva', 'error');
-        return;
-      }
+      if (error) return showToast('No se pudo cancelar la reserva', 'error');
 
       setBookings((prev) => prev.filter((b) => b.id !== existingBooking.id));
       const nextAtt = { ...attendanceMap };
       delete nextAtt[existingBooking.id];
       persistState(setAttendanceMap, 'satnam_attendance_v1', nextAtt);
 
-      if (hasActiveSubscriptionPlan(activeStudent) && !isUnlimitedPlan(activeStudent.plan)) {
-        const updatedCredits = activeStudent.credits + 1;
-        await supabase.from('students').update({ credits: updatedCredits }).eq('id', activeStudent.id);
-        setStudents((prev) =>
-          prev.map((s) => (s.id === activeStudent.id ? { ...s, credits: updatedCredits } : s))
-        );
-      }
+      await adjustStudentCredits(activeStudent, +1);
       showToast('Reserva cancelada correctamente');
-    } else {
-      if (isDateBlockedForStudent(activeStudent, classObj.date)) {
-        showToast(
-          'Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el espacio para reactivar tu plan.',
-          'error'
-        );
-        return;
-      }
-
-      if (classObj.is_cancelled) {
-        showToast('Esta clase se encuentra cancelada.', 'error');
-        return;
-      }
-
-      const classBookingsCount = bookings.filter((b) => b.classId === classId).length;
-      if (classBookingsCount >= classObj.capacity) {
-        showToast('Clase completa. Puedes sumarte a la lista de espera.', 'error');
-        return;
-      }
-
-      if (
-        hasActiveSubscriptionPlan(activeStudent) &&
-        !isUnlimitedPlan(activeStudent.plan) &&
-        activeStudent.credits <= 0
-      ) {
-        showToast('Sin sesiones disponibles en tu abono. Consulta en recepción.', 'error');
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from('bookings')
-        .insert([{ class_id: classId, student_id: activeStudent.id, attended: false }])
-        .select()
-        .single();
-
-      if (error) {
-        showToast('No se pudo realizar la reserva', 'error');
-        return;
-      }
-
-      setBookings((prev) => [
-        ...prev,
-        {
-          id: data.id,
-          classId: data.class_id,
-          studentId: data.student_id,
-          attended: false,
-          attendanceStatus: null
-        }
-      ]);
-
-      if (hasActiveSubscriptionPlan(activeStudent) && !isUnlimitedPlan(activeStudent.plan)) {
-        const updatedCredits = Math.max(0, activeStudent.credits - 1);
-        await supabase.from('students').update({ credits: updatedCredits }).eq('id', activeStudent.id);
-        setStudents((prev) =>
-          prev.map((s) => (s.id === activeStudent.id ? { ...s, credits: updatedCredits } : s))
-        );
-      }
-      showToast(`¡Lugar reservado en ${classObj.title}!`);
+      return;
     }
+
+    if (isDateBlockedForStudent(activeStudent, classObj.date)) {
+      return showToast('Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el espacio para reactivar tu plan.', 'error');
+    }
+    if (classObj.is_cancelled) return showToast('Esta clase se encuentra cancelada.', 'error');
+
+    const classBookingsCount = bookings.filter((b) => b.classId === classId).length;
+    if (classBookingsCount >= classObj.capacity) {
+      return showToast('Clase completa. Puedes sumarte a la lista de espera.', 'error');
+    }
+    if (hasActiveSubscriptionPlan(activeStudent) && !isUnlimitedPlan(activeStudent.plan) && activeStudent.credits <= 0) {
+      return showToast('Sin sesiones disponibles en tu abono. Consulta en recepción.', 'error');
+    }
+
+    const { data, error } = await supabase
+      .from('bookings')
+      .insert([{ class_id: classId, student_id: activeStudent.id, attended: false }])
+      .select()
+      .single();
+
+    if (error) return showToast('No se pudo realizar la reserva', 'error');
+
+    setBookings((prev) => [
+      ...prev,
+      { id: data.id, classId: data.class_id, studentId: data.student_id, attended: false, attendanceStatus: null }
+    ]);
+
+    await adjustStudentCredits(activeStudent, -1);
+    showToast(`¡Lugar reservado en ${classObj.title}!`);
   };
 
   const applyAttendanceStatus = async (bookingId, status) => {
@@ -771,45 +756,21 @@ export default function App() {
       await supabase.from('bookings').update({ attended: isAttendedBool }).eq('id', bookingId);
     }
 
-    setBookings((prev) =>
-      prev.map((b) =>
-        b.id === bookingId ? { ...b, attended: isAttendedBool, attendanceStatus: status } : b
-      )
-    );
-
+    setBookings((prev) => prev.map((b) => (b.id === bookingId ? { ...b, attended: isAttendedBool, attendanceStatus: status } : b)));
     persistState(setAttendanceMap, 'satnam_attendance_v1', { ...attendanceMap, [bookingId]: status });
 
     const st = students.find((s) => s.id === booking.studentId);
-    if (st && hasActiveSubscriptionPlan(st) && !isUnlimitedPlan(st.plan)) {
-      let delta = 0;
-      if (prevStatus !== 'no_show' && status === 'no_show') delta = -1;
-      else if (prevStatus === 'no_show' && status !== 'no_show') delta = 1;
+    if (prevStatus !== 'no_show' && status === 'no_show') await adjustStudentCredits(st, -1);
+    else if (prevStatus === 'no_show' && status !== 'no_show') await adjustStudentCredits(st, +1);
 
-      if (delta !== 0) {
-        const nextCredits = Math.max(0, st.credits + delta);
-        await supabase.from('students').update({ credits: nextCredits }).eq('id', st.id);
-        setStudents((prev) =>
-          prev.map((item) => (item.id === st.id ? { ...item, credits: nextCredits } : item))
-        );
-      }
-    }
-
-    showToast(
-      status === 'attended'
-        ? 'Asistencia guardada como Asistió'
-        : 'Marcado como No asistió (clase descontada del abono)'
-    );
+    showToast(status === 'attended' ? 'Asistencia guardada como Asistió' : 'Marcado como No asistió (clase descontada del abono)');
   };
 
   const handleRequestAttendanceChange = (booking, nextStatus, studentName) => {
     const currentStatus = booking.attendanceStatus || (booking.attended ? 'attended' : null);
     if (currentStatus === nextStatus) return;
-
-    if (currentStatus && currentStatus !== nextStatus) {
-      setPendingAttendanceEdit({ bookingId: booking.id, nextStatus, studentName });
-    } else {
-      applyAttendanceStatus(booking.id, nextStatus);
-    }
+    if (currentStatus) setPendingAttendanceEdit({ bookingId: booking.id, nextStatus, studentName });
+    else applyAttendanceStatus(booking.id, nextStatus);
   };
 
   const handleSaveService = (e) => {
@@ -817,113 +778,86 @@ export default function App() {
     const cleanLabel = serviceForm.label.trim();
     if (!cleanLabel) return;
 
+    const baseCap = Math.max(1, Number(serviceForm.defaultCap) || 10);
+
     if (editingServiceId) {
-      const updated = services.map((s) =>
-        s.id === editingServiceId
-          ? {
-              ...s,
-              label: cleanLabel,
-              pillar: serviceForm.pillar,
-              isClass: Boolean(serviceForm.isClass),
-              defaultCap: Number(serviceForm.defaultCap) || 10
-            }
-          : s
+      persistState(
+        setServices,
+        'satnam_services_v3',
+        services.map((s) =>
+          s.id === editingServiceId
+            ? { ...s, label: cleanLabel, pillar: serviceForm.pillar, isClass: Boolean(serviceForm.isClass), defaultCap: baseCap }
+            : s
+        )
       );
-      persistState(setServices, 'satnam_services_v3', updated);
       setEditingServiceId(null);
-      setServiceForm({ label: '', pillar: 'cuerpo', isClass: true, defaultCap: 10 });
-      showToast('Servicio editado correctamente');
-    } else {
-      const baseId = cleanLabel.replace(/[^a-zA-Z0-9]/g, '') || `Srv${Date.now()}`;
-      const uniqueId = services.some((s) => s.id.toLowerCase() === baseId.toLowerCase())
-        ? `${baseId}_${Date.now()}`
-        : baseId;
-
-      persistState(setServices, 'satnam_services_v3', [
-        ...services,
-        {
-          id: uniqueId,
-          label: cleanLabel,
-          pillar: serviceForm.pillar,
-          isClass: Boolean(serviceForm.isClass),
-          defaultCap: Number(serviceForm.defaultCap) || 10
-        }
-      ]);
-      setServiceForm({ label: '', pillar: 'cuerpo', isClass: true, defaultCap: 10 });
-      showToast('Servicio agregado correctamente');
+      setServiceForm(EMPTY_SERVICE_FORM);
+      showToast('Servicio y cupo base guardados');
+      return;
     }
-  };
 
-  const handleStartEditService = (srv) => {
-    setEditingServiceId(srv.id);
-    setServiceForm({
-      label: srv.label,
-      pillar: srv.pillar,
-      isClass: Boolean(srv.isClass),
-      defaultCap: srv.defaultCap
-    });
+    const baseId = cleanLabel.replace(/[^a-zA-Z0-9]/g, '') || `Srv${Date.now()}`;
+    const uniqueId = services.some((s) => s.id.toLowerCase() === baseId.toLowerCase()) ? `${baseId}_${Date.now()}` : baseId;
+    persistState(setServices, 'satnam_services_v3', [
+      ...services,
+      { id: uniqueId, label: cleanLabel, pillar: serviceForm.pillar, isClass: Boolean(serviceForm.isClass), defaultCap: baseCap }
+    ]);
+    setServiceForm(EMPTY_SERVICE_FORM);
+    showToast('Servicio agregado con cupo guardado');
   };
 
   const handleRequestDeleteService = (srv) => {
-    if (services.length <= 1) {
-      showToast('Debe quedar al menos un servicio en el estudio.', 'error');
-      return;
-    }
-    setPendingDeleteConfirm({
-      type: 'service',
-      id: srv.id,
-      title: `el servicio "${srv.label}"`
-    });
+    if (services.length <= 1) return showToast('Debe quedar al menos un servicio en el estudio.', 'error');
+    setPendingDeleteConfirm({ type: 'service', id: srv.id, title: `el servicio "${srv.label}"` });
   };
 
-  const handleOpenNewClassModal = () => {
+  const handleOpenNewClassModal = (preset = {}) => {
     const firstSrv = services[0];
+    const cat = preset.category || firstSrv?.id || 'Yoga';
+    const srvObj = services.find((s) => s.id === cat) || firstSrv;
     setEditingClassId(null);
     setClassForm({
-      category: firstSrv?.id || 'Yoga',
-      title: firstSrv?.label || 'Yoga',
+      category: cat,
+      title: srvObj?.label || 'Yoga',
       isCustomTitle: false,
       instructor: 'Patricia Aleman',
-      time: '10:00',
+      time: preset.time || '08:00',
       duration: 60,
-      capacity: firstSrv?.defaultCap || 12,
-      selectedDays: [1, 3, 5],
+      selectedDays: preset.dayId !== undefined ? [preset.dayId] : [1, 3, 5],
       weeksCount: 4,
       comingSoon: false
     });
     setShowClassModal(true);
   };
 
-  const setClassComingSoonFlag = (ids, value) => {
-    const nextMap = { ...comingSoonClassesMap };
-    ids.forEach((id) => {
-      if (value) nextMap[id] = true;
-      else delete nextMap[id];
+  const handleOpenEditClass = (cls) => {
+    const matchingSrv = services.find((s) => s.id === cls.category) || services[0];
+    setEditingClassId(cls.id);
+    setClassForm({
+      category: matchingSrv.id,
+      title: cls.title,
+      isCustomTitle: cls.title !== matchingSrv.label,
+      instructor: cls.instructor || 'Patricia Aleman',
+      time: cls.time,
+      duration: cls.duration,
+      selectedDays: [1],
+      weeksCount: 1,
+      comingSoon: isClassComingSoon(cls)
     });
-    persistState(setComingSoonClassesMap, 'satnam_coming_soon_classes_v1', nextMap);
+    setShowClassModal(true);
   };
 
   const handleSaveClass = async (e) => {
     e.preventDefault();
     const matchingSrv = services.find((s) => s.id === classForm.category) || services[0];
-    const finalTitle =
-      classForm.isCustomTitle && classForm.title.trim()
-        ? classForm.title.trim()
-        : matchingSrv.label;
+    const finalTitle = classForm.isCustomTitle && classForm.title.trim() ? classForm.title.trim() : matchingSrv.label;
+    const savedCap = getServiceDefaultCapacity(classForm.category);
 
     if (editingClassId) {
-      const currentCls = classes.find((c) => c.id === editingClassId);
-      const targetDate = currentCls?.date || selectedDate;
-      const conflict = classes.find(
-        (c) => c.id !== editingClassId && c.date === targetDate && c.time === classForm.time
-      );
-
+      const targetDate = classes.find((c) => c.id === editingClassId)?.date || selectedDate;
+      const conflict = classes.find((c) => c.id !== editingClassId && c.date === targetDate && c.time === classForm.time);
       if (conflict) {
-        showToast(
-          `Ya existe una clase (${conflict.title}) el ${formatDateDDMMYYYY(targetDate)} a las ${classForm.time} hs.`,
-          'error'
-        );
-        return;
+        return showToast(`Ya existe una clase (${conflict.title}) el ${formatDateDDMMYYYY(targetDate)} a las ${classForm.time} hs.`, 'error');
       }
 
       const { data, error } = await supabase
@@ -934,103 +868,144 @@ export default function App() {
           instructor: classForm.instructor || 'Patricia Aleman',
           time: classForm.time,
           duration: Number(classForm.duration),
-          capacity: Number(classForm.capacity)
+          capacity: savedCap
         })
         .eq('id', editingClassId)
         .select()
         .single();
 
-      if (error) {
-        showToast('Error al actualizar la clase', 'error');
-        return;
-      }
+      if (error) return showToast('Error al actualizar la clase', 'error');
 
       setClasses((prev) => prev.map((c) => (c.id === editingClassId ? data : c)));
       setClassComingSoonFlag([editingClassId], Boolean(classForm.comingSoon));
       setShowClassModal(false);
       setEditingClassId(null);
       showToast('Clase actualizada con éxito');
-    } else {
-      if (classForm.selectedDays.length === 0) {
-        showToast('Selecciona al menos un día de la semana', 'error');
-        return;
-      }
-
-      const weeks = Math.min(4, Math.max(1, Number(classForm.weeksCount) || 1));
-      const baseDate = new Date(`${selectedDate}T00:00:00`);
-      const datesToCreate = [];
-
-      for (let w = 0; w < weeks; w++) {
-        for (const dayOfWeek of classForm.selectedDays) {
-          const d = new Date(baseDate);
-          const currentDay = d.getDay();
-          const diff = (dayOfWeek + 7 - currentDay) % 7;
-          d.setDate(d.getDate() + diff + w * 7);
-          const iso = toISODate(d);
-          if (!datesToCreate.includes(iso)) datesToCreate.push(iso);
-        }
-      }
-
-      const conflictingDates = datesToCreate.filter((d) =>
-        classes.some((c) => c.date === d && c.time === classForm.time)
-      );
-
-      if (conflictingDates.length > 0) {
-        const previewDates = conflictingDates.slice(0, 3).map(formatDateDDMMYYYY).join(', ');
-        showToast(
-          `Ya hay una clase a las ${classForm.time} hs en: ${previewDates}. Cambia el día o el horario.`,
-          'error'
-        );
-        return;
-      }
-
-      const payload = datesToCreate.map((d) => ({
-        title: finalTitle,
-        category: classForm.category,
-        instructor: classForm.instructor || 'Patricia Aleman',
-        date: d,
-        time: classForm.time,
-        duration: Number(classForm.duration),
-        capacity: Number(classForm.capacity),
-        room: ''
-      }));
-
-      const { data, error } = await supabase.from('classes').insert(payload).select();
-      if (error) {
-        showToast('No se pudieron guardar los horarios', 'error');
-        return;
-      }
-
-      if (classForm.comingSoon && Array.isArray(data)) {
-        setClassComingSoonFlag(data.map((item) => item.id), true);
-      }
-
-      setClasses((prev) => [...prev, ...data]);
-      setShowClassModal(false);
-      showToast(
-        weeks === 1
-          ? 'Horarios programados para la semana'
-          : `Horarios programados por ${weeks} semanas`
-      );
+      return;
     }
+
+    if (classForm.selectedDays.length === 0) return showToast('Selecciona al menos un día de la semana', 'error');
+
+    const weeks = Math.min(4, Math.max(1, Number(classForm.weeksCount) || 1));
+    const baseDate = new Date(`${selectedDate}T00:00:00`);
+    const datesSet = new Set();
+
+    for (let w = 0; w < weeks; w++) {
+      for (const dayOfWeek of classForm.selectedDays) {
+        const d = new Date(baseDate);
+        const diff = (dayOfWeek + 7 - d.getDay()) % 7;
+        d.setDate(d.getDate() + diff + w * 7);
+        datesSet.add(toISODate(d));
+      }
+    }
+
+    const datesToCreate = [...datesSet];
+    const conflictingDates = datesToCreate.filter((d) => classes.some((c) => c.date === d && c.time === classForm.time));
+    if (conflictingDates.length > 0) {
+      const preview = conflictingDates.slice(0, 3).map(formatDateDDMMYYYY).join(', ');
+      return showToast(`Ya hay una clase a las ${classForm.time} hs en: ${preview}. Cambia el día o el horario.`, 'error');
+    }
+
+    const payload = datesToCreate.map((d) => ({
+      title: finalTitle,
+      category: classForm.category,
+      instructor: classForm.instructor || 'Patricia Aleman',
+      date: d,
+      time: classForm.time,
+      duration: Number(classForm.duration),
+      capacity: savedCap,
+      room: ''
+    }));
+
+    const { data, error } = await supabase.from('classes').insert(payload).select();
+    if (error) return showToast('No se pudieron guardar los horarios', 'error');
+
+    if (classForm.comingSoon && Array.isArray(data)) {
+      setClassComingSoonFlag(data.map((item) => item.id), true);
+    }
+
+    setClasses((prev) => [...prev, ...data]);
+    setShowClassModal(false);
+    showToast(`Horarios programados (cupo ${savedCap} del servicio)`);
   };
 
-  const handleOpenEditClass = (cls) => {
-    setEditingClassId(cls.id);
-    const matchingSrv = services.find((s) => s.id === cls.category) || services[0];
-    setClassForm({
-      category: matchingSrv.id,
-      title: cls.title,
-      isCustomTitle: cls.title !== matchingSrv.label,
-      instructor: cls.instructor || 'Patricia Aleman',
-      time: cls.time,
-      duration: cls.duration,
-      capacity: cls.capacity,
-      selectedDays: [1],
-      weeksCount: 1,
-      comingSoon: isClassComingSoon(cls)
+  // Matriz semanal Lunes a Viernes
+  const weekDaysMonFri = useMemo(() => {
+    const monday = getMondayOfWeek(weekCursor);
+    return WEEKDAYS_MON_FRI.map((wd, idx) => {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + idx);
+      return { ...wd, dateObj: d, iso: toISODate(d) };
     });
-    setShowClassModal(true);
+  }, [weekCursor]);
+
+  const weekClassesMonFri = useMemo(() => {
+    const allowedDates = new Set(weekDaysMonFri.map((d) => d.iso));
+    return classes
+      .filter((c) => allowedDates.has(c.date))
+      .sort((a, b) => a.time.localeCompare(b.time) || a.date.localeCompare(b.date));
+  }, [classes, weekDaysMonFri]);
+
+  // Repite toda la secuencia de la semana actual hacia la semana siguiente
+  const handleRepeatNextWeek = async () => {
+    if (repeatingWeek) return;
+    if (weekClassesMonFri.length === 0) {
+      return showToast('No hay clases en esta semana para repetir.', 'error');
+    }
+
+    setRepeatingWeek(true);
+    try {
+      const existingSlots = new Set(classes.map((c) => `${c.date}__${c.time}`));
+      const itemsToInsert = [];
+      const comingSoonSources = [];
+
+      for (const cls of weekClassesMonFri) {
+        const nextDate = addDaysToISO(cls.date, 7);
+        const slotKey = `${nextDate}__${cls.time}`;
+        if (existingSlots.has(slotKey)) continue;
+        existingSlots.add(slotKey);
+
+        itemsToInsert.push({
+          row: {
+            title: cls.title,
+            category: cls.category,
+            instructor: cls.instructor || 'Patricia Aleman',
+            date: nextDate,
+            time: cls.time,
+            duration: Number(cls.duration) || 60,
+            capacity: Number(cls.capacity) || getServiceDefaultCapacity(cls.category),
+            room: ''
+          },
+          wasComingSoon: isClassComingSoon(cls)
+        });
+      }
+
+      if (itemsToInsert.length === 0) {
+        return showToast('La semana siguiente ya tiene todos esos horarios cargados.', 'error');
+      }
+
+      const { data, error } = await supabase
+        .from('classes')
+        .insert(itemsToInsert.map((x) => x.row))
+        .select();
+
+      if (error) return showToast('No se pudo repetir la secuencia en la semana siguiente', 'error');
+
+      const nextComingSoonIds = [];
+      (data || []).forEach((created, idx) => {
+        if (itemsToInsert[idx]?.wasComingSoon) nextComingSoonIds.push(created.id);
+      });
+      if (nextComingSoonIds.length > 0) setClassComingSoonFlag(nextComingSoonIds, true);
+
+      setClasses((prev) => [...prev, ...(data || [])]);
+      const nextWeek = new Date(weekCursor);
+      nextWeek.setDate(nextWeek.getDate() + 7);
+      setWeekCursor(nextWeek);
+      setSelectedSequenceIds([]);
+      showToast(`Se repitieron ${data?.length || itemsToInsert.length} clases a la semana siguiente`);
+    } finally {
+      setRepeatingWeek(false);
+    }
   };
 
   const handleToggleCancelClass = async (classId) => {
@@ -1039,48 +1014,66 @@ export default function App() {
 
     const nextCancelledState = !targetClass.is_cancelled;
     const nowISO = new Date().toISOString();
+    const { error } = await supabase.from('classes').update({ is_cancelled: nextCancelledState }).eq('id', classId);
+    if (error) return showToast('Verifica que la columna is_cancelled exista en Supabase', 'error');
 
-    const { error } = await supabase
-      .from('classes')
-      .update({ is_cancelled: nextCancelledState })
-      .eq('id', classId);
+    setClasses((prev) => prev.map((c) => (c.id === classId ? { ...c, is_cancelled: nextCancelledState } : c)));
 
-    if (!error) {
-      setClasses((prev) =>
-        prev.map((c) => (c.id === classId ? { ...c, is_cancelled: nextCancelledState } : c))
-      );
+    const nextTs = { ...cancelledTimestamps };
+    if (nextCancelledState) nextTs[classId] = nowISO;
+    else delete nextTs[classId];
+    persistState(setCancelledTimestamps, 'satnam_cancelled_ts_v1', nextTs);
 
-      const nextTs = { ...cancelledTimestamps };
-      if (nextCancelledState) nextTs[classId] = nowISO;
-      else delete nextTs[classId];
-      persistState(setCancelledTimestamps, 'satnam_cancelled_ts_v1', nextTs);
-
-      showToast(
-        nextCancelledState ? `Clase cancelada (${formatTimestamp(nowISO)})` : 'Clase reactivada'
-      );
-    } else {
-      showToast('Verifica que la columna is_cancelled exista en Supabase', 'error');
-    }
+    showToast(nextCancelledState ? `Clase cancelada (${formatTimestamp(nowISO)})` : 'Clase reactivada');
   };
 
-  const handleRequestDeleteClass = (cls) => {
-    setPendingDeleteConfirm({
-      type: 'class',
-      id: cls.id,
-      title: `la clase "${cls.title}" (${cls.time} hs del ${formatDateDDMMYYYY(cls.date)})`
-    });
+  const handleBulkToggleCancel = async (cancelState) => {
+    if (selectedSequenceIds.length === 0) return;
+    const nowISO = new Date().toISOString();
+    const { error } = await supabase.from('classes').update({ is_cancelled: cancelState }).in('id', selectedSequenceIds);
+    if (error) return showToast('Error al actualizar selección', 'error');
+
+    setClasses((prev) => prev.map((c) => (selectedSequenceIds.includes(c.id) ? { ...c, is_cancelled: cancelState } : c)));
+    const nextTs = { ...cancelledTimestamps };
+    selectedSequenceIds.forEach((id) => (cancelState ? (nextTs[id] = nowISO) : delete nextTs[id]));
+    persistState(setCancelledTimestamps, 'satnam_cancelled_ts_v1', nextTs);
+
+    setSelectedSequenceIds([]);
+    showToast(cancelState ? 'Clases seleccionadas canceladas' : 'Clases seleccionadas reactivadas');
+  };
+
+  const handleBulkUpdateTime = async () => {
+    if (!bulkTimeInput || selectedSequenceIds.length === 0) return;
+    const { error } = await supabase.from('classes').update({ time: bulkTimeInput }).in('id', selectedSequenceIds);
+    if (error) return showToast('No se pudo actualizar la hora en lote', 'error');
+
+    setClasses((prev) => prev.map((c) => (selectedSequenceIds.includes(c.id) ? { ...c, time: bulkTimeInput } : c)));
+    setSelectedSequenceIds([]);
+    setBulkTimeInput('');
+    showToast(`Horario actualizado a ${bulkTimeInput} hs en la selección`);
+  };
+
+  const handleBulkDeleteClasses = async () => {
+    if (selectedSequenceIds.length === 0) return;
+    const { error } = await supabase.from('classes').delete().in('id', selectedSequenceIds);
+    if (error) return showToast('No se pudieron eliminar las clases seleccionadas', 'error');
+
+    const idsSet = new Set(selectedSequenceIds);
+    setClasses((prev) => prev.filter((c) => !idsSet.has(c.id)));
+    setBookings((prev) => prev.filter((b) => !idsSet.has(b.classId)));
+    setSelectedSequenceIds([]);
+    showToast('Secuencia seleccionada eliminada');
   };
 
   const handleOpenNewStudent = () => {
-    const start = toISODate(new Date());
     const defaultPlan = plans.find((p) => !p.isNone && !p.comingSoon)?.name || plans[0]?.name || '';
     setEditingStudentId(null);
     setStudentForm({
       name: '',
       phone: '',
       plan: defaultPlan,
-      startDate: start,
-      expiryDate: addDaysToISO(start, 30),
+      startDate: todayISO,
+      expiryDate: addDaysToISO(todayISO, 30),
       credits: getDefaultCreditsForPlan(defaultPlan),
       absenceReason: 'none'
     });
@@ -1103,110 +1096,62 @@ export default function App() {
 
   const handleSaveStudent = async (e) => {
     e.preventDefault();
-    const finalCredits = getDefaultCreditsForPlan(studentForm.plan);
+    const cleanName = studentForm.name.trim();
+    const cleanPhone = studentForm.phone.trim();
     const reason = studentForm.absenceReason || 'none';
     const pausedByReason = reason === 'vacation_pause' || reason === 'not_renewed';
+    const nextStatus = pausedByReason ? 'paused' : 'active';
 
     if (editingStudentId) {
-      const nextStatus = pausedByReason ? 'paused' : 'active';
       const nextCredits = isUnlimitedPlan(studentForm.plan) ? 99 : Number(studentForm.credits);
-
       const { error } = await supabase
         .from('students')
-        .update({
-          name: studentForm.name.trim(),
-          phone: studentForm.phone.trim(),
-          plan: studentForm.plan,
-          status: nextStatus,
-          credits: nextCredits
-        })
+        .update({ name: cleanName, phone: cleanPhone, plan: studentForm.plan, status: nextStatus, credits: nextCredits })
         .eq('id', editingStudentId);
 
-      if (error) {
-        showToast('Error al actualizar el alumno', 'error');
-        return;
-      }
+      if (error) return showToast('Error al actualizar el alumno', 'error');
 
       setStudents((prev) =>
         prev.map((s) =>
-          s.id === editingStudentId
-            ? {
-                ...s,
-                name: studentForm.name.trim(),
-                phone: studentForm.phone.trim(),
-                plan: studentForm.plan,
-                status: nextStatus,
-                credits: nextCredits
-              }
-            : s
+          s.id === editingStudentId ? { ...s, name: cleanName, phone: cleanPhone, plan: studentForm.plan, status: nextStatus, credits: nextCredits } : s
         )
       );
-
       persistState(setPlanMetaMap, 'satnam_plan_meta_v2', {
         ...planMetaMap,
-        [editingStudentId]: {
-          ...(planMetaMap[editingStudentId] || {}),
-          isPaused: pausedByReason,
-          absenceReason: reason
-        }
+        [editingStudentId]: { ...(planMetaMap[editingStudentId] || {}), isPaused: pausedByReason, absenceReason: reason }
       });
-
       setShowStudentModal(false);
       setEditingStudentId(null);
       showToast('Datos del alumno actualizados');
-    } else {
-      const { data, error } = await supabase
-        .from('students')
-        .insert([
-          {
-            name: studentForm.name.trim(),
-            phone: studentForm.phone.trim(),
-            plan: studentForm.plan,
-            status: pausedByReason ? 'paused' : 'active',
-            expiry_date: studentForm.expiryDate,
-            credits: finalCredits
-          }
-        ])
-        .select()
-        .single();
-
-      if (error) {
-        showToast('Error al registrar', 'error');
-        return;
-      }
-
-      const created = {
-        id: data.id,
-        name: data.name,
-        phone: data.phone || '',
-        plan: data.plan,
-        status: data.status,
-        expiryDate: data.expiry_date,
-        credits: data.credits
-      };
-
-      persistState(setPlanMetaMap, 'satnam_plan_meta_v2', {
-        ...planMetaMap,
-        [created.id]: {
-          startDate: studentForm.startDate,
-          isPaused: pausedByReason,
-          absenceReason: reason
-        }
-      });
-
-      setStudents((prev) => [...prev, created]);
-      if (!activeStudentId) setActiveStudentId(created.id);
-      setShowStudentModal(false);
-      showToast('Registrado con éxito');
+      return;
     }
-  };
 
-  const handleRequestDeleteStudent = (st) => {
-    setPendingDeleteConfirm({
-      type: 'student',
-      id: st.id,
-      title: `el registro de "${st.name}"`
+    const { data, error } = await supabase
+      .from('students')
+      .insert([{ name: cleanName, phone: cleanPhone, plan: studentForm.plan, status: nextStatus, expiry_date: studentForm.expiryDate, credits: getDefaultCreditsForPlan(studentForm.plan) }])
+      .select()
+      .single();
+
+    if (error) return showToast('Error al registrar', 'error');
+
+    const created = {
+      id: data.id,
+      name: data.name,
+      phone: data.phone || '',
+      plan: data.plan,
+      status: data.status,
+      expiryDate: data.expiry_date,
+      credits: data.credits
+    };
+
+    persistState(setPlanMetaMap, 'satnam_plan_meta_v2', {
+      ...planMetaMap,
+      [created.id]: { startDate: studentForm.startDate, isPaused: pausedByReason, absenceReason: reason }
     });
+    setStudents((prev) => [...prev, created]);
+    if (!activeStudentId) setActiveStudentId(created.id);
+    setShowStudentModal(false);
+    showToast('Registrado con éxito');
   };
 
   const handleConfirmDelete = async () => {
@@ -1216,87 +1161,65 @@ export default function App() {
 
     if (type === 'class') {
       const { error } = await supabase.from('classes').delete().eq('id', id);
-      if (!error) {
-        setClasses((prev) => prev.filter((c) => c.id !== id));
-        setBookings((prev) => prev.filter((b) => b.classId !== id));
-        const nextTs = { ...cancelledTimestamps };
-        delete nextTs[id];
-        persistState(setCancelledTimestamps, 'satnam_cancelled_ts_v1', nextTs);
-        setClassComingSoonFlag([id], false);
-        showToast('Clase eliminada');
-      } else {
-        showToast('No se pudo eliminar la clase', 'error');
-      }
+      if (error) return showToast('No se pudo eliminar la clase', 'error');
+
+      setClasses((prev) => prev.filter((c) => c.id !== id));
+      setBookings((prev) => prev.filter((b) => b.classId !== id));
+      const nextTs = { ...cancelledTimestamps };
+      delete nextTs[id];
+      persistState(setCancelledTimestamps, 'satnam_cancelled_ts_v1', nextTs);
+      setClassComingSoonFlag([id], false);
+      showToast('Clase eliminada');
     } else if (type === 'student') {
       await supabase.from('bookings').delete().eq('student_id', id);
       const { error } = await supabase.from('students').delete().eq('id', id);
+      if (error) return showToast('No se pudo eliminar el alumno', 'error');
 
-      if (!error) {
-        const remaining = students.filter((s) => s.id !== id);
-        setStudents(remaining);
-        setBookings((prev) => prev.filter((b) => b.studentId !== id));
-        const nextMeta = { ...planMetaMap };
-        delete nextMeta[id];
-        persistState(setPlanMetaMap, 'satnam_plan_meta_v2', nextMeta);
-        if (activeStudentId === id) setActiveStudentId(remaining[0]?.id || '');
-        showToast('Alumno eliminado del registro');
-      } else {
-        showToast('No se pudo eliminar el alumno', 'error');
-      }
+      const remaining = students.filter((s) => s.id !== id);
+      setStudents(remaining);
+      setBookings((prev) => prev.filter((b) => b.studentId !== id));
+      const nextMeta = { ...planMetaMap };
+      delete nextMeta[id];
+      persistState(setPlanMetaMap, 'satnam_plan_meta_v2', nextMeta);
+      if (activeStudentId === id) setActiveStudentId(remaining[0]?.id || '');
+      showToast('Alumno eliminado del registro');
     } else if (type === 'service') {
-      persistState(
-        setServices,
-        'satnam_services_v3',
-        services.filter((s) => s.id !== id)
-      );
+      persistState(setServices, 'satnam_services_v3', services.filter((s) => s.id !== id));
       if (editingServiceId === id) {
         setEditingServiceId(null);
-        setServiceForm({ label: '', pillar: 'cuerpo', isClass: true, defaultCap: 10 });
+        setServiceForm(EMPTY_SERVICE_FORM);
       }
       if (attendanceServiceFilter === id) setAttendanceServiceFilter('ALL');
       showToast('Servicio eliminado');
     } else if (type === 'estetica_history') {
-      persistState(
-        setEsteticaHistoryList,
-        'satnam_estetica_history_v1',
-        esteticaHistoryList.filter((item) => item.id !== id)
-      );
+      persistState(setEsteticaHistoryList, 'satnam_estetica_history_v1', esteticaHistoryList.filter((item) => item.id !== id));
       showToast('Registro histórico eliminado');
     }
   };
 
   const handleTogglePausePlan = async (student) => {
-    const currentlyPaused = isPlanPaused(student);
-    const nextPaused = !currentlyPaused;
+    const nextPaused = !isPlanPaused(student);
     const nextStatus = nextPaused ? 'paused' : 'active';
-    const nextReason = nextPaused ? 'vacation_pause' : 'none';
-
     const { error } = await supabase.from('students').update({ status: nextStatus }).eq('id', student.id);
+    if (error) return showToast('No se pudo actualizar el estado del plan', 'error');
 
-    if (!error) {
-      setStudents((prev) =>
-        prev.map((s) => (s.id === student.id ? { ...s, status: nextStatus } : s))
-      );
-      persistState(setPlanMetaMap, 'satnam_plan_meta_v2', {
-        ...planMetaMap,
-        [student.id]: {
-          ...(planMetaMap[student.id] || { startDate: getStudentStartDate(student) }),
-          isPaused: nextPaused,
-          absenceReason: nextReason
-        }
-      });
-      showToast(nextPaused ? `Plan de ${student.name} pausado` : `Plan de ${student.name} reactivado`);
-    } else {
-      showToast('No se pudo actualizar el estado del plan', 'error');
-    }
+    setStudents((prev) => prev.map((s) => (s.id === student.id ? { ...s, status: nextStatus } : s)));
+    persistState(setPlanMetaMap, 'satnam_plan_meta_v2', {
+      ...planMetaMap,
+      [student.id]: {
+        ...(planMetaMap[student.id] || { startDate: getStudentStartDate(student) }),
+        isPaused: nextPaused,
+        absenceReason: nextPaused ? 'vacation_pause' : 'none'
+      }
+    });
+    showToast(nextPaused ? `Plan de ${student.name} pausado` : `Plan de ${student.name} reactivado`);
   };
 
   const handleOpenRenewOrDates = (student) => {
-    const startNow = toISODate(new Date());
     setRenewDatesStudentId(student.id);
     setRenewDatesForm({
-      startDate: getStudentStartDate(student) || startNow,
-      expiryDate: student.expiryDate || addDaysToISO(startNow, 30),
+      startDate: getStudentStartDate(student) || todayISO,
+      expiryDate: student.expiryDate || addDaysToISO(todayISO, 30),
       resetCredits: true
     });
     setShowRenewDatesModal(true);
@@ -1305,51 +1228,8 @@ export default function App() {
   const handleSaveRenewAndDates = async (e) => {
     e.preventDefault();
     if (!renewDatesStudentId) return;
-    const student = students.find((s) => s.id === renewDatesStudentId);
-    if (!student) return;
-
-    const updatedCredits = renewDatesForm.resetCredits
-      ? getDefaultCreditsForPlan(student.plan)
-      : student.credits;
-
-    const nextStatus = renewDatesForm.expiryDate >= todayISO ? 'active' : 'overdue';
-
-    const { error } = await supabase
-      .from('students')
-      .update({
-        status: nextStatus,
-        expiry_date: renewDatesForm.expiryDate,
-        credits: updatedCredits
-      })
-      .eq('id', renewDatesStudentId);
-
-    if (error) {
-      showToast('No se pudieron guardar los cambios del plan', 'error');
-      return;
-    }
-
-    setStudents((prev) =>
-      prev.map((s) =>
-        s.id === renewDatesStudentId
-          ? {
-              ...s,
-              status: nextStatus,
-              expiryDate: renewDatesForm.expiryDate,
-              credits: updatedCredits
-            }
-          : s
-      )
-    );
-
-    persistState(setPlanMetaMap, 'satnam_plan_meta_v2', {
-      ...planMetaMap,
-      [renewDatesStudentId]: {
-        ...(planMetaMap[renewDatesStudentId] || {}),
-        startDate: renewDatesForm.startDate,
-        isPaused: false,
-        absenceReason: 'none'
-      }
-    });
+    const ok = await applyStudentPlanDates(renewDatesStudentId, renewDatesForm);
+    if (!ok) return showToast('No se pudieron guardar los cambios del plan', 'error');
 
     setShowRenewDatesModal(false);
     setRenewDatesStudentId(null);
@@ -1360,133 +1240,81 @@ export default function App() {
     e.preventDefault();
     const cleanName = planForm.name.trim();
     if (!cleanName) return;
+
     const cleanPrice = planForm.comingSoon ? 0 : Math.max(0, Number(planForm.price) || 0);
+    const nextEntry = {
+      name: cleanName,
+      price: cleanPrice,
+      comingSoon: Boolean(planForm.comingSoon),
+      isUnlimited: Boolean(planForm.isUnlimited),
+      credits: planForm.isUnlimited ? 99 : Number(planForm.credits) || 1
+    };
 
     if (editingPlanId) {
       const prevPlan = plans.find((p) => p.id === editingPlanId);
-      const updatedPlans = plans.map((p) =>
-        p.id === editingPlanId
-          ? {
-              ...p,
-              name: cleanName,
-              price: cleanPrice,
-              comingSoon: Boolean(planForm.comingSoon),
-              isUnlimited: Boolean(planForm.isUnlimited),
-              credits: planForm.isUnlimited ? 99 : Number(planForm.credits) || 1
-            }
-          : p
-      );
-      persistState(setPlans, 'satnam_plans_v2', updatedPlans);
-
+      persistState(setPlans, 'satnam_plans_v2', plans.map((p) => (p.id === editingPlanId ? { ...p, ...nextEntry } : p)));
       if (prevPlan && prevPlan.name !== cleanName) {
-        setStudents((prev) =>
-          prev.map((s) => (s.plan === prevPlan.name ? { ...s, plan: cleanName } : s))
-        );
+        setStudents((prev) => prev.map((s) => (s.plan === prevPlan.name ? { ...s, plan: cleanName } : s)));
       }
-
       setEditingPlanId(null);
-      setPlanForm({ name: '', credits: 4, price: 50000, isUnlimited: false, comingSoon: false });
+      setPlanForm(EMPTY_PLAN_FORM);
       showToast('Plan actualizado');
-    } else {
-      const newPlan = {
-        id: `plan_${Date.now()}`,
-        name: cleanName,
-        price: cleanPrice,
-        comingSoon: Boolean(planForm.comingSoon),
-        isUnlimited: Boolean(planForm.isUnlimited),
-        credits: planForm.isUnlimited ? 99 : Number(planForm.credits) || 1,
-        isNone: false
-      };
-      persistState(setPlans, 'satnam_plans_v2', [...plans, newPlan]);
-      setPlanForm({ name: '', credits: 4, price: 50000, isUnlimited: false, comingSoon: false });
-      showToast('Nuevo plan creado y publicado');
+      return;
     }
+
+    persistState(setPlans, 'satnam_plans_v2', [...plans, { id: `plan_${Date.now()}`, ...nextEntry, isNone: false }]);
+    setPlanForm(EMPTY_PLAN_FORM);
+    showToast('Nuevo plan creado y publicado');
   };
 
   const getWhatsAppReminderUrl = (student) => {
     const cleanPhone = student.phone.replace(/\D/g, '');
-    const message = `¡Hola ${student.name}! Te saludamos desde *Espacio Sat-Nam* 🪷. Te recordamos que tu plan (*${student.plan}*) vence el día *${formatDateDDMMYYYY(student.expiryDate)}*. Avísanos por aquí si deseas renovarlo para mantener tu lugar. ¡Sat Nam! ✨`;
-    return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+    const msg = `¡Hola ${student.name}! Te saludamos desde *Espacio Sat-Nam* 🪷. Te recordamos que tu plan (*${student.plan}*) vence el día *${formatDateDDMMYYYY(student.expiryDate)}*. Avísanos por aquí si deseas renovarlo para mantener tu lugar. ¡Sat Nam! ✨`;
+    return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`;
   };
 
   const getStatusBadge = (student) => {
     const reasonLabel = getAbsenceLabel(student);
-    if (reasonLabel) {
-      return (
-        <span className="px-2.5 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-800">
-          {reasonLabel}
-        </span>
-      );
-    }
-    if (!hasActiveSubscriptionPlan(student)) {
-      return (
-        <span className="px-2.5 py-0.5 text-xs font-medium rounded-full bg-[#EDF3EE] text-[#4C6352]">
-          Sin Plan (Sesiones)
-        </span>
-      );
-    }
-    if (isPlanPaused(student)) {
-      return (
-        <span className="px-2.5 py-0.5 text-xs font-medium rounded-full bg-stone-200 text-stone-700">
-          Pausado / Cancelado
-        </span>
-      );
-    }
-    if (isPlanExpired(student)) {
-      return (
-        <span className="px-2.5 py-0.5 text-xs font-medium rounded-full bg-rose-100/80 text-rose-800">
-          Vencido
-        </span>
-      );
-    }
-    const diffDays = Math.ceil((new Date(student.expiryDate) - new Date(todayISO)) / 86400000);
-    if (diffDays <= 5) {
-      return (
-        <span className="px-2.5 py-0.5 text-xs font-medium rounded-full bg-amber-100/80 text-amber-800">
-          Vence pronto ({diffDays}d)
-        </span>
-      );
-    }
-    return (
-      <span className="px-2.5 py-0.5 text-xs font-medium rounded-full bg-[#EDF3EE] text-[#4C6352]">
-        Al día
-      </span>
-    );
+    if (reasonLabel) return <span className="px-2.5 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-800">{reasonLabel}</span>;
+    if (!hasActiveSubscriptionPlan(student)) return <span className="px-2.5 py-0.5 text-xs font-medium rounded-full bg-[#EDF3EE] text-[#4C6352]">Sin Plan (Sesiones)</span>;
+    if (isPlanPaused(student)) return <span className="px-2.5 py-0.5 text-xs font-medium rounded-full bg-stone-200 text-stone-700">Pausado / Cancelado</span>;
+    if (isPlanExpired(student)) return <span className="px-2.5 py-0.5 text-xs font-medium rounded-full bg-rose-100/80 text-rose-800">Vencido</span>;
+
+    const diff = diffDaysISO(student.expiryDate, todayISO);
+    if (diff <= 5) return <span className="px-2.5 py-0.5 text-xs font-medium rounded-full bg-amber-100/80 text-amber-800">Vence pronto ({diff}d)</span>;
+    return <span className="px-2.5 py-0.5 text-xs font-medium rounded-full bg-[#EDF3EE] text-[#4C6352]">Al día</span>;
   };
 
   const getCategoryBadge = (category) => {
     const srvObj = services.find((s) => s.id === category);
-    const label = srvObj ? srvObj.label.toUpperCase() : category.toUpperCase();
-    const badgeClass =
-      'inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#EDF3EE] text-[#4C6352]';
+    const label = (srvObj ? srvObj.label : category).toUpperCase();
+    const cls = 'inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#EDF3EE] text-[#4C6352]';
 
-    switch (category) {
-      case 'Spinning':
-        return <span className={badgeClass}><Bike className="w-3 h-3" /> {label}</span>;
-      case 'Pilates':
-      case 'Circuito':
-      case 'CircuitoSatNam':
-        return <span className={badgeClass}><Flame className="w-3 h-3" /> {label}</span>;
-      case 'Coaching':
-        return <span className={badgeClass}><Compass className="w-3 h-3" /> {label}</span>;
-      case 'Constelaciones':
-        return <span className={badgeClass}><Orbit className="w-3 h-3" /> {label}</span>;
-      case 'Estetica':
-      case 'Bienestar':
-        return <span className={badgeClass}><Flower2 className="w-3 h-3" /> {label}</span>;
-      case 'Eventos':
-        return <span className={badgeClass}><Sparkles className="w-3 h-3" /> {label}</span>;
-      default:
-        return <span className={badgeClass}><Heart className="w-3 h-3" /> {label}</span>;
-    }
+    const icons = {
+      Spinning: Bike,
+      Pilates: Flame,
+      Circuito: Flame,
+      CircuitoSatNam: Flame,
+      Coaching: Compass,
+      Constelaciones: Orbit,
+      Estetica: Flower2,
+      Bienestar: Flower2,
+      Eventos: Sparkles
+    };
+    const IconComp = icons[category] || Heart;
+    return (
+      <span className={cls}>
+        <IconComp className="w-3 h-3" /> {label}
+      </span>
+    );
   };
 
-  const handleNavigateCalendar = (direction) => {
-    const next = new Date(calendarCursor);
-    if (calendarView === 'week') next.setDate(next.getDate() + direction * 7);
-    else next.setMonth(next.getMonth() + direction);
-    setCalendarCursor(next);
-  };
+  const matrixTimes = useMemo(() => {
+    const set = new Set(weekClassesMonFri.map((c) => c.time));
+    return [...set].sort();
+  }, [weekClassesMonFri]);
+
+  const monthDaysStudent = useMemo(() => getMonthGridDays(studentCalendarMonth), [studentCalendarMonth]);
 
   const studentFilteredClasses = useMemo(() => {
     const raw = classes
@@ -1494,11 +1322,10 @@ export default function App() {
       .filter((c) => {
         if (!studentHasPlan) {
           const srvObj = services.find((s) => s.id === c.category);
-          if (srvObj && srvObj.isClass) return false;
+          if (srvObj?.isClass) return false;
         }
-        return true;
+        return pillarFilter === 'Todas' || getPillarForCategory(c.category) === pillarFilter;
       })
-      .filter((c) => (pillarFilter === 'Todas' ? true : getPillarForCategory(c.category) === pillarFilter))
       .sort((a, b) => a.time.localeCompare(b.time));
 
     const seen = new Set();
@@ -1508,7 +1335,7 @@ export default function App() {
       seen.add(key);
       return true;
     });
-  }, [classes, selectedDate, studentHasPlan, services, pillarFilter]);
+  }, [classes, selectedDate, studentHasPlan, services, pillarFilter, getPillarForCategory]);
 
   const dayClassesAdmin = useMemo(
     () => classes.filter((c) => c.date === selectedDate).sort((a, b) => a.time.localeCompare(b.time)),
@@ -1516,34 +1343,24 @@ export default function App() {
   );
 
   const attendanceDayClasses = useMemo(
-    () =>
-      dayClassesAdmin.filter((c) =>
-        attendanceServiceFilter === 'ALL' ? true : c.category === attendanceServiceFilter
-      ),
+    () => dayClassesAdmin.filter((c) => attendanceServiceFilter === 'ALL' || c.category === attendanceServiceFilter),
     [dayClassesAdmin, attendanceServiceFilter]
   );
 
-  const filteredStudents = useMemo(
-    () =>
-      students.filter(
-        (s) =>
-          s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          s.plan.toLowerCase().includes(searchTerm.toLowerCase())
-      ),
-    [students, searchTerm]
-  );
+  const filteredStudents = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return students;
+    return students.filter((s) => s.name.toLowerCase().includes(q) || s.plan.toLowerCase().includes(q));
+  }, [students, searchTerm]);
 
   const activePaymentStudents = useMemo(
     () => students.filter((s) => hasActiveSubscriptionPlan(s) && !isPlanPaused(s) && !isPlanExpired(s)),
-    [students, plans, planMetaMap, todayISO]
+    [students, hasActiveSubscriptionPlan, isPlanPaused, isPlanExpired]
   );
 
   const renewPaymentStudents = useMemo(
-    () =>
-      students.filter(
-        (s) => hasActiveSubscriptionPlan(s) && !isPlanPaused(s) && (isPlanExpired(s) || isPlanExpiringSoon(s))
-      ),
-    [students, plans, planMetaMap, todayISO]
+    () => students.filter((s) => hasActiveSubscriptionPlan(s) && !isPlanPaused(s) && (isPlanExpired(s) || isPlanExpiringSoon(s))),
+    [students, hasActiveSubscriptionPlan, isPlanPaused, isPlanExpired, isPlanExpiringSoon]
   );
 
   const availableDayClasses = useMemo(() => dayClassesAdmin.filter((c) => !c.is_cancelled), [dayClassesAdmin]);
@@ -1551,20 +1368,17 @@ export default function App() {
   const dayBookings = useMemo(() => bookings.filter((b) => dayClassIds.has(b.classId)), [bookings, dayClassIds]);
 
   const monthStatsBySlot = useMemo(() => {
-    const monthClasses = classes.filter((c) => String(c.date || '').startsWith(dashboardMonth));
-    const map = monthClasses.reduce((acc, cls) => {
-      const key = `${cls.title}__${cls.time}`;
-      if (!acc[key]) {
-        acc[key] = { key, title: cls.title, time: cls.time, totalBookings: 0, attended: 0, noShow: 0 };
-      }
-      const clsBookings = bookings.filter((b) => b.classId === cls.id);
-      acc[key].totalBookings += clsBookings.length;
-      acc[key].attended += clsBookings.filter(
-        (b) => b.attendanceStatus === 'attended' || (b.attendanceStatus !== 'no_show' && b.attended)
-      ).length;
-      acc[key].noShow += clsBookings.filter((b) => b.attendanceStatus === 'no_show').length;
-      return acc;
-    }, {});
+    const map = classes
+      .filter((c) => String(c.date || '').startsWith(dashboardMonth))
+      .reduce((acc, cls) => {
+        const key = `${cls.title}__${cls.time}`;
+        if (!acc[key]) acc[key] = { key, title: cls.title, time: cls.time, totalBookings: 0, attended: 0, noShow: 0 };
+        const clsBookings = bookings.filter((b) => b.classId === cls.id);
+        acc[key].totalBookings += clsBookings.length;
+        acc[key].attended += clsBookings.filter((b) => b.attendanceStatus === 'attended' || (b.attendanceStatus !== 'no_show' && b.attended)).length;
+        acc[key].noShow += clsBookings.filter((b) => b.attendanceStatus === 'no_show').length;
+        return acc;
+      }, {});
     return Object.values(map).sort((a, b) => a.time.localeCompare(b.time) || a.title.localeCompare(b.title));
   }, [classes, bookings, dashboardMonth]);
 
@@ -1572,18 +1386,16 @@ export default function App() {
     const estClasses = classes
       .filter((c) => c.category === 'Estetica' || getPillarForCategory(c.category) === 'estetica')
       .sort((a, b) => b.date.localeCompare(a.date));
-
-    const estBookings = bookings.filter((b) => estClasses.some((c) => c.id === b.classId));
+    const estClassById = new Map(estClasses.map((c) => [c.id, c]));
 
     return students
       .map((st) => {
-        const bookedItems = estBookings
-          .filter((b) => b.studentId === st.id)
+        const bookedItems = bookings
+          .filter((b) => b.studentId === st.id && estClassById.has(b.classId))
           .map((b) => {
-            const c = estClasses.find((item) => item.id === b.classId);
-            return c ? { id: `bk_${b.id}`, date: c.date, title: c.title, notes: '', isManual: false } : null;
-          })
-          .filter(Boolean);
+            const c = estClassById.get(b.classId);
+            return { id: `bk_${b.id}`, date: c.date, title: c.title, notes: '', isManual: false };
+          });
 
         const manualRecords = esteticaHistoryList
           .filter((rec) => rec.studentId === st.id)
@@ -1591,173 +1403,24 @@ export default function App() {
 
         const combined = [...bookedItems, ...manualRecords].sort((a, b) => b.date.localeCompare(a.date));
         const lastEntry = combined[0];
+        const reminderWeeks = Number(esteticaWeeksMap[st.id]) || 3;
+        const suggestedDate = lastEntry ? addDaysToISO(lastEntry.date, reminderWeeks * 7) : addDaysToISO(todayISO, reminderWeeks * 7);
 
         return {
           student: st,
           lastDate: lastEntry?.date || null,
           lastTitle: lastEntry?.title || 'Sin sesión previa',
           lastNotes: lastEntry?.notes || '',
-          suggestedDate: lastEntry ? addDaysToISO(lastEntry.date, 21) : addDaysToISO(todayISO, 7),
+          reminderWeeks,
+          suggestedDate,
           totalSessions: combined.length,
           manualRecords
         };
       })
       .filter((item) => item.totalSessions > 0 || !hasActiveSubscriptionPlan(item.student));
-  }, [students, classes, bookings, esteticaHistoryList, services, plans, todayISO]);
+  }, [students, classes, bookings, esteticaHistoryList, esteticaWeeksMap, getPillarForCategory, hasActiveSubscriptionPlan, todayISO]);
 
   const publishedPlansForStudents = useMemo(() => plans.filter((p) => !p.isNone), [plans]);
-  const weekDaysAdmin = useMemo(() => getWeekDays(calendarCursor), [calendarCursor]);
-  const monthDaysAdmin = useMemo(() => getMonthGridDays(calendarCursor), [calendarCursor]);
-  const monthDaysStudent = useMemo(() => getMonthGridDays(studentCalendarMonth), [studentCalendarMonth]);
-
-  const renderCalendarSelector = () => (
-    <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={() => handleNavigateCalendar(-1)} className="p-1.5 rounded-xl border border-stone-200 hover:bg-stone-50">
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <span className="font-semibold text-sm sm:text-base min-w-[140px] text-center">
-            {MONTH_NAMES[calendarCursor.getMonth()]} {calendarCursor.getFullYear()}
-          </span>
-          <button type="button" onClick={() => handleNavigateCalendar(1)} className="p-1.5 rounded-xl border border-stone-200 hover:bg-stone-50">
-            <ChevronRight className="w-4 h-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const now = new Date();
-              setCalendarCursor(now);
-              setSelectedDate(toISODate(now));
-            }}
-            className="text-xs font-medium text-[#5C7362] bg-[#EDF3EE] px-2.5 py-1 rounded-lg ml-1"
-          >
-            Hoy
-          </button>
-        </div>
-
-        <div className="flex items-center bg-[#F7F5F0] p-1 rounded-xl border border-stone-200/70">
-          <button
-            type="button"
-            onClick={() => setCalendarView('week')}
-            className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
-              calendarView === 'week' ? 'bg-[#5C7362] text-white shadow-2xs' : 'text-stone-600'
-            }`}
-          >
-            Semanal
-          </button>
-          <button
-            type="button"
-            onClick={() => setCalendarView('month')}
-            className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
-              calendarView === 'month' ? 'bg-[#5C7362] text-white shadow-2xs' : 'text-stone-600'
-            }`}
-          >
-            Mensual
-          </button>
-        </div>
-      </div>
-
-      {calendarView === 'week' ? (
-        <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
-          {weekDaysAdmin.map((dayObj) => {
-            const iso = toISODate(dayObj);
-            const isSelected = iso === selectedDate;
-            const isToday = iso === todayISO;
-            const isVac = Boolean(getVacationForDate(iso));
-            const count = classes.filter((c) => c.date === iso).length;
-
-            return (
-              <button
-                type="button"
-                key={iso}
-                onClick={() => setSelectedDate(iso)}
-                className={`p-2 sm:p-3 rounded-2xl border text-center transition-all flex flex-col items-center justify-between min-h-[76px] ${
-                  isSelected
-                    ? 'bg-[#5C7362] text-white border-[#5C7362] shadow-xs'
-                    : isVac
-                    ? 'bg-amber-50/90 border-amber-200 text-amber-900'
-                    : isToday
-                    ? 'bg-[#EDF3EE] border-[#5C7362]/40 text-[#2D332F]'
-                    : 'bg-[#F7F5F0]/60 border-stone-200/80 hover:border-stone-300'
-                }`}
-              >
-                <span className={`text-[11px] font-medium ${isSelected ? 'text-white/80' : 'text-stone-500'}`}>
-                  {DAY_SHORT_NAMES[dayObj.getDay()]}
-                </span>
-                <span className="text-base sm:text-lg font-bold my-0.5">{dayObj.getDate()}</span>
-                {isVac ? (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-amber-100 text-amber-800">
-                    Vacaciones
-                  </span>
-                ) : count > 0 ? (
-                  <span
-                    className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
-                      isSelected ? 'bg-white/20 text-white' : 'bg-[#EDF3EE] text-[#4C6352]'
-                    }`}
-                  >
-                    {count} {count === 1 ? 'clase' : 'clases'}
-                  </span>
-                ) : (
-                  <span className="text-[10px] opacity-40">—</span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      ) : (
-        <div>
-          <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold text-stone-400 mb-1.5">
-            <span>Lun</span><span>Mar</span><span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span><span>Dom</span>
-          </div>
-          <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
-            {monthDaysAdmin.map((dayObj, idx) => {
-              if (!dayObj) return <div key={`empty-${idx}`} className="p-2" />;
-              const iso = toISODate(dayObj);
-              const isSelected = iso === selectedDate;
-              const isToday = iso === todayISO;
-              const isVac = Boolean(getVacationForDate(iso));
-              const count = classes.filter((c) => c.date === iso).length;
-
-              return (
-                <button
-                  type="button"
-                  key={iso}
-                  onClick={() => setSelectedDate(iso)}
-                  className={`p-1.5 sm:p-2 rounded-xl border text-center transition-all flex flex-col items-center justify-center min-h-[54px] ${
-                    isSelected
-                      ? 'bg-[#5C7362] text-white border-[#5C7362]'
-                      : isVac
-                      ? 'bg-amber-50 border-amber-200 text-amber-900'
-                      : isToday
-                      ? 'bg-[#EDF3EE] border-[#5C7362]/40'
-                      : 'bg-[#F7F5F0]/50 border-stone-200/70 hover:border-stone-300'
-                  }`}
-                >
-                  <span className="text-xs sm:text-sm font-semibold">{dayObj.getDate()}</span>
-                  {isVac ? (
-                    <span className="mt-0.5 text-[9px] px-1 rounded-full font-semibold bg-amber-100 text-amber-800">
-                      Lic.
-                    </span>
-                  ) : (
-                    count > 0 && (
-                      <span
-                        className={`mt-0.5 text-[10px] px-1.5 rounded-full font-medium ${
-                          isSelected ? 'bg-white/25 text-white' : 'bg-[#EDF3EE] text-[#4C6352]'
-                        }`}
-                      >
-                        {count}
-                      </span>
-                    )
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  );
 
   const renderAttendanceBoard = (dayList) => (
     <div className="space-y-4">
@@ -1780,23 +1443,12 @@ export default function App() {
                 <div>
                   <div className="flex flex-wrap items-center gap-2 mb-1">
                     {getCategoryBadge(cls.category)}
-                    <span className="text-xs font-medium px-2.5 py-0.5 rounded-lg bg-[#EDF3EE] text-[#4C6352]">
-                      {cls.time} hs
-                    </span>
-                    {isClassComingSoon(cls) && (
-                      <span className="text-xs font-semibold px-2 py-0.5 bg-amber-100 text-amber-800 rounded-lg">
-                        PRÓXIMAMENTE
-                      </span>
-                    )}
-                    {cls.is_cancelled && (
-                      <span className="text-xs font-semibold px-2 py-0.5 bg-rose-100 text-rose-700 rounded-lg">
-                        CANCELADA
-                      </span>
-                    )}
+                    <span className="text-xs font-medium px-2.5 py-0.5 rounded-lg bg-[#EDF3EE] text-[#4C6352]">{cls.time} hs</span>
+                    {isClassComingSoon(cls) && <span className="text-xs font-semibold px-2 py-0.5 bg-amber-100 text-amber-800 rounded-lg">PRÓXIMAMENTE</span>}
+                    {cls.is_cancelled && <span className="text-xs font-semibold px-2 py-0.5 bg-rose-100 text-rose-700 rounded-lg">CANCELADA</span>}
                   </div>
                   <h4 className="font-semibold text-base">{cls.title}</h4>
                 </div>
-
                 <span className="text-xs text-stone-500">
                   Inscritos: <strong>{classBookings.length}</strong> • Pendientes: <strong>{pendingCount}</strong>
                 </span>
@@ -1835,26 +1487,20 @@ export default function App() {
                             type="button"
                             onClick={() => handleRequestAttendanceChange(booking, 'attended', st.name)}
                             className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-xl transition-all ${
-                              isAttended
-                                ? 'bg-[#5C7362] text-white'
-                                : 'bg-white text-stone-600 border border-stone-200 hover:bg-[#EDF3EE]'
+                              isAttended ? 'bg-[#5C7362] text-white' : 'bg-white text-stone-600 border border-stone-200 hover:bg-[#EDF3EE]'
                             }`}
                           >
-                            <UserCheck className="w-3.5 h-3.5" />
-                            Asistió
+                            <UserCheck className="w-3.5 h-3.5" /> Asistió
                           </button>
 
                           <button
                             type="button"
                             onClick={() => handleRequestAttendanceChange(booking, 'no_show', st.name)}
                             className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-xl transition-all ${
-                              isNoShow
-                                ? 'bg-rose-600 text-white'
-                                : 'bg-white text-stone-600 border border-stone-200 hover:bg-rose-50'
+                              isNoShow ? 'bg-rose-600 text-white' : 'bg-white text-stone-600 border border-stone-200 hover:bg-rose-50'
                             }`}
                           >
-                            <UserX className="w-3.5 h-3.5" />
-                            No asistió
+                            <UserX className="w-3.5 h-3.5" /> No asistió
                           </button>
                         </div>
                       </div>
@@ -1868,6 +1514,19 @@ export default function App() {
       )}
     </div>
   );
+
+  const adminNavItems = [
+    { id: 'schedule', label: 'Calendario & Clases', shortLabel: 'Agenda', Icon: Calendar },
+    { id: 'attendance', label: 'Asistencia', shortLabel: 'Asistencia', Icon: ClipboardCheck },
+    { id: 'dashboard', label: 'Dashboard', shortLabel: 'Dashboard', Icon: BarChart3 },
+    { id: 'estetica', label: 'Estética', shortLabel: 'Estética', Icon: Flower2 },
+    { id: 'students', label: 'Alumnos', shortLabel: 'Alumnos', Icon: Users },
+    { id: 'payments', label: 'Pagos & Comunicaciones', shortLabel: 'Pagos', Icon: CreditCard }
+  ];
+
+  const paymentStudentsList = openPaymentsPanel === 'active' ? activePaymentStudents : renewPaymentStudents;
+  const allWeekIds = weekClassesMonFri.map((c) => c.id);
+  const allWeekSelected = allWeekIds.length > 0 && allWeekIds.every((id) => selectedSequenceIds.includes(id));
 
   return (
     <div className="min-h-screen bg-[#F7F5F0] text-[#2D332F] font-sans pb-24 md:pb-14 flex flex-col">
@@ -1950,7 +1609,7 @@ export default function App() {
               </p>
             </div>
 
-            {students.length > 0 ? (
+            {students.length > 0 && (
               <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-1 h-full bg-[#5C7362]" />
                 <div className="flex items-center gap-3.5 pl-2">
@@ -1966,9 +1625,7 @@ export default function App() {
                           const nextId = e.target.value;
                           setActiveStudentId(nextId);
                           const chosen = students.find((x) => x.id === nextId);
-                          if (chosen && isDateBlockedForStudent(chosen, selectedDate)) {
-                            setSelectedDate(todayISO);
-                          }
+                          if (chosen && isDateBlockedForStudent(chosen, selectedDate)) setSelectedDate(todayISO);
                         }}
                         className="text-sm font-semibold bg-[#F7F5F0] border border-stone-200 rounded-xl px-2.5 py-1 focus:outline-none focus:border-[#5C7362]"
                       >
@@ -1990,27 +1647,16 @@ export default function App() {
                         {activeStudent?.plan}
                       </span>
                       {activeStudent && getStatusBadge(activeStudent)}
-
-                      {activeStudent &&
-                        studentAllowed &&
-                        studentHasPlan &&
-                        !isUnlimitedPlan(activeStudent.plan) && (
-                          <span className="text-xs text-stone-600">
-                            • Saldo: <strong>{activeStudent.credits}</strong> disponibles ({getStudentQuotaDisplay(activeStudent)})
-                          </span>
-                        )}
+                      {activeStudent && studentAllowed && studentHasPlan && !isUnlimitedPlan(activeStudent.plan) && (
+                        <span className="text-xs text-stone-600">
+                          • Saldo: <strong>{activeStudent.credits}</strong> disponibles ({getStudentQuotaDisplay(activeStudent)})
+                        </span>
+                      )}
                     </div>
 
                     {activeStudent && !studentAllowed && (
                       <p className="text-xs text-rose-700 font-medium mt-1.5">
-                        Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el espacio para
-                        reactivar tu plan.
-                      </p>
-                    )}
-
-                    {activeStudent && studentAllowed && !studentHasPlan && (
-                      <p className="text-xs text-stone-500 mt-1.5">
-                        Tenés acceso a sesiones y tratamientos individuales (sin abono de clases).
+                        Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el espacio para reactivar tu plan.
                       </p>
                     )}
                   </div>
@@ -2023,13 +1669,9 @@ export default function App() {
                   </div>
                 )}
               </div>
-            ) : (
-              <div className="bg-white border border-stone-200 rounded-2xl p-4 text-sm text-stone-600">
-                Aún no hay alumnos registrados en la agenda. Consulta en recepción para darte de alta.
-              </div>
             )}
 
-            {/* 1. Menú comprimible: Agenda y Reservas */}
+            {/* Agenda y Reservas */}
             <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-4">
               <button
                 type="button"
@@ -2039,8 +1681,7 @@ export default function App() {
                 <div>
                   <h2 className="text-xl font-semibold">Agenda y Reservas</h2>
                   <p className="text-xs sm:text-sm text-stone-500">
-                    Fecha seleccionada: <strong>{formatDateDDMMYYYY(selectedDate)}</strong> • Tocá para expandir o
-                    comprimir
+                    Fecha seleccionada: <strong>{formatDateDDMMYYYY(selectedDate)}</strong> • Tocá para expandir o comprimir
                   </p>
                 </div>
                 <span className="p-2 rounded-xl bg-[#EDF3EE] text-[#5C7362]">
@@ -2098,11 +1739,7 @@ export default function App() {
                             key={iso}
                             onClick={() => {
                               if (isBlocked) {
-                                showToast(
-                                  'Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el espacio para reactivar tu plan.',
-                                  'error'
-                                );
-                                return;
+                                return showToast('Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el espacio para reactivar tu plan.', 'error');
                               }
                               setSelectedDate(iso);
                             }}
@@ -2118,9 +1755,7 @@ export default function App() {
                           >
                             <span className="text-xs sm:text-sm font-semibold">{dayObj.getDate()}</span>
                             {isVac ? (
-                              <span className="mt-0.5 text-[9px] px-1 rounded-full font-semibold bg-amber-100 text-amber-800">
-                                Vac.
-                              </span>
+                              <span className="mt-0.5 text-[9px] px-1 rounded-full font-semibold bg-amber-100 text-amber-800">Vac.</span>
                             ) : (
                               dayClassesCount > 0 && (
                                 <span
@@ -2169,30 +1804,22 @@ export default function App() {
                   ) : studentFilteredClasses.length === 0 ? (
                     <div className="bg-[#F7F5F0]/60 rounded-2xl p-8 text-center border border-stone-200/70">
                       <p className="text-stone-500 text-sm">
-                        No hay actividades disponibles para el <strong>{formatDateDDMMYYYY(selectedDate)}</strong> en
-                        esta categoría.
+                        No hay actividades disponibles para el <strong>{formatDateDDMMYYYY(selectedDate)}</strong> en esta categoría.
                       </p>
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {studentFilteredClasses.map((cls) => {
                         const classBookings = bookings.filter((b) => b.classId === cls.id);
-                        const isBooked = activeStudent
-                          ? classBookings.some((b) => b.studentId === activeStudent.id)
-                          : false;
+                        const isBooked = activeStudent ? classBookings.some((b) => b.studentId === activeStudent.id) : false;
                         const isFull = classBookings.length >= cls.capacity;
-                        const onWaitlist = activeStudent
-                          ? (waitlistMap[cls.id] || []).includes(activeStudent.id)
-                          : false;
+                        const onWaitlist = activeStudent ? (waitlistMap[cls.id] || []).includes(activeStudent.id) : false;
                         const dateBlocked = isDateBlockedForStudent(activeStudent, cls.date);
                         const comingSoon = isClassComingSoon(cls);
 
                         const srvObj = services.find((s) => s.id === cls.category);
                         const categoryLabel = (srvObj ? srvObj.label : cls.category || '').trim().toLowerCase();
-                        const classTitle = (cls.title || '').trim().toLowerCase();
-                        const hideDuplicateBadge = Boolean(
-                          categoryLabel && classTitle && categoryLabel === classTitle
-                        );
+                        const hideDuplicateBadge = Boolean(categoryLabel && categoryLabel === (cls.title || '').trim().toLowerCase());
 
                         return (
                           <div
@@ -2209,7 +1836,7 @@ export default function App() {
                           >
                             <div>
                               <div className="flex justify-between items-start gap-2 mb-2.5">
-                                <div>{!hideDuplicateBadge ? getCategoryBadge(cls.category) : null}</div>
+                                <div>{!hideDuplicateBadge && getCategoryBadge(cls.category)}</div>
                                 {cls.is_cancelled ? (
                                   <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-100 text-rose-700">
                                     <Ban className="w-3.5 h-3.5" /> Clase cancelada
@@ -2312,7 +1939,7 @@ export default function App() {
               )}
             </div>
 
-            {/* 2. Menú comprimible: Planes y Precios */}
+            {/* Planes y Precios */}
             <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-3">
               <button
                 type="button"
@@ -2321,9 +1948,7 @@ export default function App() {
               >
                 <div>
                   <h2 className="text-base font-semibold">Planes y Precios</h2>
-                  <p className="text-xs text-stone-500">
-                    {publishedPlansForStudents.length} opciones disponibles • Tocá para ver o comprimir
-                  </p>
+                  <p className="text-xs text-stone-500">{publishedPlansForStudents.length} opciones disponibles • Tocá para ver o comprimir</p>
                 </div>
                 <span className="p-2 rounded-xl bg-[#EDF3EE] text-[#5C7362]">
                   {openStudentPlansPanel ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -2336,9 +1961,7 @@ export default function App() {
                     <div
                       key={p.id}
                       className={`p-3 rounded-2xl border flex items-center justify-between gap-2 ${
-                        p.comingSoon
-                          ? 'bg-amber-50/40 border-amber-200/80 opacity-90'
-                          : 'bg-[#F7F5F0] border-stone-200/80'
+                        p.comingSoon ? 'bg-amber-50/40 border-amber-200/80 opacity-90' : 'bg-[#F7F5F0] border-stone-200/80'
                       }`}
                     >
                       <div>
@@ -2348,13 +1971,9 @@ export default function App() {
                         </p>
                       </div>
                       {p.comingSoon ? (
-                        <span className="text-[11px] font-semibold text-amber-800 bg-amber-100 px-2.5 py-1 rounded-xl shrink-0">
-                          Próximamente
-                        </span>
+                        <span className="text-[11px] font-semibold text-amber-800 bg-amber-100 px-2.5 py-1 rounded-xl shrink-0">Próximamente</span>
                       ) : (
-                        <span className="text-xs font-bold text-[#5C7362] bg-[#EDF3EE] px-2.5 py-1 rounded-xl shrink-0">
-                          {formatPriceARS(p.price)}
-                        </span>
+                        <span className="text-xs font-bold text-[#5C7362] bg-[#EDF3EE] px-2.5 py-1 rounded-xl shrink-0">{formatPriceARS(p.price)}</span>
                       )}
                     </div>
                   ))}
@@ -2367,14 +1986,7 @@ export default function App() {
           <div className="space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="hidden md:flex items-center gap-1.5 bg-white p-1.5 rounded-2xl border border-stone-200/80 w-fit shadow-2xs">
-                {[
-                  { id: 'schedule', label: 'Calendario & Clases', Icon: Calendar },
-                  { id: 'attendance', label: 'Asistencia', Icon: ClipboardCheck },
-                  { id: 'dashboard', label: 'Dashboard', Icon: BarChart3 },
-                  { id: 'estetica', label: 'Estética', Icon: Flower2 },
-                  { id: 'students', label: 'Alumnos', Icon: Users },
-                  { id: 'payments', label: 'Pagos & Comunicaciones', Icon: CreditCard }
-                ].map(({ id, label, Icon }) => (
+                {adminNavItems.map(({ id, label, Icon }) => (
                   <button
                     type="button"
                     key={id}
@@ -2402,34 +2014,42 @@ export default function App() {
             </div>
 
             {adminTab === 'schedule' && (
-              <div className="space-y-5">
+              <div className="space-y-6">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
-                    <h2 className="text-xl font-semibold">Calendario & Clases</h2>
-                    <p className="text-sm text-stone-500">
-                      Gestioná servicios, programá horarios, cargá licencias o cancelá clases
-                    </p>
+                    <h2 className="text-xl font-semibold">Grilla Semanal & Secuencia</h2>
+                    <p className="text-sm text-stone-500">Tocá una celda para agregar o gestionar; editá la secuencia completa en la tabla</p>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => {
-                        setEditingServiceId(null);
-                        setServiceForm({ label: '', pillar: 'cuerpo', isClass: true, defaultCap: 10 });
-                        setShowServiceModal(true);
-                      }}
-                      className="flex items-center gap-1.5 bg-white hover:bg-stone-50 text-[#5C7362] border border-[#5C7362]/40 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all"
+                      onClick={() => handleOpenNewClassModal({ dayId: 1, time: '08:00' })}
+                      className="flex items-center gap-1.5 bg-[#5C7362] hover:bg-[#4B5F50] text-white shadow-xs px-4 py-2 rounded-xl text-xs font-semibold"
                     >
-                      <Plus className="w-4 h-4" /> Servicios
+                      <Plus className="w-4 h-4" /> Nuevo Horario
                     </button>
 
                     <button
                       type="button"
-                      onClick={handleOpenNewClassModal}
-                      className="flex items-center gap-1.5 bg-[#5C7362] hover:bg-[#4B5F50] text-white shadow-xs px-4 py-2 rounded-xl text-xs font-semibold transition-all"
+                      onClick={handleRepeatNextWeek}
+                      disabled={repeatingWeek || weekClassesMonFri.length === 0}
+                      className="flex items-center gap-1.5 bg-[#EDF3EE] hover:bg-[#dce8de] text-[#4C6352] border border-[#5C7362]/30 px-3.5 py-2 rounded-xl text-xs font-semibold disabled:opacity-45"
                     >
-                      <Plus className="w-4 h-4" /> Programar Horarios
+                      <CopyPlus className="w-4 h-4" />
+                      {repeatingWeek ? 'Repitiendo...' : 'Repetir semana siguiente'}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingServiceId(null);
+                        setServiceForm(EMPTY_SERVICE_FORM);
+                        setShowServiceModal(true);
+                      }}
+                      className="flex items-center gap-1.5 bg-white hover:bg-stone-50 text-[#5C7362] border border-[#5C7362]/40 px-3.5 py-2 rounded-xl text-xs font-semibold"
+                    >
+                      <Layers className="w-4 h-4" /> Servicios & Cupos
                     </button>
 
                     <button
@@ -2438,128 +2058,291 @@ export default function App() {
                         setVacationForm({ startDate: selectedDate, endDate: addDaysToISO(selectedDate, 7) });
                         setShowVacationModal(true);
                       }}
-                      className="flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all"
+                      className="flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 px-3.5 py-2 rounded-xl text-xs font-semibold"
                     >
-                      <Palmtree className="w-4 h-4" /> Licencia / Vacaciones
+                      <Palmtree className="w-4 h-4" /> Licencia
                     </button>
                   </div>
                 </div>
 
-                {renderCalendarSelector()}
-
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-semibold text-base">
-                      Clases del día: <span className="text-[#5C7362]">{formatDateDDMMYYYY(selectedDate)}</span>
-                    </h3>
-                    <span className="text-xs text-stone-500">
-                      {dayClassesAdmin.length} {dayClassesAdmin.length === 1 ? 'clase' : 'clases'}
-                    </span>
+                {/* Navegación semanal y matriz HORA x LUNES-VIERNES */}
+                <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const prev = new Date(weekCursor);
+                          prev.setDate(prev.getDate() - 7);
+                          setWeekCursor(prev);
+                        }}
+                        className="p-1.5 rounded-xl border border-stone-200 hover:bg-stone-50"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <span className="font-semibold text-sm sm:text-base">
+                        Semana del {formatDateDDMMYYYY(weekDaysMonFri[0].iso)} al {formatDateDDMMYYYY(weekDaysMonFri[4].iso)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = new Date(weekCursor);
+                          next.setDate(next.getDate() + 7);
+                          setWeekCursor(next);
+                        }}
+                        className="p-1.5 rounded-xl border border-stone-200 hover:bg-stone-50"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setWeekCursor(getMondayOfWeek(new Date()));
+                          setSelectedDate(todayISO);
+                        }}
+                        className="text-xs font-medium text-[#5C7362] bg-[#EDF3EE] px-2.5 py-1 rounded-lg"
+                      >
+                        Hoy
+                      </button>
+                    </div>
                   </div>
 
-                  {activeVacationForSelectedDate && (
-                    <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 text-xs text-amber-900">
-                      <strong>Licencia / Vacaciones activa:</strong> del{' '}
-                      <strong>{formatDateDDMMYYYY(activeVacationForSelectedDate.startDate)}</strong> al{' '}
-                      <strong>{formatDateDDMMYYYY(activeVacationForSelectedDate.endDate)}</strong>. En Vista Alumno
-                      figura como <em>Cerrado por vacaciones</em>.
-                    </div>
-                  )}
-
-                  {dayClassesAdmin.length === 0 ? (
-                    <div className="bg-white rounded-3xl p-8 text-center border border-stone-200/70 text-stone-500 text-sm">
-                      No hay clases programadas para el <strong>{formatDateDDMMYYYY(selectedDate)}</strong>.
+                  {matrixTimes.length === 0 ? (
+                    <div className="py-8 text-center text-sm text-stone-500 bg-[#F7F5F0]/60 rounded-2xl border border-stone-200/70">
+                      No hay horarios cargados en esta semana. Usá <strong>Nuevo Horario</strong> para empezar.
                     </div>
                   ) : (
-                    <div className="space-y-3">
-                      {dayClassesAdmin.map((cls) => {
-                        const classBookings = bookings.filter((b) => b.classId === cls.id);
-                        const cancelledAt = cls.cancelled_at || cancelledTimestamps[cls.id];
-                        const waitingCount = (waitlistMap[cls.id] || []).length;
-                        const comingSoon = isClassComingSoon(cls);
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-separate border-spacing-2 text-center">
+                        <thead>
+                          <tr>
+                            <th className="bg-[#D5DFD8] text-[#2D332F] text-xs font-bold py-2.5 px-3 rounded-full w-24">HORA</th>
+                            {weekDaysMonFri.map((wd) => (
+                              <th key={wd.dayId} className="bg-[#D5DFD8] text-[#2D332F] text-xs font-bold py-2.5 px-2 rounded-full">
+                                <div>{wd.label}</div>
+                                <div className="text-[10px] font-medium text-[#4C6352]">{wd.dateObj.getDate()}/{wd.dateObj.getMonth() + 1}</div>
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {matrixTimes.map((timeSlot) => (
+                            <tr key={timeSlot}>
+                              <td className="bg-[#D5DFD8] text-[#2D332F] text-xs font-bold py-3 px-2 rounded-full align-middle">
+                                {timeSlot}
+                              </td>
+                              {weekDaysMonFri.map((wd) => {
+                                const cellClasses = weekClassesMonFri.filter((c) => c.date === wd.iso && c.time === timeSlot);
+                                const isVac = Boolean(getVacationForDate(wd.iso));
 
-                        return (
-                          <div
-                            key={cls.id}
-                            className={`bg-white rounded-3xl p-5 border shadow-2xs ${
-                              cls.is_cancelled
-                                ? 'border-rose-200 bg-rose-50/20'
-                                : comingSoon
-                                ? 'border-amber-200 bg-amber-50/20'
-                                : 'border-stone-200/70'
-                            }`}
-                          >
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                              <div>
-                                <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                                  {getCategoryBadge(cls.category)}
-                                  <span className="text-xs font-medium px-2.5 py-0.5 rounded-lg bg-[#EDF3EE] text-[#4C6352]">
-                                    {cls.time} hs ({cls.duration} min)
-                                  </span>
-                                  <span className="text-xs text-stone-500 font-medium">
-                                    Inscritos: {classBookings.length}/{cls.capacity}
-                                  </span>
-                                  {waitingCount > 0 && (
-                                    <span className="text-xs font-medium px-2 py-0.5 bg-amber-100 text-amber-800 rounded-lg">
-                                      Espera: {waitingCount}
+                                if (isVac) {
+                                  return (
+                                    <td key={wd.iso} className="bg-amber-100/70 text-amber-900 text-[11px] font-semibold rounded-full py-2.5 px-2">
+                                      Vacaciones
+                                    </td>
+                                  );
+                                }
+
+                                if (cellClasses.length === 0) {
+                                  return (
+                                    <td key={wd.iso} className="p-0">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setSelectedDate(wd.iso);
+                                          handleOpenNewClassModal({ dayId: wd.dayId, time: timeSlot });
+                                        }}
+                                        title={`Agregar clase el ${wd.short} a las ${timeSlot}`}
+                                        className="w-full h-11 rounded-full bg-[#DCE4DF]/65 hover:bg-[#DCE4DF] text-stone-400 hover:text-[#5C7362] text-xs transition-colors flex items-center justify-center"
+                                      >
+                                        +
+                                      </button>
+                                    </td>
+                                  );
+                                }
+
+                                return (
+                                  <td key={wd.iso} className="p-0">
+                                    <div className="flex flex-col gap-1">
+                                      {cellClasses.map((cls) => (
+                                        <button
+                                          type="button"
+                                          key={cls.id}
+                                          onClick={() => {
+                                            setSelectedDate(cls.date);
+                                            handleOpenEditClass(cls);
+                                          }}
+                                          className={`w-full py-2.5 px-2 rounded-full text-xs font-semibold transition-all truncate ${
+                                            cls.is_cancelled
+                                              ? 'bg-rose-100 text-rose-700 line-through'
+                                              : isClassComingSoon(cls)
+                                              ? 'bg-amber-100 text-amber-900'
+                                              : 'bg-[#DCE4DF] hover:bg-[#CAD6CE] text-[#2D332F]'
+                                          }`}
+                                          title={`${cls.title} (${cls.time} hs) — Tocá para editar`}
+                                        >
+                                          {cls.title}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* Tabla de secuencia semanal con edición en lote */}
+                <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="font-semibold text-base">Secuencia Semanal ({weekClassesMonFri.length} registros)</h3>
+                      <p className="text-xs text-stone-500">Seleccioná filas para cambiar hora, cancelar/abrir o eliminar sin ir uno por uno</p>
+                    </div>
+
+                    {selectedSequenceIds.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-2 bg-[#F7F5F0] px-3 py-2 rounded-2xl border border-stone-200">
+                        <span className="text-xs font-semibold text-[#5C7362]">{selectedSequenceIds.length} seleccionados</span>
+                        <input
+                          type="time"
+                          value={bulkTimeInput}
+                          onChange={(e) => setBulkTimeInput(e.target.value)}
+                          className="border border-stone-200 rounded-lg px-2 py-1 text-xs bg-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleBulkUpdateTime}
+                          disabled={!bulkTimeInput}
+                          className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-[#5C7362] text-white disabled:opacity-40"
+                        >
+                          Cambiar hora
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleBulkToggleCancel(true)}
+                          className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-amber-100 text-amber-800"
+                        >
+                          Cancelar lote
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleBulkToggleCancel(false)}
+                          className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-100 text-emerald-800"
+                        >
+                          Reactivar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleBulkDeleteClasses}
+                          className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-rose-100 text-rose-700"
+                        >
+                          Eliminar
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {weekClassesMonFri.length === 0 ? (
+                    <p className="text-xs text-stone-400 italic py-3">Sin registros en la semana actual.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse text-sm">
+                        <thead>
+                          <tr className="bg-[#F7F5F0] text-xs uppercase tracking-wider text-stone-500">
+                            <th className="py-2.5 px-3 w-10">
+                              <input
+                                type="checkbox"
+                                checked={allWeekSelected}
+                                onChange={(e) => setSelectedSequenceIds(e.target.checked ? allWeekIds : [])}
+                                className="rounded accent-[#5C7362]"
+                              />
+                            </th>
+                            <th className="py-2.5 px-3 font-medium">Fecha</th>
+                            <th className="py-2.5 px-3 font-medium">Hora</th>
+                            <th className="py-2.5 px-3 font-medium">Actividad</th>
+                            <th className="py-2.5 px-3 font-medium">Cupo</th>
+                            <th className="py-2.5 px-3 font-medium">Estado</th>
+                            <th className="py-2.5 px-3 font-medium text-right">Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-stone-100 text-xs">
+                          {weekClassesMonFri.map((cls) => {
+                            const checked = selectedSequenceIds.includes(cls.id);
+                            const bookedCount = bookings.filter((b) => b.classId === cls.id).length;
+                            const cancelledAt = cls.cancelled_at || cancelledTimestamps[cls.id];
+
+                            return (
+                              <tr key={cls.id} className={checked ? 'bg-[#EDF3EE]/60' : 'hover:bg-stone-50/60'}>
+                                <td className="py-2.5 px-3">
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() =>
+                                      setSelectedSequenceIds((prev) =>
+                                        prev.includes(cls.id) ? prev.filter((x) => x !== cls.id) : [...prev, cls.id]
+                                      )
+                                    }
+                                    className="rounded accent-[#5C7362]"
+                                  />
+                                </td>
+                                <td className="py-2.5 px-3 font-medium">{formatDateDDMMYYYY(cls.date)}</td>
+                                <td className="py-2.5 px-3 font-semibold">{cls.time} hs</td>
+                                <td className="py-2.5 px-3 font-semibold text-[#2D332F]">{cls.title}</td>
+                                <td className="py-2.5 px-3 text-stone-600">{bookedCount}/{cls.capacity}</td>
+                                <td className="py-2.5 px-3">
+                                  {cls.is_cancelled ? (
+                                    <span className="text-rose-700 font-semibold">
+                                      Cancelada {cancelledAt ? `(${formatTimestamp(cancelledAt)})` : ''}
                                     </span>
+                                  ) : isClassComingSoon(cls) ? (
+                                    <span className="text-amber-800 font-semibold">Próximamente</span>
+                                  ) : (
+                                    <span className="text-[#4C6352] font-semibold">Activa</span>
                                   )}
-                                  {comingSoon && (
-                                    <span className="text-xs font-semibold px-2 py-0.5 bg-amber-100 text-amber-800 rounded-lg">
-                                      PRÓXIMAMENTE
-                                    </span>
-                                  )}
-                                  {cls.is_cancelled && (
-                                    <span className="text-xs font-semibold px-2 py-0.5 bg-rose-100 text-rose-700 rounded-lg">
-                                      CANCELADA
-                                    </span>
-                                  )}
-                                </div>
-                                <h4 className="font-semibold text-base">
-                                  {cls.title}{' '}
-                                  <span className="text-sm font-normal text-stone-500">— {cls.instructor}</span>
-                                </h4>
-                                {cls.is_cancelled && cancelledAt && (
-                                  <p className="text-[11px] text-rose-700 mt-1">
-                                    Cancelada el: <strong>{formatTimestamp(cancelledAt)}</strong>
-                                  </p>
-                                )}
-                              </div>
-
-                              <div className="flex items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenEditClass(cls)}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-100 rounded-xl border border-stone-200 transition-colors"
-                                >
-                                  <Edit3 className="w-3.5 h-3.5" /> Editar
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleCancelClass(cls.id)}
-                                  className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-                                    cls.is_cancelled
-                                      ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
-                                      : 'bg-amber-100 text-amber-800 hover:bg-amber-200'
-                                  }`}
-                                >
-                                  <Ban className="w-3.5 h-3.5" />
-                                  {cls.is_cancelled ? 'Abrir Clase' : 'Cancelar'}
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => handleRequestDeleteClass(cls)}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 rounded-xl border border-rose-200 transition-colors"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" /> Eliminar
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
+                                </td>
+                                <td className="py-2.5 px-3 text-right">
+                                  <div className="inline-flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenEditClass(cls)}
+                                      className="p-1.5 rounded-lg border border-stone-200 hover:bg-stone-100"
+                                      title="Editar"
+                                    >
+                                      <Edit3 className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleCancelClass(cls.id)}
+                                      className="p-1.5 rounded-lg border border-stone-200 hover:bg-amber-50 text-amber-800"
+                                      title={cls.is_cancelled ? 'Abrir clase' : 'Cancelar clase'}
+                                    >
+                                      <Ban className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setPendingDeleteConfirm({
+                                          type: 'class',
+                                          id: cls.id,
+                                          title: `la clase "${cls.title}" (${cls.time} hs del ${formatDateDDMMYYYY(cls.date)})`
+                                        })
+                                      }
+                                      className="p-1.5 rounded-lg border border-rose-200 hover:bg-rose-50 text-rose-600"
+                                      title="Eliminar"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
                   )}
                 </div>
@@ -2571,24 +2354,29 @@ export default function App() {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <h2 className="text-xl font-semibold">Asistencia</h2>
-                    <p className="text-sm text-stone-500">
-                      Marca Asistió o No asistió (marcar No asistió descuenta 1 sesión del abono)
-                    </p>
+                    <p className="text-sm text-stone-500">Marca Asistió o No asistió (marcar No asistió descuenta 1 sesión del abono)</p>
                   </div>
 
-                  <select
-                    value={attendanceServiceFilter}
-                    onChange={(e) => setAttendanceServiceFilter(e.target.value)}
-                    className="text-sm font-medium bg-white px-3 py-2 rounded-xl border border-stone-200/80 w-fit"
-                  >
-                    <option value="ALL">Todos los servicios</option>
-                    {services.map((srv) => (
-                      <option key={srv.id} value={srv.id}>{srv.label}</option>
-                    ))}
-                  </select>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="date"
+                      value={selectedDate}
+                      onChange={(e) => setSelectedDate(e.target.value)}
+                      className="text-sm font-medium bg-white px-3 py-2 rounded-xl border border-stone-200/80"
+                    />
+                    <select
+                      value={attendanceServiceFilter}
+                      onChange={(e) => setAttendanceServiceFilter(e.target.value)}
+                      className="text-sm font-medium bg-white px-3 py-2 rounded-xl border border-stone-200/80"
+                    >
+                      <option value="ALL">Todos los servicios</option>
+                      {services.map((srv) => (
+                        <option key={srv.id} value={srv.id}>{srv.label}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
-                {renderCalendarSelector()}
                 {renderAttendanceBoard(attendanceDayClasses)}
               </div>
             )}
@@ -2598,48 +2386,34 @@ export default function App() {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h2 className="text-xl font-semibold">Dashboard</h2>
-                    <p className="text-sm text-stone-500">
-                      Toca Clases del Día o Reservas del Día para ver el detalle
-                    </p>
+                    <p className="text-sm text-stone-500">Toca Clases del Día o Reservas del Día para ver el detalle</p>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="flex items-center bg-white p-1 rounded-xl border border-stone-200/80">
-                      <button
-                        type="button"
-                        onClick={() => setDashboardScope('day')}
-                        className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
-                          dashboardScope === 'day' ? 'bg-[#5C7362] text-white' : 'text-stone-600'
-                        }`}
-                      >
-                        Vista Diaria
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDashboardScope('month')}
-                        className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
-                          dashboardScope === 'month' ? 'bg-[#5C7362] text-white' : 'text-stone-600'
-                        }`}
-                      >
-                        Visión Mensual
-                      </button>
+                      {[
+                        { id: 'day', label: 'Vista Diaria' },
+                        { id: 'month', label: 'Visión Mensual' }
+                      ].map((opt) => (
+                        <button
+                          type="button"
+                          key={opt.id}
+                          onClick={() => setDashboardScope(opt.id)}
+                          className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                            dashboardScope === opt.id ? 'bg-[#5C7362] text-white' : 'text-stone-600'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
                     </div>
 
-                    {dashboardScope === 'day' ? (
-                      <input
-                        type="date"
-                        value={selectedDate}
-                        onChange={(e) => setSelectedDate(e.target.value)}
-                        className="text-sm font-medium bg-white px-3 py-1.5 rounded-xl border border-stone-200/80"
-                      />
-                    ) : (
-                      <input
-                        type="month"
-                        value={dashboardMonth}
-                        onChange={(e) => setDashboardMonth(e.target.value)}
-                        className="text-sm font-medium bg-white px-3 py-1.5 rounded-xl border border-stone-200/80"
-                      />
-                    )}
+                    <input
+                      type={dashboardScope === 'day' ? 'date' : 'month'}
+                      value={dashboardScope === 'day' ? selectedDate : dashboardMonth}
+                      onChange={(e) => (dashboardScope === 'day' ? setSelectedDate(e.target.value) : setDashboardMonth(e.target.value))}
+                      className="text-sm font-medium bg-white px-3 py-1.5 rounded-xl border border-stone-200/80"
+                    />
                   </div>
                 </div>
 
@@ -2650,9 +2424,7 @@ export default function App() {
                         type="button"
                         onClick={() => setOpenClassesPanel((prev) => !prev)}
                         className={`text-left bg-white rounded-3xl p-5 border transition-all shadow-2xs ${
-                          openClassesPanel
-                            ? 'border-[#5C7362] ring-1 ring-[#5C7362]/25'
-                            : 'border-stone-200/70 hover:border-stone-300'
+                          openClassesPanel ? 'border-[#5C7362] ring-1 ring-[#5C7362]/25' : 'border-stone-200/70 hover:border-stone-300'
                         }`}
                       >
                         <div className="flex items-center justify-between">
@@ -2669,9 +2441,7 @@ export default function App() {
                         type="button"
                         onClick={() => setOpenBookingsPanel((prev) => !prev)}
                         className={`text-left bg-white rounded-3xl p-5 border transition-all shadow-2xs ${
-                          openBookingsPanel
-                            ? 'border-[#5C7362] ring-1 ring-[#5C7362]/25'
-                            : 'border-stone-200/70 hover:border-stone-300'
+                          openBookingsPanel ? 'border-[#5C7362] ring-1 ring-[#5C7362]/25' : 'border-stone-200/70 hover:border-stone-300'
                         }`}
                       >
                         <div className="flex items-center justify-between">
@@ -2688,9 +2458,7 @@ export default function App() {
                     {openClassesPanel && (
                       <div className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-4">
                         <div className="flex items-center justify-between pb-2 border-b border-stone-100">
-                          <h3 className="font-semibold text-base">
-                            Clases Disponibles del Día ({formatDateDDMMYYYY(selectedDate)})
-                          </h3>
+                          <h3 className="font-semibold text-base">Clases Disponibles del Día ({formatDateDDMMYYYY(selectedDate)})</h3>
                           <span className="text-xs text-stone-500">Toca una clase para ver asistieron y no asistieron</span>
                         </div>
 
@@ -2721,17 +2489,9 @@ export default function App() {
                                     className="w-full p-4 text-left flex flex-wrap items-center justify-between gap-2 hover:bg-stone-100/60 transition-colors"
                                   >
                                     <div>
-                                      <p className="font-semibold text-sm text-[#2D332F]">
-                                        {cls.time} hs • {cls.title}{' '}
-                                        {isClassComingSoon(cls) && (
-                                          <span className="text-[10px] font-semibold px-2 py-0.5 bg-amber-100 text-amber-800 rounded-lg ml-1">
-                                            PRÓXIMAMENTE
-                                          </span>
-                                        )}
-                                      </p>
+                                      <p className="font-semibold text-sm text-[#2D332F]">{cls.time} hs • {cls.title}</p>
                                       <p className="text-xs text-stone-500 mt-0.5">
-                                        Total inscritos: <strong>{clsBookings.length}</strong> / Cupo disponible:{' '}
-                                        <strong>{freeSpots}</strong>
+                                        Total inscritos: <strong>{clsBookings.length}</strong> / Cupo disponible: <strong>{freeSpots}</strong>
                                       </p>
                                     </div>
 
@@ -2754,10 +2514,7 @@ export default function App() {
                                         ) : (
                                           <ul className="space-y-1 text-xs">
                                             {attendedList.map((st) => (
-                                              <li
-                                                key={st.id}
-                                                className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-stone-200/60"
-                                              >
+                                              <li key={st.id} className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-stone-200/60">
                                                 <span className="font-medium">{st.name}</span>
                                                 <span className="font-semibold text-[#5C7362]">{getStudentQuotaDisplay(st)}</span>
                                               </li>
@@ -2775,10 +2532,7 @@ export default function App() {
                                         ) : (
                                           <ul className="space-y-1 text-xs">
                                             {noShowList.map((st) => (
-                                              <li
-                                                key={st.id}
-                                                className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-rose-200/60"
-                                              >
+                                              <li key={st.id} className="flex items-center justify-between bg-white px-2.5 py-1.5 rounded-lg border border-rose-200/60">
                                                 <span className="font-medium">{st.name}</span>
                                                 <span className="font-semibold text-rose-700">{getStudentQuotaDisplay(st)}</span>
                                               </li>
@@ -2799,9 +2553,7 @@ export default function App() {
                     {openBookingsPanel && (
                       <div className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-3">
                         <div className="flex items-center justify-between pb-2 border-b border-stone-100">
-                          <h3 className="font-semibold text-base">
-                            Listado de Reservas del Día ({formatDateDDMMYYYY(selectedDate)})
-                          </h3>
+                          <h3 className="font-semibold text-base">Listado de Reservas del Día ({formatDateDDMMYYYY(selectedDate)})</h3>
                           <span className="text-xs text-stone-500">{dayBookings.length} total</span>
                         </div>
 
@@ -2815,23 +2567,14 @@ export default function App() {
                               if (!st || !cls) return null;
 
                               return (
-                                <div
-                                  key={b.id}
-                                  className="p-3 rounded-2xl bg-[#F7F5F0]/70 border border-stone-200/70 flex flex-wrap items-center justify-between gap-2 text-sm"
-                                >
+                                <div key={b.id} className="p-3 rounded-2xl bg-[#F7F5F0]/70 border border-stone-200/70 flex flex-wrap items-center justify-between gap-2 text-sm">
                                   <div>
                                     <span className="font-semibold">{st.name}</span>{' '}
                                     <span className="text-xs font-semibold text-[#5C7362]">({getStudentQuotaDisplay(st)})</span>
-                                    <p className="text-xs text-stone-500">
-                                      {cls.time} hs • {cls.title}
-                                    </p>
+                                    <p className="text-xs text-stone-500">{cls.time} hs • {cls.title}</p>
                                   </div>
                                   <span className="text-xs font-medium px-2.5 py-1 rounded-xl bg-white border border-stone-200 text-stone-600">
-                                    {b.attendanceStatus === 'no_show'
-                                      ? 'No asistió'
-                                      : b.attendanceStatus === 'attended' || b.attended
-                                      ? 'Asistió'
-                                      : 'Pendiente'}
+                                    {b.attendanceStatus === 'no_show' ? 'No asistió' : b.attendanceStatus === 'attended' || b.attended ? 'Asistió' : 'Pendiente'}
                                   </span>
                                 </div>
                               );
@@ -2845,9 +2588,7 @@ export default function App() {
                   <div className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-4">
                     <div>
                       <h3 className="font-semibold text-base">Estadísticas Mensuales de Asistencias por Clase y Horario</h3>
-                      <p className="text-xs text-stone-500">
-                        Período: <strong>{dashboardMonth}</strong>
-                      </p>
+                      <p className="text-xs text-stone-500">Período: <strong>{dashboardMonth}</strong></p>
                     </div>
 
                     {monthStatsBySlot.length === 0 ? (
@@ -2893,9 +2634,7 @@ export default function App() {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <h2 className="text-xl font-semibold">Dashboard de Estética & Cosmiatría</h2>
-                    <p className="text-sm text-stone-500">
-                      Seguimiento de tratamientos, carga de historial del mes pasado, sugerencias y recordatorios
-                    </p>
+                    <p className="text-sm text-stone-500">Configurá recordatorios y sugerencias de turno cada 3, 4 o 6 semanas</p>
                   </div>
 
                   <button
@@ -2903,7 +2642,7 @@ export default function App() {
                     onClick={() => {
                       setEsteticaHistoryForm({
                         studentId: students[0]?.id || '',
-                        date: addDaysToISO(todayISO, -15),
+                        date: addDaysToISO(todayISO, -21),
                         treatment: 'Limpieza Facial Profunda',
                         notes: ''
                       });
@@ -2917,12 +2656,11 @@ export default function App() {
 
                 {esteticaClientSummaries.length === 0 ? (
                   <div className="bg-white rounded-3xl p-8 text-center border border-stone-200/70 text-sm text-stone-500">
-                    Aún no hay sesiones o personas registradas para seguimiento de estética. Usá{' '}
-                    <strong>Cargar Sesión / Historial</strong> para registrar atenciones previas.
+                    Aún no hay sesiones o personas registradas para seguimiento de estética. Usá <strong>Cargar Sesión / Historial</strong> para registrar atenciones previas.
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {esteticaClientSummaries.map(({ student, lastDate, lastTitle, lastNotes, suggestedDate, manualRecords }) => (
+                    {esteticaClientSummaries.map(({ student, lastDate, lastTitle, lastNotes, reminderWeeks, suggestedDate, manualRecords }) => (
                       <div key={student.id} className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-3">
                         <div className="flex items-start justify-between gap-2">
                           <div>
@@ -2932,30 +2670,44 @@ export default function App() {
                           {getStatusBadge(student)}
                         </div>
 
-                        <div className="bg-[#F7F5F0] rounded-2xl p-3 text-xs space-y-1.5 text-stone-700">
+                        <div className="bg-[#F7F5F0] rounded-2xl p-3 text-xs space-y-2 text-stone-700">
                           <p className="flex items-center gap-1.5">
                             <Clock3 className="w-3.5 h-3.5 text-[#5C7362]" />
-                            Última sesión:{' '}
-                            <strong>{lastDate ? `${formatDateDDMMYYYY(lastDate)} (${lastTitle})` : 'Sin registro'}</strong>
+                            Última sesión: <strong>{lastDate ? `${formatDateDDMMYYYY(lastDate)} (${lastTitle})` : 'Sin registro'}</strong>
                           </p>
                           {lastNotes && <p className="text-[11px] text-stone-500 pl-5">Nota: {lastNotes}</p>}
-                          <p className="flex items-center gap-1.5">
-                            <Calendar className="w-3.5 h-3.5 text-[#5C7362]" />
-                            Sugerencia de turno: <strong>{formatDateDDMMYYYY(suggestedDate)}</strong>
-                          </p>
+
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                            <span className="flex items-center gap-1.5">
+                              <Calendar className="w-3.5 h-3.5 text-[#5C7362]" />
+                              Sugerencia: <strong>{formatDateDDMMYYYY(suggestedDate)}</strong>
+                            </span>
+
+                            <div className="flex items-center gap-1">
+                              {[3, 4, 6].map((wk) => (
+                                <button
+                                  type="button"
+                                  key={wk}
+                                  onClick={() => handleChangeEsteticaInterval(student.id, wk)}
+                                  className={`px-2 py-0.5 rounded-lg text-[11px] font-semibold border transition-all ${
+                                    reminderWeeks === wk
+                                      ? 'bg-[#5C7362] text-white border-[#5C7362]'
+                                      : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-100'
+                                  }`}
+                                >
+                                  {wk} sem
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                         </div>
 
                         {manualRecords.length > 0 && (
                           <div className="space-y-1">
                             <p className="text-[11px] font-semibold text-stone-400 uppercase">Historial cargado</p>
                             {manualRecords.slice(0, 3).map((rec) => (
-                              <div
-                                key={rec.id}
-                                className="flex items-center justify-between text-[11px] bg-stone-50 px-2.5 py-1 rounded-lg border border-stone-200/70"
-                              >
-                                <span>
-                                  {formatDateDDMMYYYY(rec.date)} • <strong>{rec.title}</strong>
-                                </span>
+                              <div key={rec.id} className="flex items-center justify-between text-[11px] bg-stone-50 px-2.5 py-1 rounded-lg border border-stone-200/70">
+                                <span>{formatDateDDMMYYYY(rec.date)} • <strong>{rec.title}</strong></span>
                                 <button
                                   type="button"
                                   onClick={() =>
@@ -2975,36 +2727,20 @@ export default function App() {
                           </div>
                         )}
 
-                        <div className="flex items-center gap-2 pt-1">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              showToast(
-                                `Notificación push enviada a ${student.name}: Sugerencia de turno para el ${formatDateDDMMYYYY(
-                                  suggestedDate
-                                )}`
-                              )
-                            }
-                            className="flex-1 inline-flex items-center justify-center gap-1.5 bg-[#5C7362] hover:bg-[#4B5F50] text-white py-2 px-3 rounded-xl text-xs font-semibold transition-all"
-                          >
-                            <Bell className="w-3.5 h-3.5" />
-                            Notificación push
-                          </button>
-
-                          {student.phone && (
+                        <div className="pt-1">
+                          {student.phone ? (
                             <a
                               href={`https://wa.me/${student.phone.replace(/\D/g, '')}?text=${encodeURIComponent(
-                                `¡Hola ${student.name}! Desde Espacio Sat-Nam te recordamos tu última sesión (${lastTitle}) y te sugerimos agendar tu próximo turno alrededor del ${formatDateDDMMYYYY(
-                                  suggestedDate
-                                )}. 🪷`
+                                `¡Hola ${student.name}! Desde Espacio Sat-Nam te recordamos tu última sesión (${lastTitle}) y te sugerimos tu próximo turno (cada ${reminderWeeks} semanas) alrededor del ${formatDateDDMMYYYY(suggestedDate)}. 🪷`
                               )}`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="inline-flex items-center justify-center gap-1.5 bg-[#25D366] hover:bg-[#1EBE5D] text-white py-2 px-3 rounded-xl text-xs font-semibold transition-all"
+                              className="w-full inline-flex items-center justify-center gap-1.5 bg-[#25D366] hover:bg-[#1EBE5D] text-white py-2 px-3 rounded-xl text-xs font-semibold transition-all"
                             >
-                              <MessageCircle className="w-3.5 h-3.5" />
-                              WhatsApp
+                              <MessageCircle className="w-3.5 h-3.5" /> Enviar sugerencia por WhatsApp ({reminderWeeks} sem)
                             </a>
+                          ) : (
+                            <p className="text-xs text-stone-400 italic text-center py-1">Sin teléfono WhatsApp registrado</p>
                           )}
                         </div>
                       </div>
@@ -3020,8 +2756,7 @@ export default function App() {
                   <div>
                     <h2 className="text-xl font-semibold">Alumnos & Personas</h2>
                     <p className="text-sm text-stone-500">
-                      Total registrados: <strong>{students.length}</strong> (incluye alumnos con plan y personas de
-                      sesiones/masajes)
+                      Total registrados: <strong>{students.length}</strong> (incluye alumnos con plan y personas de sesiones/masajes)
                     </p>
                   </div>
 
@@ -3072,13 +2807,9 @@ export default function App() {
                               {!hasActiveSubscriptionPlan(st) ? (
                                 <span className="text-stone-500">Solo sesiones</span>
                               ) : isUnlimitedPlan(st.plan) ? (
-                                <span className="bg-[#EDF3EE] text-[#4C6352] px-2.5 py-0.5 rounded-lg font-medium">
-                                  Pase Libre
-                                </span>
+                                <span className="bg-[#EDF3EE] text-[#4C6352] px-2.5 py-0.5 rounded-lg font-medium">Pase Libre</span>
                               ) : (
-                                <span>
-                                  {st.credits} disp. ({getStudentQuotaDisplay(st)})
-                                </span>
+                                <span>{st.credits} disp. ({getStudentQuotaDisplay(st)})</span>
                               )}
                             </td>
                             <td className="py-3.5 px-4 text-xs text-stone-600">
@@ -3104,7 +2835,7 @@ export default function App() {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => handleRequestDeleteStudent(st)}
+                                  onClick={() => setPendingDeleteConfirm({ type: 'student', id: st.id, title: `el registro de "${st.name}"` })}
                                   title="Eliminar registro"
                                   className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg border border-rose-200 transition-colors"
                                 >
@@ -3126,16 +2857,14 @@ export default function App() {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <h2 className="text-xl font-semibold">Pagos & Comunicaciones</h2>
-                    <p className="text-sm text-stone-500">
-                      Gestioná planes y precios, recordatorios por WhatsApp, renovaciones, fechas y pausas
-                    </p>
+                    <p className="text-sm text-stone-500">Gestioná planes y precios, recordatorios por WhatsApp, renovaciones, fechas y pausas</p>
                   </div>
 
                   <button
                     type="button"
                     onClick={() => {
                       setEditingPlanId(null);
-                      setPlanForm({ name: '', credits: 4, price: 50000, isUnlimited: false, comingSoon: false });
+                      setPlanForm(EMPTY_PLAN_FORM);
                       setShowPlanManagerModal(true);
                     }}
                     className="flex items-center gap-1.5 bg-white hover:bg-stone-50 text-[#5C7362] border border-[#5C7362]/40 px-3.5 py-2 rounded-xl text-xs font-semibold w-fit"
@@ -3149,18 +2878,12 @@ export default function App() {
                     type="button"
                     onClick={() => setOpenPaymentsPanel((prev) => (prev === 'active' ? null : 'active'))}
                     className={`text-left bg-white rounded-3xl p-5 border transition-all shadow-2xs ${
-                      openPaymentsPanel === 'active'
-                        ? 'border-[#5C7362] ring-1 ring-[#5C7362]/25'
-                        : 'border-stone-200/70 hover:border-stone-300'
+                      openPaymentsPanel === 'active' ? 'border-[#5C7362] ring-1 ring-[#5C7362]/25' : 'border-stone-200/70 hover:border-stone-300'
                     }`}
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold uppercase tracking-wider text-stone-500">Activos</span>
-                      {openPaymentsPanel === 'active' ? (
-                        <ChevronUp className="w-4 h-4 text-[#5C7362]" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4 text-[#5C7362]" />
-                      )}
+                      {openPaymentsPanel === 'active' ? <ChevronUp className="w-4 h-4 text-[#5C7362]" /> : <ChevronDown className="w-4 h-4 text-[#5C7362]" />}
                     </div>
                     <p className="text-2xl font-bold text-[#5C7362] mt-1">{activePaymentStudents.length}</p>
                     <p className="text-xs text-[#5C7362] font-medium mt-1">Tocá para ver alumnos activos</p>
@@ -3170,20 +2893,12 @@ export default function App() {
                     type="button"
                     onClick={() => setOpenPaymentsPanel((prev) => (prev === 'renew' ? null : 'renew'))}
                     className={`text-left bg-white rounded-3xl p-5 border transition-all shadow-2xs ${
-                      openPaymentsPanel === 'renew'
-                        ? 'border-[#5C7362] ring-1 ring-[#5C7362]/25'
-                        : 'border-stone-200/70 hover:border-stone-300'
+                      openPaymentsPanel === 'renew' ? 'border-[#5C7362] ring-1 ring-[#5C7362]/25' : 'border-stone-200/70 hover:border-stone-300'
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold uppercase tracking-wider text-stone-500">
-                        Por Renovar
-                      </span>
-                      {openPaymentsPanel === 'renew' ? (
-                        <ChevronUp className="w-4 h-4 text-[#5C7362]" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4 text-[#5C7362]" />
-                      )}
+                      <span className="text-xs font-semibold uppercase tracking-wider text-stone-500">Por Renovar</span>
+                      {openPaymentsPanel === 'renew' ? <ChevronUp className="w-4 h-4 text-[#5C7362]" /> : <ChevronDown className="w-4 h-4 text-[#5C7362]" />}
                     </div>
                     <p className="text-2xl font-bold text-amber-700 mt-1">{renewPaymentStudents.length}</p>
                     <p className="text-xs text-stone-500 mt-1">Tocá para ver vencidos o por vencer (≤ 5d)</p>
@@ -3198,20 +2913,16 @@ export default function App() {
                         : `Listado Por Renovar (${renewPaymentStudents.length})`}
                     </h3>
 
-                    {(openPaymentsPanel === 'active' ? activePaymentStudents : renewPaymentStudents).length === 0 ? (
+                    {paymentStudentsList.length === 0 ? (
                       <div className="bg-white rounded-3xl p-8 text-center border border-stone-200/70 text-stone-500 text-sm">
                         No hay alumnos en este grupo actualmente.
                       </div>
                     ) : (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {(openPaymentsPanel === 'active' ? activePaymentStudents : renewPaymentStudents).map((st) => {
+                        {paymentStudentsList.map((st) => {
                           const paused = isPlanPaused(st);
-
                           return (
-                            <div
-                              key={st.id}
-                              className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs flex flex-col justify-between gap-4"
-                            >
+                            <div key={st.id} className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs flex flex-col justify-between gap-4">
                               <div className="flex justify-between items-start gap-2">
                                 <div>
                                   <h4 className="font-semibold text-base">{st.name}</h4>
@@ -3232,8 +2943,7 @@ export default function App() {
                                     rel="noopener noreferrer"
                                     className="flex-1 flex items-center justify-center gap-1.5 bg-[#25D366] hover:bg-[#1EBE5D] text-white py-2 px-3 rounded-xl text-xs font-semibold shadow-2xs transition-all"
                                   >
-                                    <MessageCircle className="w-4 h-4" />
-                                    Recordatorio WhatsApp
+                                    <MessageCircle className="w-4 h-4" /> Recordatorio WhatsApp
                                   </a>
 
                                   <button
@@ -3241,8 +2951,7 @@ export default function App() {
                                     onClick={() => handleOpenRenewOrDates(st)}
                                     className="flex items-center justify-center gap-1 bg-[#EDF3EE] hover:bg-[#dce8de] text-[#4C6352] py-2 px-3 rounded-xl text-xs font-semibold transition-all"
                                   >
-                                    <CalendarRange className="w-3.5 h-3.5" />
-                                    Renovar / Fechas
+                                    <CalendarRange className="w-3.5 h-3.5" /> Renovar / Fechas
                                   </button>
                                 </div>
 
@@ -3250,9 +2959,7 @@ export default function App() {
                                   type="button"
                                   onClick={() => handleTogglePausePlan(st)}
                                   className={`w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-semibold border transition-all ${
-                                    paused
-                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
-                                      : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                                    paused ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100' : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
                                   }`}
                                 >
                                   <Ban className="w-3.5 h-3.5" />
@@ -3281,14 +2988,7 @@ export default function App() {
 
       {role === 'admin' && (
         <nav className="md:hidden fixed bottom-8 left-0 right-0 bg-white border-t border-stone-200 flex justify-around py-2 px-1 z-40">
-          {[
-            { id: 'schedule', label: 'Agenda', Icon: Calendar },
-            { id: 'attendance', label: 'Asistencia', Icon: ClipboardCheck },
-            { id: 'dashboard', label: 'Dashboard', Icon: BarChart3 },
-            { id: 'estetica', label: 'Estética', Icon: Flower2 },
-            { id: 'students', label: 'Alumnos', Icon: Users },
-            { id: 'payments', label: 'Pagos', Icon: CreditCard }
-          ].map(({ id, label, Icon }) => (
+          {adminNavItems.map(({ id, shortLabel, Icon }) => (
             <button
               type="button"
               key={id}
@@ -3297,13 +2997,13 @@ export default function App() {
                 adminTab === id ? 'text-[#5C7362]' : 'text-stone-400'
               }`}
             >
-              <Icon className="w-4 h-4" /> {label}
+              <Icon className="w-4 h-4" /> {shortLabel}
             </button>
           ))}
         </nav>
       )}
 
-      {/* Modales */}
+      {/* ================= MODALES ================= */}
       {pendingDeleteConfirm && (
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-xl text-center">
@@ -3312,18 +3012,10 @@ export default function App() {
               ¿Estás seguro de que querés borrar definitivamente <strong>{pendingDeleteConfirm.title}</strong>?
             </p>
             <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setPendingDeleteConfirm(null)}
-                className="flex-1 py-2.5 rounded-xl text-xs font-medium bg-stone-100 text-stone-700 hover:bg-stone-200"
-              >
+              <button type="button" onClick={() => setPendingDeleteConfirm(null)} className="flex-1 py-2.5 rounded-xl text-xs font-medium bg-stone-100 text-stone-700 hover:bg-stone-200">
                 Cancelar
               </button>
-              <button
-                type="button"
-                onClick={handleConfirmDelete}
-                className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white"
-              >
+              <button type="button" onClick={handleConfirmDelete} className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white">
                 Sí, borrar
               </button>
             </div>
@@ -3340,11 +3032,7 @@ export default function App() {
               <strong>{pendingAttendanceEdit.nextStatus === 'attended' ? 'Asistió' : 'No asistió'}</strong>?
             </p>
             <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setPendingAttendanceEdit(null)}
-                className="flex-1 py-2.5 rounded-xl text-xs font-medium bg-stone-100 text-stone-700 hover:bg-stone-200"
-              >
+              <button type="button" onClick={() => setPendingAttendanceEdit(null)} className="flex-1 py-2.5 rounded-xl text-xs font-medium bg-stone-100 text-stone-700 hover:bg-stone-200">
                 Cancelar
               </button>
               <button
@@ -3370,9 +3058,7 @@ export default function App() {
               <Lock className="w-6 h-6" />
             </div>
             <h3 className="font-semibold text-lg">Acceso Modo Estudio</h3>
-            <p className="text-xs text-stone-500 mt-1 mb-4">
-              Ingresa el PIN de 4 dígitos para administrar la agenda y los turnos
-            </p>
+            <p className="text-xs text-stone-500 mt-1 mb-4">Ingresa el PIN de 4 dígitos para administrar la agenda y los turnos</p>
 
             <form onSubmit={handleVerifyPin} className="space-y-3">
               <input
@@ -3393,17 +3079,10 @@ export default function App() {
               {pinError && <p className="text-xs text-rose-600 font-medium">PIN incorrecto. Intenta nuevamente.</p>}
 
               <div className="flex gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowPinModal(false)}
-                  className="flex-1 py-2.5 rounded-xl text-xs font-medium bg-stone-100 text-stone-600 hover:bg-stone-200"
-                >
+                <button type="button" onClick={() => setShowPinModal(false)} className="flex-1 py-2.5 rounded-xl text-xs font-medium bg-stone-100 text-stone-600 hover:bg-stone-200">
                   Cancelar
                 </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-[#5C7362] hover:bg-[#4B5F50] text-white"
-                >
+                <button type="submit" className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-[#5C7362] hover:bg-[#4B5F50] text-white">
                   Ingresar
                 </button>
               </div>
@@ -3425,28 +3104,13 @@ export default function App() {
             <form onSubmit={handleSaveProfile} className="space-y-3.5 text-sm">
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">Nombre y Apellido</label>
-                <input
-                  required
-                  type="text"
-                  value={profileForm.name}
-                  onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })}
-                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
-                />
+                <input required type="text" value={profileForm.name} onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">Teléfono WhatsApp</label>
-                <input
-                  required
-                  type="text"
-                  value={profileForm.phone}
-                  onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })}
-                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
-                />
+                <input required type="text" value={profileForm.phone} onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
               </div>
-              <button
-                type="submit"
-                className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2"
-              >
+              <button type="submit" className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2">
                 Guardar Cambios
               </button>
             </form>
@@ -3469,16 +3133,9 @@ export default function App() {
             <form onSubmit={handleSaveEsteticaHistory} className="space-y-3.5 text-sm">
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">Alumno / Persona</label>
-                <select
-                  required
-                  value={esteticaHistoryForm.studentId}
-                  onChange={(e) => setEsteticaHistoryForm({ ...esteticaHistoryForm, studentId: e.target.value })}
-                  className="w-full border border-stone-200 rounded-xl px-3 py-2 bg-white"
-                >
+                <select required value={esteticaHistoryForm.studentId} onChange={(e) => setEsteticaHistoryForm({ ...esteticaHistoryForm, studentId: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2 bg-white">
                   {students.map((st) => (
-                    <option key={st.id} value={st.id}>
-                      {st.name}
-                    </option>
+                    <option key={st.id} value={st.id}>{st.name}</option>
                   ))}
                 </select>
               </div>
@@ -3488,43 +3145,21 @@ export default function App() {
                   <label className="block text-xs font-medium text-stone-600 mb-1">
                     Fecha de la Sesión ({formatDateDDMMYYYY(esteticaHistoryForm.date)})
                   </label>
-                  <input
-                    required
-                    type="date"
-                    value={esteticaHistoryForm.date}
-                    onChange={(e) => setEsteticaHistoryForm({ ...esteticaHistoryForm, date: e.target.value })}
-                    className="w-full border border-stone-200 rounded-xl px-3 py-2"
-                  />
+                  <input required type="date" value={esteticaHistoryForm.date} onChange={(e) => setEsteticaHistoryForm({ ...esteticaHistoryForm, date: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
                 </div>
 
                 <div>
                   <label className="block text-xs font-medium text-stone-600 mb-1">Tratamiento Realizado</label>
-                  <input
-                    required
-                    type="text"
-                    placeholder="Ej. Limpieza Facial, Masaje..."
-                    value={esteticaHistoryForm.treatment}
-                    onChange={(e) => setEsteticaHistoryForm({ ...esteticaHistoryForm, treatment: e.target.value })}
-                    className="w-full border border-stone-200 rounded-xl px-3 py-2"
-                  />
+                  <input required type="text" placeholder="Ej. Limpieza Facial, Masaje..." value={esteticaHistoryForm.treatment} onChange={(e) => setEsteticaHistoryForm({ ...esteticaHistoryForm, treatment: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">Observaciones (opcional)</label>
-                <input
-                  type="text"
-                  placeholder="Ej. Piel sensible, recomendar hidratación..."
-                  value={esteticaHistoryForm.notes}
-                  onChange={(e) => setEsteticaHistoryForm({ ...esteticaHistoryForm, notes: e.target.value })}
-                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
-                />
+                <input type="text" placeholder="Ej. Piel sensible, recomendar hidratación..." value={esteticaHistoryForm.notes} onChange={(e) => setEsteticaHistoryForm({ ...esteticaHistoryForm, notes: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
               </div>
 
-              <button
-                type="submit"
-                className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2"
-              >
+              <button type="submit" className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2">
                 Guardar en Historial
               </button>
             </form>
@@ -3547,62 +3182,30 @@ export default function App() {
             <form onSubmit={handleSaveVacationPeriod} className="space-y-3.5 text-sm border-b border-stone-100 pb-4">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">
-                    Desde ({formatDateDDMMYYYY(vacationForm.startDate)})
-                  </label>
-                  <input
-                    required
-                    type="date"
-                    value={vacationForm.startDate}
-                    onChange={(e) => setVacationForm({ ...vacationForm, startDate: e.target.value })}
-                    className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs"
-                  />
+                  <label className="block text-xs font-medium text-stone-600 mb-1">Desde ({formatDateDDMMYYYY(vacationForm.startDate)})</label>
+                  <input required type="date" value={vacationForm.startDate} onChange={(e) => setVacationForm({ ...vacationForm, startDate: e.target.value })} className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">
-                    Hasta ({formatDateDDMMYYYY(vacationForm.endDate)})
-                  </label>
-                  <input
-                    required
-                    type="date"
-                    value={vacationForm.endDate}
-                    onChange={(e) => setVacationForm({ ...vacationForm, endDate: e.target.value })}
-                    className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs"
-                  />
+                  <label className="block text-xs font-medium text-stone-600 mb-1">Hasta ({formatDateDDMMYYYY(vacationForm.endDate)})</label>
+                  <input required type="date" value={vacationForm.endDate} onChange={(e) => setVacationForm({ ...vacationForm, endDate: e.target.value })} className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs" />
                 </div>
               </div>
 
-              <button
-                type="submit"
-                className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl"
-              >
+              <button type="submit" className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl">
                 Bloquear Días y Cancelar Clases
               </button>
             </form>
 
             <div className="space-y-2">
-              <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider">
-                Períodos Configurados ({vacationPeriods.length})
-              </p>
+              <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider">Períodos Configurados ({vacationPeriods.length})</p>
               {vacationPeriods.length === 0 ? (
                 <p className="text-xs text-stone-400 italic">No hay licencias o vacaciones cargadas.</p>
               ) : (
                 <div className="space-y-2 max-h-40 overflow-y-auto">
                   {vacationPeriods.map((vp) => (
-                    <div
-                      key={vp.id}
-                      className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200 flex items-center justify-between text-xs"
-                    >
-                      <span>
-                        Del <strong>{formatDateDDMMYYYY(vp.startDate)}</strong> al{' '}
-                        <strong>{formatDateDDMMYYYY(vp.endDate)}</strong>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveVacationPeriod(vp.id)}
-                        className="text-rose-600 hover:bg-rose-100 p-1 rounded-lg"
-                        title="Quitar período y reactivar clases"
-                      >
+                    <div key={vp.id} className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200 flex items-center justify-between text-xs">
+                      <span>Del <strong>{formatDateDDMMYYYY(vp.startDate)}</strong> al <strong>{formatDateDDMMYYYY(vp.endDate)}</strong></span>
+                      <button type="button" onClick={() => handleRemoveVacationPeriod(vp.id)} className="text-rose-600 hover:bg-rose-100 p-1 rounded-lg" title="Quitar período y reactivar clases">
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
@@ -3618,14 +3221,13 @@ export default function App() {
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto space-y-5">
             <div className="flex justify-between items-center">
-              <h3 className="font-semibold text-lg">
-                {editingServiceId ? 'Editar Servicio' : 'Administrar Servicios'}
-              </h3>
+              <h3 className="font-semibold text-lg">{editingServiceId ? 'Editar Servicio y Cupo' : 'Servicios & Cupos Base'}</h3>
               <button
                 type="button"
                 onClick={() => {
                   setShowServiceModal(false);
                   setEditingServiceId(null);
+                  setServiceForm(EMPTY_SERVICE_FORM);
                 }}
               >
                 <XCircle className="w-5 h-5 text-stone-400" />
@@ -3635,53 +3237,27 @@ export default function App() {
             <form onSubmit={handleSaveService} className="space-y-3 text-sm border-b border-stone-100 pb-4">
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">Nombre del Servicio</label>
-                <input
-                  required
-                  type="text"
-                  placeholder="Ej. Masajes, Yoga Nidra..."
-                  value={serviceForm.label}
-                  onChange={(e) => setServiceForm({ ...serviceForm, label: e.target.value })}
-                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
-                />
+                <input required type="text" placeholder="Ej. Yoga, Spinning, Estética..." value={serviceForm.label} onChange={(e) => setServiceForm({ ...serviceForm, label: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
               </div>
 
               <div className="grid grid-cols-2 gap-2.5">
                 <div>
                   <label className="block text-xs font-medium text-stone-600 mb-1">Categoría</label>
-                  <select
-                    value={serviceForm.pillar}
-                    onChange={(e) => setServiceForm({ ...serviceForm, pillar: e.target.value })}
-                    className="w-full border border-stone-200 rounded-xl px-2.5 py-2 bg-white text-xs"
-                  >
+                  <select value={serviceForm.pillar} onChange={(e) => setServiceForm({ ...serviceForm, pillar: e.target.value })} className="w-full border border-stone-200 rounded-xl px-2.5 py-2 bg-white text-xs">
                     {SELECTABLE_PILLARS.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.label}
-                      </option>
+                      <option key={p.id} value={p.id}>{p.label}</option>
                     ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">Cupo Base</label>
-                  <input
-                    required
-                    type="number"
-                    min="1"
-                    max="60"
-                    value={serviceForm.defaultCap}
-                    onChange={(e) => setServiceForm({ ...serviceForm, defaultCap: e.target.value })}
-                    className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs"
-                  />
+                  <label className="block text-xs font-medium text-stone-600 mb-1">Cupo Guardado</label>
+                  <input required type="number" min="1" max="60" value={serviceForm.defaultCap} onChange={(e) => setServiceForm({ ...serviceForm, defaultCap: e.target.value })} className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs" />
                 </div>
               </div>
 
               <label className="flex items-center gap-2 cursor-pointer text-xs text-stone-700">
-                <input
-                  type="checkbox"
-                  checked={serviceForm.isClass}
-                  onChange={(e) => setServiceForm({ ...serviceForm, isClass: e.target.checked })}
-                  className="rounded accent-[#5C7362] w-4 h-4"
-                />
+                <input type="checkbox" checked={serviceForm.isClass} onChange={(e) => setServiceForm({ ...serviceForm, isClass: e.target.checked })} className="rounded accent-[#5C7362] w-4 h-4" />
                 Es clase grupal regular (requiere plan para alumnos; sin plan acceden a sesiones/tratamientos)
               </label>
 
@@ -3691,51 +3267,42 @@ export default function App() {
                     type="button"
                     onClick={() => {
                       setEditingServiceId(null);
-                      setServiceForm({ label: '', pillar: 'cuerpo', isClass: true, defaultCap: 10 });
+                      setServiceForm(EMPTY_SERVICE_FORM);
                     }}
                     className="px-3 py-2 rounded-xl text-xs font-medium bg-stone-100 text-stone-600"
                   >
                     Cancelar
                   </button>
                 )}
-                <button
-                  type="submit"
-                  className="flex-1 bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2 rounded-xl text-xs"
-                >
-                  {editingServiceId ? 'Guardar Cambios' : 'Agregar Servicio'}
+                <button type="submit" className="flex-1 bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2 rounded-xl text-xs">
+                  {editingServiceId ? 'Guardar Cupo y Servicio' : 'Guardar Servicio'}
                 </button>
               </div>
             </form>
 
             <div className="space-y-2">
-              <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider">
-                Servicios Existentes ({services.length})
-              </p>
+              <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider">Servicios Existentes ({services.length})</p>
               <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
                 {services.map((srv) => (
-                  <div
-                    key={srv.id}
-                    className="p-2.5 rounded-xl bg-[#F7F5F0] border border-stone-200/80 flex items-center justify-between gap-2"
-                  >
+                  <div key={srv.id} className="p-2.5 rounded-xl bg-[#F7F5F0] border border-stone-200/80 flex items-center justify-between gap-2">
                     <div>
                       <p className="text-xs font-semibold text-[#2D332F]">{srv.label}</p>
                       <p className="text-[11px] text-stone-500">
-                        {srv.isClass ? 'Clase regular' : 'Sesión / Tratamiento'} • Cupo: {srv.defaultCap}
+                        {srv.isClass ? 'Clase regular' : 'Sesión / Tratamiento'} • Cupo guardado: <strong>{srv.defaultCap}</strong>
                       </p>
                     </div>
                     <div className="flex items-center gap-1.5">
                       <button
                         type="button"
-                        onClick={() => handleStartEditService(srv)}
+                        onClick={() => {
+                          setEditingServiceId(srv.id);
+                          setServiceForm({ label: srv.label, pillar: srv.pillar, isClass: Boolean(srv.isClass), defaultCap: srv.defaultCap });
+                        }}
                         className="p-1.5 text-stone-700 bg-white hover:bg-stone-100 rounded-lg border border-stone-200"
                       >
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => handleRequestDeleteService(srv)}
-                        className="p-1.5 text-rose-600 bg-white hover:bg-rose-50 rounded-lg border border-rose-200"
-                      >
+                      <button type="button" onClick={() => handleRequestDeleteService(srv)} className="p-1.5 text-rose-600 bg-white hover:bg-rose-50 rounded-lg border border-rose-200">
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
@@ -3751,7 +3318,7 @@ export default function App() {
         <div className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="font-semibold text-lg">{editingClassId ? 'Editar Clase' : 'Programar Horarios'}</h3>
+              <h3 className="font-semibold text-lg">{editingClassId ? 'Editar Horario' : 'Nuevo Horario'}</h3>
               <button type="button" onClick={() => setShowClassModal(false)}>
                 <XCircle className="w-5 h-5 text-stone-400" />
               </button>
@@ -3759,7 +3326,12 @@ export default function App() {
 
             <form onSubmit={handleSaveClass} className="space-y-3.5 text-sm">
               <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1.5">Servicio</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-medium text-stone-600">Servicio</label>
+                  <span className="text-[11px] text-[#5C7362] font-semibold">
+                    Cupo del servicio: {getServiceDefaultCapacity(classForm.category)}
+                  </span>
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   {services.map((srv) => (
                     <button
@@ -3769,17 +3341,14 @@ export default function App() {
                         setClassForm((prev) => ({
                           ...prev,
                           category: srv.id,
-                          capacity: srv.defaultCap,
                           title: prev.isCustomTitle ? prev.title : srv.label
                         }))
                       }
                       className={`py-2 px-2.5 rounded-xl border text-xs font-medium text-left transition-all ${
-                        classForm.category === srv.id
-                          ? 'bg-[#5C7362] text-white border-transparent'
-                          : 'bg-[#F7F5F0] text-stone-600 border-stone-200'
+                        classForm.category === srv.id ? 'bg-[#5C7362] text-white border-transparent' : 'bg-[#F7F5F0] text-stone-600 border-stone-200'
                       }`}
                     >
-                      {srv.label}
+                      {srv.label} ({srv.defaultCap})
                     </button>
                   ))}
                 </div>
@@ -3787,7 +3356,7 @@ export default function App() {
 
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-medium text-stone-600">Nombre de la Clase / Taller</label>
+                  <label className="block text-xs font-medium text-stone-600">Nombre en grilla</label>
                   <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-stone-500">
                     <input
                       type="checkbox"
@@ -3795,15 +3364,11 @@ export default function App() {
                       onChange={(e) => {
                         const custom = e.target.checked;
                         const srv = services.find((s) => s.id === classForm.category);
-                        setClassForm({
-                          ...classForm,
-                          isCustomTitle: custom,
-                          title: custom ? classForm.title : srv?.label || ''
-                        });
+                        setClassForm({ ...classForm, isCustomTitle: custom, title: custom ? classForm.title : srv?.label || '' });
                       }}
                       className="rounded accent-[#5C7362] w-3.5 h-3.5"
                     />
-                    Personalizar nombre
+                    Personalizar
                   </label>
                 </div>
 
@@ -3811,11 +3376,7 @@ export default function App() {
                   required
                   type="text"
                   disabled={!classForm.isCustomTitle}
-                  value={
-                    classForm.isCustomTitle
-                      ? classForm.title
-                      : services.find((s) => s.id === classForm.category)?.label || ''
-                  }
+                  value={classForm.isCustomTitle ? classForm.title : services.find((s) => s.id === classForm.category)?.label || ''}
                   onChange={(e) => setClassForm({ ...classForm, title: e.target.value })}
                   className={`w-full border border-stone-200 rounded-xl px-3 py-2 text-sm ${
                     !classForm.isCustomTitle ? 'bg-stone-50 text-stone-700 font-medium' : 'bg-white'
@@ -3823,40 +3384,25 @@ export default function App() {
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">Facilitadora</label>
-                <input
-                  required
-                  type="text"
-                  value={classForm.instructor}
-                  onChange={(e) => setClassForm({ ...classForm, instructor: e.target.value })}
-                  className="w-full border border-stone-200 rounded-xl px-3 py-2 bg-stone-50 font-medium"
-                />
-              </div>
-
               {!editingClassId && (
                 <>
                   <div>
                     <label className="block text-xs font-medium text-stone-600 mb-1.5">
-                      Días de la semana (desde {formatDateDDMMYYYY(selectedDate)}):
+                      Días (desde {formatDateDDMMYYYY(selectedDate)}):
                     </label>
                     <div className="grid grid-cols-7 gap-1">
-                      {DAYS_OF_WEEK.map((day) => {
+                      {DAYS_OF_WEEK_ALL.map((day) => {
                         const isSelected = classForm.selectedDays.includes(day.id);
                         return (
                           <button
                             type="button"
                             key={day.id}
                             onClick={() => {
-                              const updated = isSelected
-                                ? classForm.selectedDays.filter((d) => d !== day.id)
-                                : [...classForm.selectedDays, day.id];
+                              const updated = isSelected ? classForm.selectedDays.filter((d) => d !== day.id) : [...classForm.selectedDays, day.id];
                               setClassForm({ ...classForm, selectedDays: updated });
                             }}
                             className={`py-2 rounded-xl text-xs font-medium border text-center transition-all ${
-                              isSelected
-                                ? 'bg-[#5C7362] text-white border-transparent'
-                                : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
+                              isSelected ? 'bg-[#5C7362] text-white border-transparent' : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
                             }`}
                           >
                             {day.short}
@@ -3868,11 +3414,7 @@ export default function App() {
 
                   <div>
                     <label className="block text-xs font-medium text-stone-600 mb-1">Repetición semanal</label>
-                    <select
-                      value={classForm.weeksCount}
-                      onChange={(e) => setClassForm({ ...classForm, weeksCount: Number(e.target.value) })}
-                      className="w-full border border-stone-200 rounded-xl px-3 py-2 bg-white text-sm"
-                    >
+                    <select value={classForm.weeksCount} onChange={(e) => setClassForm({ ...classForm, weeksCount: Number(e.target.value) })} className="w-full border border-stone-200 rounded-xl px-3 py-2 bg-white text-sm">
                       <option value={1}>Solo esta semana (1 semana)</option>
                       <option value={2}>Durante 2 semanas</option>
                       <option value={4}>Durante 4 semanas (1 mes)</option>
@@ -3881,58 +3423,24 @@ export default function App() {
                 </>
               )}
 
-              <div className="grid grid-cols-3 gap-2.5">
+              <div className="grid grid-cols-2 gap-2.5">
                 <div>
                   <label className="block text-xs font-medium text-stone-600 mb-1">Hora</label>
-                  <input
-                    required
-                    type="time"
-                    value={classForm.time}
-                    onChange={(e) => setClassForm({ ...classForm, time: e.target.value })}
-                    className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs"
-                  />
+                  <input required type="time" value={classForm.time} onChange={(e) => setClassForm({ ...classForm, time: e.target.value })} className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-stone-600 mb-1">Duración (min)</label>
-                  <input
-                    required
-                    type="number"
-                    min="15"
-                    max="480"
-                    value={classForm.duration}
-                    onChange={(e) => setClassForm({ ...classForm, duration: e.target.value })}
-                    className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">Cupo</label>
-                  <input
-                    required
-                    type="number"
-                    min="1"
-                    max="60"
-                    value={classForm.capacity}
-                    onChange={(e) => setClassForm({ ...classForm, capacity: e.target.value })}
-                    className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs"
-                  />
+                  <input required type="number" min="15" max="480" value={classForm.duration} onChange={(e) => setClassForm({ ...classForm, duration: e.target.value })} className="w-full border border-stone-200 rounded-xl px-2.5 py-2 text-xs" />
                 </div>
               </div>
 
               <label className="flex items-center gap-2 cursor-pointer bg-amber-50/70 p-2.5 rounded-xl border border-amber-200 text-xs text-amber-900">
-                <input
-                  type="checkbox"
-                  checked={classForm.comingSoon}
-                  onChange={(e) => setClassForm({ ...classForm, comingSoon: e.target.checked })}
-                  className="rounded accent-[#5C7362] w-4 h-4"
-                />
-                Marcar como &ldquo;Próximamente&rdquo; (el alumno la ve pero no puede reservar aún)
+                <input type="checkbox" checked={classForm.comingSoon} onChange={(e) => setClassForm({ ...classForm, comingSoon: e.target.checked })} className="rounded accent-[#5C7362] w-4 h-4" />
+                Marcar como “Próximamente”
               </label>
 
-              <button
-                type="submit"
-                className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2"
-              >
-                {editingClassId ? 'Guardar Cambios' : 'Guardar Horarios'}
+              <button type="submit" className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2">
+                {editingClassId ? 'Guardar Cambios' : 'Guardar Horario'}
               </button>
             </form>
           </div>
@@ -3952,26 +3460,12 @@ export default function App() {
             <form onSubmit={handleSaveStudent} className="space-y-3.5 text-sm">
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">Nombre Completo</label>
-                <input
-                  required
-                  type="text"
-                  placeholder="Ej. María Gómez"
-                  value={studentForm.name}
-                  onChange={(e) => setStudentForm({ ...studentForm, name: e.target.value })}
-                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
-                />
+                <input required type="text" placeholder="Ej. María Gómez" value={studentForm.name} onChange={(e) => setStudentForm({ ...studentForm, name: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
               </div>
 
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">Teléfono WhatsApp</label>
-                <input
-                  required
-                  type="text"
-                  placeholder="Ej. +5491123456789"
-                  value={studentForm.phone}
-                  onChange={(e) => setStudentForm({ ...studentForm, phone: e.target.value })}
-                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
-                />
+                <input required type="text" placeholder="Ej. +5491123456789" value={studentForm.phone} onChange={(e) => setStudentForm({ ...studentForm, phone: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -3981,21 +3475,13 @@ export default function App() {
                     value={studentForm.plan}
                     onChange={(e) => {
                       const chosenPlan = e.target.value;
-                      setStudentForm({
-                        ...studentForm,
-                        plan: chosenPlan,
-                        credits: getDefaultCreditsForPlan(chosenPlan)
-                      });
+                      setStudentForm({ ...studentForm, plan: chosenPlan, credits: getDefaultCreditsForPlan(chosenPlan) });
                     }}
                     className="w-full border border-stone-200 rounded-xl px-3 py-2 bg-white"
                   >
-                    {plans
-                      .filter((p) => !p.comingSoon)
-                      .map((p) => (
-                        <option key={p.id} value={p.name}>
-                          {p.name}
-                        </option>
-                      ))}
+                    {plans.filter((p) => !p.comingSoon).map((p) => (
+                      <option key={p.id} value={p.name}>{p.name}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -4006,13 +3492,7 @@ export default function App() {
                     min="0"
                     max="99"
                     disabled={isUnlimitedPlan(studentForm.plan) || getPlanConfig(studentForm.plan).isNone}
-                    value={
-                      getPlanConfig(studentForm.plan).isNone
-                        ? 0
-                        : isUnlimitedPlan(studentForm.plan)
-                        ? 99
-                        : studentForm.credits
-                    }
+                    value={getPlanConfig(studentForm.plan).isNone ? 0 : isUnlimitedPlan(studentForm.plan) ? 99 : studentForm.credits}
                     onChange={(e) => setStudentForm({ ...studentForm, credits: e.target.value })}
                     className="w-full border border-stone-200 rounded-xl px-3 py-2 disabled:bg-stone-100"
                   />
@@ -4021,11 +3501,7 @@ export default function App() {
 
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">Seguimiento de clases</label>
-                <select
-                  value={studentForm.absenceReason}
-                  onChange={(e) => setStudentForm({ ...studentForm, absenceReason: e.target.value })}
-                  className="w-full border border-stone-200 rounded-xl px-3 py-2 bg-white text-xs"
-                >
+                <select value={studentForm.absenceReason} onChange={(e) => setStudentForm({ ...studentForm, absenceReason: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2 bg-white text-xs">
                   <option value="none">Normal / Activo</option>
                   <option value="vacation_pause">Suspensión por vacaciones</option>
                   <option value="not_renewed">No renovó</option>
@@ -4042,32 +3518,19 @@ export default function App() {
                       value={studentForm.startDate}
                       onChange={(e) => {
                         const nextStart = e.target.value;
-                        setStudentForm({
-                          ...studentForm,
-                          startDate: nextStart,
-                          expiryDate: addDaysToISO(nextStart, 30)
-                        });
+                        setStudentForm({ ...studentForm, startDate: nextStart, expiryDate: addDaysToISO(nextStart, 30) });
                       }}
                       className="w-full border border-stone-200 rounded-xl px-3 py-2"
                     />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-stone-600 mb-1">Fecha de Vencimiento</label>
-                    <input
-                      required
-                      type="date"
-                      value={studentForm.expiryDate}
-                      onChange={(e) => setStudentForm({ ...studentForm, expiryDate: e.target.value })}
-                      className="w-full border border-stone-200 rounded-xl px-3 py-2"
-                    />
+                    <input required type="date" value={studentForm.expiryDate} onChange={(e) => setStudentForm({ ...studentForm, expiryDate: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
                   </div>
                 </div>
               )}
 
-              <button
-                type="submit"
-                className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2"
-              >
+              <button type="submit" className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2">
                 {editingStudentId ? 'Guardar Cambios' : 'Guardar Registro'}
               </button>
             </form>
@@ -4094,11 +3557,7 @@ export default function App() {
                   value={renewDatesForm.startDate}
                   onChange={(e) => {
                     const nextStart = e.target.value;
-                    setRenewDatesForm({
-                      ...renewDatesForm,
-                      startDate: nextStart,
-                      expiryDate: addDaysToISO(nextStart, 30)
-                    });
+                    setRenewDatesForm({ ...renewDatesForm, startDate: nextStart, expiryDate: addDaysToISO(nextStart, 30) });
                   }}
                   className="w-full border border-stone-200 rounded-xl px-3 py-2"
                 />
@@ -4106,29 +3565,15 @@ export default function App() {
 
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">Fecha de Vencimiento</label>
-                <input
-                  required
-                  type="date"
-                  value={renewDatesForm.expiryDate}
-                  onChange={(e) => setRenewDatesForm({ ...renewDatesForm, expiryDate: e.target.value })}
-                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
-                />
+                <input required type="date" value={renewDatesForm.expiryDate} onChange={(e) => setRenewDatesForm({ ...renewDatesForm, expiryDate: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
               </div>
 
               <label className="flex items-center gap-2 cursor-pointer bg-[#F7F5F0] p-2.5 rounded-xl border border-stone-200 text-xs">
-                <input
-                  type="checkbox"
-                  checked={renewDatesForm.resetCredits}
-                  onChange={(e) => setRenewDatesForm({ ...renewDatesForm, resetCredits: e.target.checked })}
-                  className="rounded accent-[#5C7362] w-4 h-4"
-                />
+                <input type="checkbox" checked={renewDatesForm.resetCredits} onChange={(e) => setRenewDatesForm({ ...renewDatesForm, resetCredits: e.target.checked })} className="rounded accent-[#5C7362] w-4 h-4" />
                 Restablecer sesiones del plan al renovar
               </label>
 
-              <button
-                type="submit"
-                className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2"
-              >
+              <button type="submit" className="w-full bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2.5 rounded-xl mt-2">
                 Guardar Renovación / Fechas
               </button>
             </form>
@@ -4146,6 +3591,7 @@ export default function App() {
                 onClick={() => {
                   setShowPlanManagerModal(false);
                   setEditingPlanId(null);
+                  setPlanForm(EMPTY_PLAN_FORM);
                 }}
               >
                 <XCircle className="w-5 h-5 text-stone-400" />
@@ -4155,64 +3601,29 @@ export default function App() {
             <form onSubmit={handleSavePlanDefinition} className="space-y-3 text-sm border-b border-stone-100 pb-4">
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">Nombre del Plan</label>
-                <input
-                  required
-                  type="text"
-                  placeholder="Ej. Mensual - 4 veces por semana"
-                  value={planForm.name}
-                  onChange={(e) => setPlanForm({ ...planForm, name: e.target.value })}
-                  className="w-full border border-stone-200 rounded-xl px-3 py-2"
-                />
+                <input required type="text" placeholder="Ej. Mensual - 4 veces por semana" value={planForm.name} onChange={(e) => setPlanForm({ ...planForm, name: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2" />
               </div>
 
               <div className="grid grid-cols-2 gap-2.5">
                 <div>
                   <label className="block text-xs font-medium text-stone-600 mb-1">Precio ($$)</label>
-                  <input
-                    required={!planForm.comingSoon}
-                    type="number"
-                    min="0"
-                    step="100"
-                    disabled={planForm.comingSoon}
-                    placeholder="Ej. 50000"
-                    value={planForm.comingSoon ? 0 : planForm.price}
-                    onChange={(e) => setPlanForm({ ...planForm, price: e.target.value })}
-                    className="w-full border border-stone-200 rounded-xl px-3 py-2 text-xs disabled:bg-stone-100"
-                  />
+                  <input required={!planForm.comingSoon} type="number" min="0" step="100" disabled={planForm.comingSoon} value={planForm.comingSoon ? 0 : planForm.price} onChange={(e) => setPlanForm({ ...planForm, price: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2 text-xs disabled:bg-stone-100" />
                 </div>
 
                 <div>
                   <label className="block text-xs font-medium text-stone-600 mb-1">Cantidad de clases</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="99"
-                    disabled={planForm.isUnlimited}
-                    value={planForm.isUnlimited ? 99 : planForm.credits}
-                    onChange={(e) => setPlanForm({ ...planForm, credits: e.target.value })}
-                    className="w-full border border-stone-200 rounded-xl px-3 py-2 text-xs disabled:bg-stone-100"
-                  />
+                  <input type="number" min="1" max="99" disabled={planForm.isUnlimited} value={planForm.isUnlimited ? 99 : planForm.credits} onChange={(e) => setPlanForm({ ...planForm, credits: e.target.value })} className="w-full border border-stone-200 rounded-xl px-3 py-2 text-xs disabled:bg-stone-100" />
                 </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-4">
                 <label className="flex items-center gap-2 cursor-pointer text-xs text-stone-700">
-                  <input
-                    type="checkbox"
-                    checked={planForm.isUnlimited}
-                    onChange={(e) => setPlanForm({ ...planForm, isUnlimited: e.target.checked })}
-                    className="rounded accent-[#5C7362] w-4 h-4"
-                  />
+                  <input type="checkbox" checked={planForm.isUnlimited} onChange={(e) => setPlanForm({ ...planForm, isUnlimited: e.target.checked })} className="rounded accent-[#5C7362] w-4 h-4" />
                   Pase Libre
                 </label>
 
                 <label className="flex items-center gap-2 cursor-pointer text-xs text-amber-800 font-medium">
-                  <input
-                    type="checkbox"
-                    checked={planForm.comingSoon}
-                    onChange={(e) => setPlanForm({ ...planForm, comingSoon: e.target.checked })}
-                    className="rounded accent-[#5C7362] w-4 h-4"
-                  />
+                  <input type="checkbox" checked={planForm.comingSoon} onChange={(e) => setPlanForm({ ...planForm, comingSoon: e.target.checked })} className="rounded accent-[#5C7362] w-4 h-4" />
                   Próximamente (sin precio confirmado aún)
                 </label>
               </div>
@@ -4223,54 +3634,36 @@ export default function App() {
                     type="button"
                     onClick={() => {
                       setEditingPlanId(null);
-                      setPlanForm({ name: '', credits: 4, price: 50000, isUnlimited: false, comingSoon: false });
+                      setPlanForm(EMPTY_PLAN_FORM);
                     }}
                     className="px-3 py-2 rounded-xl text-xs font-medium bg-stone-100 text-stone-600"
                   >
                     Cancelar
                   </button>
                 )}
-                <button
-                  type="submit"
-                  className="flex-1 bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2 rounded-xl text-xs"
-                >
+                <button type="submit" className="flex-1 bg-[#5C7362] hover:bg-[#4B5F50] text-white font-medium py-2 rounded-xl text-xs">
                   {editingPlanId ? 'Guardar Plan' : 'Crear y Publicar Plan'}
                 </button>
               </div>
             </form>
 
             <div className="space-y-2">
-              <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider">
-                Todos los planes ({publishedPlansForStudents.length})
-              </p>
+              <p className="text-xs font-semibold text-stone-500 uppercase tracking-wider">Todos los planes ({publishedPlansForStudents.length})</p>
               <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
                 {publishedPlansForStudents.map((p) => (
-                  <div
-                    key={p.id}
-                    className="p-2.5 rounded-xl bg-[#F7F5F0] border border-stone-200/80 flex items-center justify-between gap-2 text-xs"
-                  >
+                  <div key={p.id} className="p-2.5 rounded-xl bg-[#F7F5F0] border border-stone-200/80 flex items-center justify-between gap-2 text-xs">
                     <div>
                       <p className="font-semibold text-[#2D332F]">{p.name}</p>
                       <p className="text-[11px] text-stone-500">
                         {p.isUnlimited ? 'Pase Libre' : `${p.credits} clases`} •{' '}
-                        {p.comingSoon ? (
-                          <strong className="text-amber-700">Próximamente</strong>
-                        ) : (
-                          <strong className="text-[#5C7362]">{formatPriceARS(p.price)}</strong>
-                        )}
+                        {p.comingSoon ? <strong className="text-amber-700">Próximamente</strong> : <strong className="text-[#5C7362]">{formatPriceARS(p.price)}</strong>}
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={() => {
                         setEditingPlanId(p.id);
-                        setPlanForm({
-                          name: p.name,
-                          credits: p.credits,
-                          price: p.price || 0,
-                          isUnlimited: Boolean(p.isUnlimited),
-                          comingSoon: Boolean(p.comingSoon)
-                        });
+                        setPlanForm({ name: p.name, credits: p.credits, price: p.price || 0, isUnlimited: Boolean(p.isUnlimited), comingSoon: Boolean(p.comingSoon) });
                       }}
                       className="p-1.5 text-stone-700 bg-white hover:bg-stone-100 rounded-lg border border-stone-200"
                       title="Editar plan"
