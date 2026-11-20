@@ -39,7 +39,9 @@ import {
   ListPlus,
   History,
   Layers,
-  CopyPlus
+  CopyPlus,
+  Info,
+  BookmarkCheck
 } from 'lucide-react';
 
 const supabase = createClient(
@@ -98,11 +100,6 @@ const DAYS_OF_WEEK_ALL = [
   { id: 5, short: 'Vie' },
   { id: 6, short: 'Sáb' },
   { id: 0, short: 'Dom' }
-];
-
-const MONTH_NAMES = [
-  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
 ];
 
 const EMPTY_SERVICE_FORM = { label: '', pillar: 'cuerpo', isClass: true, defaultCap: 10 };
@@ -167,18 +164,6 @@ const getMondayOfWeek = (cursor) => {
   return d;
 };
 
-const getMonthGridDays = (cursor) => {
-  const year = cursor.getFullYear();
-  const month = cursor.getMonth();
-  const firstDay = new Date(year, month, 1);
-  const lastDay = new Date(year, month + 1, 0);
-  const startOffset = (firstDay.getDay() + 6) % 7;
-  return [
-    ...Array.from({ length: startOffset }, () => null),
-    ...Array.from({ length: lastDay.getDate() }, (_, idx) => new Date(year, month, idx + 1))
-  ];
-};
-
 function SatNamLogo({ className = 'w-11 h-11' }) {
   return (
     <div className={`${className} rounded-2xl bg-[#5C7362] p-1.5 flex items-center justify-center text-white shadow-xs shrink-0`}>
@@ -196,6 +181,7 @@ function SatNamLogo({ className = 'w-11 h-11' }) {
 
 export default function App() {
   const [role, setRole] = useState('student');
+  const [studentSection, setStudentSection] = useState('agenda'); // 'agenda' | 'info'
   const [adminTab, setAdminTab] = useState('schedule');
   const [notification, setNotification] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -226,15 +212,15 @@ export default function App() {
   const todayISO = useMemo(() => toISODate(new Date()), []);
   const [activeStudentId, setActiveStudentId] = useState('');
   const [selectedDate, setSelectedDate] = useState(() => toISODate(new Date()));
-  const [studentCalendarMonth, setStudentCalendarMonth] = useState(() => new Date());
   const [pillarFilter, setPillarFilter] = useState('Todas');
   const [showEditProfileModal, setShowEditProfileModal] = useState(false);
   const [profileForm, setProfileForm] = useState({ name: '', phone: '' });
 
-  const [openStudentAgendaPanel, setOpenStudentAgendaPanel] = useState(true);
-  const [openStudentPlansPanel, setOpenStudentPlansPanel] = useState(false);
-
+  // Grilla semanal compartida y reserva secuencial
   const [weekCursor, setWeekCursor] = useState(() => getMondayOfWeek(new Date()));
+  const [selectedStudentClassIds, setSelectedStudentClassIds] = useState([]);
+  const [bookingSequence, setBookingSequence] = useState(false);
+
   const [selectedSequenceIds, setSelectedSequenceIds] = useState([]);
   const [bulkTimeInput, setBulkTimeInput] = useState('');
   const [repeatingWeek, setRepeatingWeek] = useState(false);
@@ -678,66 +664,128 @@ export default function App() {
     showToast(exists ? 'Saliste de la lista de espera' : 'Te sumaste a la lista de espera');
   };
 
-  const handleToggleBooking = async (classId) => {
-    if (!activeStudent) return showToast('Primero solicita tu alta en el espacio', 'error');
+  // Cancela una reserva existente desde "Tus reservas" o desde la grilla
+  const handleCancelExistingBooking = async (classId) => {
+    if (!activeStudent) return;
     if (!canStudentOperate(activeStudent)) {
       return showToast('Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el espacio para reactivar tu plan.', 'error');
     }
 
-    const classObj = classes.find((c) => c.id === classId);
-    if (!classObj) return;
-    if (isClassComingSoon(classObj)) return showToast('Esta actividad figura como Próximamente y aún no admite reservas.', 'error');
+    const existingBooking = bookings.find((b) => b.classId === classId && b.studentId === activeStudent.id);
+    if (!existingBooking) return;
+
+    const { error } = await supabase.from('bookings').delete().eq('id', existingBooking.id);
+    if (error) return showToast('No se pudo cancelar la reserva', 'error');
+
+    setBookings((prev) => prev.filter((b) => b.id !== existingBooking.id));
+    const nextAtt = { ...attendanceMap };
+    delete nextAtt[existingBooking.id];
+    persistState(setAttendanceMap, 'satnam_attendance_v1', nextAtt);
+
+    await adjustStudentCredits(activeStudent, +1);
+    showToast('Reserva cancelada correctamente');
+  };
+
+  // Reserva una clase individual (validada)
+  const reserveSingleClass = async (classObj, currentStudent, currentCredits) => {
+    if (!currentStudent || !classObj) return { ok: false, reason: 'Sin perfil activo' };
+    if (!canStudentOperate(currentStudent)) {
+      return { ok: false, reason: 'Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el espacio para reactivar tu plan.' };
+    }
+    if (isClassComingSoon(classObj)) return { ok: false, reason: 'Esta actividad figura como Próximamente y aún no admite reservas.' };
 
     const srvObj = services.find((s) => s.id === classObj.category);
-    if ((srvObj ? Boolean(srvObj.isClass) : true) && !hasActiveSubscriptionPlan(activeStudent)) {
-      return showToast('Para reservar clases regulares necesitás un plan activo.', 'error');
+    if ((srvObj ? Boolean(srvObj.isClass) : true) && !hasActiveSubscriptionPlan(currentStudent)) {
+      return { ok: false, reason: 'Para reservar clases regulares necesitás un plan activo.' };
     }
-    if (getVacationForDate(classObj.date)) return showToast('Cerrado por vacaciones en esta fecha.', 'error');
-
-    const existingBooking = bookings.find((b) => b.classId === classId && b.studentId === activeStudent.id);
-
-    if (existingBooking) {
-      const { error } = await supabase.from('bookings').delete().eq('id', existingBooking.id);
-      if (error) return showToast('No se pudo cancelar la reserva', 'error');
-
-      setBookings((prev) => prev.filter((b) => b.id !== existingBooking.id));
-      const nextAtt = { ...attendanceMap };
-      delete nextAtt[existingBooking.id];
-      persistState(setAttendanceMap, 'satnam_attendance_v1', nextAtt);
-
-      await adjustStudentCredits(activeStudent, +1);
-      showToast('Reserva cancelada correctamente');
-      return;
+    if (getVacationForDate(classObj.date)) return { ok: false, reason: 'Cerrado por vacaciones en esta fecha.' };
+    if (isDateBlockedForStudent(currentStudent, classObj.date)) {
+      return { ok: false, reason: 'Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el espacio para reactivar tu plan.' };
     }
+    if (classObj.is_cancelled) return { ok: false, reason: 'Esta clase se encuentra cancelada.' };
 
-    if (isDateBlockedForStudent(activeStudent, classObj.date)) {
-      return showToast('Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el espacio para reactivar tu plan.', 'error');
-    }
-    if (classObj.is_cancelled) return showToast('Esta clase se encuentra cancelada.', 'error');
+    const alreadyBooked = bookings.some((b) => b.classId === classObj.id && b.studentId === currentStudent.id);
+    if (alreadyBooked) return { ok: false, reason: `Ya tenés reservada ${classObj.title}` };
 
-    const classBookingsCount = bookings.filter((b) => b.classId === classId).length;
-    if (classBookingsCount >= classObj.capacity) {
-      return showToast('Clase completa. Puedes sumarte a la lista de espera.', 'error');
-    }
-    if (hasActiveSubscriptionPlan(activeStudent) && !isUnlimitedPlan(activeStudent.plan) && activeStudent.credits <= 0) {
-      return showToast('Sin sesiones disponibles en tu abono. Consulta en recepción.', 'error');
+    const classBookingsCount = bookings.filter((b) => b.classId === classObj.id).length;
+    if (classBookingsCount >= classObj.capacity) return { ok: false, reason: `${classObj.title} está completa` };
+
+    const usesCredits = hasActiveSubscriptionPlan(currentStudent) && !isUnlimitedPlan(currentStudent.plan);
+    if (usesCredits && currentCredits <= 0) {
+      return { ok: false, reason: 'Sin sesiones disponibles en tu abono.' };
     }
 
     const { data, error } = await supabase
       .from('bookings')
-      .insert([{ class_id: classId, student_id: activeStudent.id, attended: false }])
+      .insert([{ class_id: classObj.id, student_id: currentStudent.id, attended: false }])
       .select()
       .single();
 
-    if (error) return showToast('No se pudo realizar la reserva', 'error');
+    if (error) return { ok: false, reason: 'No se pudo realizar la reserva' };
 
     setBookings((prev) => [
       ...prev,
       { id: data.id, classId: data.class_id, studentId: data.student_id, attended: false, attendanceStatus: null }
     ]);
 
-    await adjustStudentCredits(activeStudent, -1);
+    let nextCredits = currentCredits;
+    if (usesCredits) {
+      nextCredits = Math.max(0, currentCredits - 1);
+      await supabase.from('students').update({ credits: nextCredits }).eq('id', currentStudent.id);
+      setStudents((prev) => prev.map((s) => (s.id === currentStudent.id ? { ...s, credits: nextCredits } : s)));
+    }
+
+    return { ok: true, nextCredits };
+  };
+
+  const handleToggleBooking = async (classId) => {
+    if (!activeStudent) return showToast('Primero solicita tu alta en el espacio', 'error');
+    const existing = bookings.find((b) => b.classId === classId && b.studentId === activeStudent.id);
+    if (existing) return handleCancelExistingBooking(classId);
+
+    const classObj = classes.find((c) => c.id === classId);
+    const res = await reserveSingleClass(classObj, activeStudent, Number(activeStudent.credits || 0));
+    if (!res.ok) return showToast(res.reason, 'error');
     showToast(`¡Lugar reservado en ${classObj.title}!`);
+  };
+
+  // Reserva secuencial de múltiples clases seleccionadas en orden cronológico
+  const handleBookSequential = async () => {
+    if (!activeStudent || selectedStudentClassIds.length === 0 || bookingSequence) return;
+    setBookingSequence(true);
+
+    try {
+      const ordered = classes
+        .filter((c) => selectedStudentClassIds.includes(c.id))
+        .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
+
+      let runningCredits = Number(activeStudent.credits || 0);
+      let bookedCount = 0;
+      let firstError = null;
+
+      for (const cls of ordered) {
+        const res = await reserveSingleClass(cls, activeStudent, runningCredits);
+        if (res.ok) {
+          bookedCount += 1;
+          runningCredits = res.nextCredits;
+        } else if (!firstError) {
+          firstError = res.reason;
+        }
+      }
+
+      setSelectedStudentClassIds([]);
+      if (bookedCount > 0) {
+        showToast(
+          bookedCount === 1
+            ? '1 clase reservada en secuencia'
+            : `${bookedCount} clases reservadas en secuencia`
+        );
+      } else if (firstError) {
+        showToast(firstError, 'error');
+      }
+    } finally {
+      setBookingSequence(false);
+    }
   };
 
   const applyAttendanceStatus = async (bookingId, status) => {
@@ -777,7 +825,6 @@ export default function App() {
     e.preventDefault();
     const cleanLabel = serviceForm.label.trim();
     if (!cleanLabel) return;
-
     const baseCap = Math.max(1, Number(serviceForm.defaultCap) || 10);
 
     if (editingServiceId) {
@@ -929,7 +976,7 @@ export default function App() {
     showToast(`Horarios programados (cupo ${savedCap} del servicio)`);
   };
 
-  // Matriz semanal Lunes a Viernes
+  // Grilla semanal compartida
   const weekDaysMonFri = useMemo(() => {
     const monday = getMondayOfWeek(weekCursor);
     return WEEKDAYS_MON_FRI.map((wd, idx) => {
@@ -946,18 +993,40 @@ export default function App() {
       .sort((a, b) => a.time.localeCompare(b.time) || a.date.localeCompare(b.date));
   }, [classes, weekDaysMonFri]);
 
-  // Repite toda la secuencia de la semana actual hacia la semana siguiente
+  const studentWeekClasses = useMemo(() => {
+    return weekClassesMonFri.filter((c) => {
+      if (!studentHasPlan) {
+        const srvObj = services.find((s) => s.id === c.category);
+        if (srvObj?.isClass) return false;
+      }
+      return pillarFilter === 'Todas' || getPillarForCategory(c.category) === pillarFilter;
+    });
+  }, [weekClassesMonFri, studentHasPlan, services, pillarFilter, getPillarForCategory]);
+
+  const matrixTimes = useMemo(() => {
+    const source = role === 'student' ? studentWeekClasses : weekClassesMonFri;
+    return [...new Set(source.map((c) => c.time))].sort();
+  }, [role, studentWeekClasses, weekClassesMonFri]);
+
+  // Reservas del alumno seleccionado en formato listado
+  const activeStudentBookingsList = useMemo(() => {
+    if (!activeStudent) return [];
+    const classById = new Map(classes.map((c) => [c.id, c]));
+    return bookings
+      .filter((b) => b.studentId === activeStudent.id && classById.has(b.classId))
+      .map((b) => ({ booking: b, cls: classById.get(b.classId) }))
+      .filter((item) => pillarFilter === 'Todas' || getPillarForCategory(item.cls.category) === pillarFilter)
+      .sort((a, b) => a.cls.date.localeCompare(b.cls.date) || a.cls.time.localeCompare(b.cls.time));
+  }, [activeStudent, bookings, classes, pillarFilter, getPillarForCategory]);
+
   const handleRepeatNextWeek = async () => {
     if (repeatingWeek) return;
-    if (weekClassesMonFri.length === 0) {
-      return showToast('No hay clases en esta semana para repetir.', 'error');
-    }
+    if (weekClassesMonFri.length === 0) return showToast('No hay clases en esta semana para repetir.', 'error');
 
     setRepeatingWeek(true);
     try {
       const existingSlots = new Set(classes.map((c) => `${c.date}__${c.time}`));
       const itemsToInsert = [];
-      const comingSoonSources = [];
 
       for (const cls of weekClassesMonFri) {
         const nextDate = addDaysToISO(cls.date, 7);
@@ -980,9 +1049,7 @@ export default function App() {
         });
       }
 
-      if (itemsToInsert.length === 0) {
-        return showToast('La semana siguiente ya tiene todos esos horarios cargados.', 'error');
-      }
+      if (itemsToInsert.length === 0) return showToast('La semana siguiente ya tiene todos esos horarios cargados.', 'error');
 
       const { data, error } = await supabase
         .from('classes')
@@ -1309,34 +1376,6 @@ export default function App() {
     );
   };
 
-  const matrixTimes = useMemo(() => {
-    const set = new Set(weekClassesMonFri.map((c) => c.time));
-    return [...set].sort();
-  }, [weekClassesMonFri]);
-
-  const monthDaysStudent = useMemo(() => getMonthGridDays(studentCalendarMonth), [studentCalendarMonth]);
-
-  const studentFilteredClasses = useMemo(() => {
-    const raw = classes
-      .filter((c) => c.date === selectedDate)
-      .filter((c) => {
-        if (!studentHasPlan) {
-          const srvObj = services.find((s) => s.id === c.category);
-          if (srvObj?.isClass) return false;
-        }
-        return pillarFilter === 'Todas' || getPillarForCategory(c.category) === pillarFilter;
-      })
-      .sort((a, b) => a.time.localeCompare(b.time));
-
-    const seen = new Set();
-    return raw.filter((cls) => {
-      const key = `${cls.date}__${cls.time}__${cls.title.toLowerCase().trim()}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  }, [classes, selectedDate, studentHasPlan, services, pillarFilter, getPillarForCategory]);
-
   const dayClassesAdmin = useMemo(
     () => classes.filter((c) => c.date === selectedDate).sort((a, b) => a.time.localeCompare(b.time)),
     [classes, selectedDate]
@@ -1600,15 +1639,31 @@ export default function App() {
         ) : role === 'student' ? (
           /* ================= VISTA ALUMNO ================= */
           <div className="space-y-6">
-            <div className="bg-white/80 rounded-3xl px-5 py-4 border border-stone-200/70">
-              <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
-                Un lugar creado para mejorar tu calidad de vida desde el{' '}
-                <strong className="font-medium text-stone-800">bienestar integral</strong>: Yoga Terapia y
-                Restaurativo, Spinning, Pilates y Circuito, Coaching y PNL para acompañar tus procesos de cambio,
-                Constelaciones, y Estética y Cosmiatría.
-              </p>
+            {/* Subnavegación de Vista Alumno: Agenda vs Información */}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-1.5 bg-white p-1.5 rounded-2xl border border-stone-200/80 shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => setStudentSection('agenda')}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
+                    studentSection === 'agenda' ? 'bg-[#5C7362] text-white shadow-xs' : 'text-stone-600 hover:bg-stone-50'
+                  }`}
+                >
+                  <Calendar className="w-4 h-4" /> Mis Reservas & Grilla
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStudentSection('info')}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
+                    studentSection === 'info' ? 'bg-[#5C7362] text-white shadow-xs' : 'text-stone-600 hover:bg-stone-50'
+                  }`}
+                >
+                  <Info className="w-4 h-4" /> Información
+                </button>
+              </div>
             </div>
 
+            {/* Tarjeta de perfil del alumno */}
             {students.length > 0 && (
               <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-1 h-full bg-[#5C7362]" />
@@ -1624,6 +1679,7 @@ export default function App() {
                         onChange={(e) => {
                           const nextId = e.target.value;
                           setActiveStudentId(nextId);
+                          setSelectedStudentClassIds([]);
                           const chosen = students.find((x) => x.id === nextId);
                           if (chosen && isDateBlockedForStudent(chosen, selectedDate)) setSelectedDate(todayISO);
                         }}
@@ -1671,315 +1727,341 @@ export default function App() {
               </div>
             )}
 
-            {/* Agenda y Reservas */}
-            <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-4">
-              <button
-                type="button"
-                onClick={() => setOpenStudentAgendaPanel((prev) => !prev)}
-                className="w-full text-left flex items-center justify-between gap-3"
-              >
-                <div>
-                  <h2 className="text-xl font-semibold">Agenda y Reservas</h2>
-                  <p className="text-xs sm:text-sm text-stone-500">
-                    Fecha seleccionada: <strong>{formatDateDDMMYYYY(selectedDate)}</strong> • Tocá para expandir o comprimir
-                  </p>
-                </div>
-                <span className="p-2 rounded-xl bg-[#EDF3EE] text-[#5C7362]">
-                  {openStudentAgendaPanel ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                </span>
-              </button>
+            {studentSection === 'agenda' ? (
+              <>
+                {/* 1. "Tus reservas" en formato listado con opción directa de cancelar */}
+                <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <BookmarkCheck className="w-5 h-5 text-[#5C7362]" />
+                      <div>
+                        <h2 className="text-lg font-semibold">Tus reservas</h2>
+                        <p className="text-xs text-stone-500">Listado de turnos reservados • Podés cancelar cualquiera cuando lo necesites</p>
+                      </div>
+                    </div>
+                    <span className="text-xs font-semibold bg-[#EDF3EE] text-[#4C6352] px-3 py-1 rounded-full">
+                      {activeStudentBookingsList.length} {activeStudentBookingsList.length === 1 ? 'reserva' : 'reservas'}
+                    </span>
+                  </div>
 
-              {openStudentAgendaPanel && (
-                <div className="space-y-4 pt-2 border-t border-stone-100">
-                  <div className="bg-[#F7F5F0]/70 rounded-2xl p-3 sm:p-4 border border-stone-200/70 space-y-3">
-                    <div className="flex items-center justify-between">
+                  {activeStudentBookingsList.length === 0 ? (
+                    <div className="bg-[#F7F5F0]/70 rounded-2xl p-6 text-center border border-stone-200/70 text-xs sm:text-sm text-stone-500">
+                      Todavía no tenés reservas activas. Elegí un horario en la <strong>Grilla semanal</strong> de abajo para reservar.
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-stone-100 border border-stone-200/70 rounded-2xl overflow-hidden">
+                      {activeStudentBookingsList.map(({ booking, cls }) => (
+                        <div
+                          key={booking.id}
+                          className="p-3.5 sm:px-4 bg-white hover:bg-[#F7F5F0]/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors"
+                        >
+                          <div className="space-y-0.5">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-xs font-bold text-[#5C7362] bg-[#EDF3EE] px-2.5 py-0.5 rounded-lg">
+                                {formatDateDDMMYYYY(cls.date)} • {cls.time} hs
+                              </span>
+                              <span className="font-semibold text-sm text-[#2D332F]">{cls.title}</span>
+                              {cls.is_cancelled && (
+                                <span className="text-[11px] font-semibold bg-rose-100 text-rose-700 px-2 py-0.5 rounded-lg">
+                                  Cancelada por el estudio
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-stone-500">
+                              {cls.duration} min • Facilitadora: {cls.instructor}
+                            </p>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleCancelExistingBooking(cls.id)}
+                            disabled={!studentAllowed}
+                            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200/80 disabled:opacity-40 disabled:cursor-not-allowed shrink-0 transition-colors"
+                          >
+                            <XCircle className="w-3.5 h-3.5" /> Cancelar reserva
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. "Grilla semanal" invitando a reservar + reserva secuencial */}
+                <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h2 className="text-lg font-semibold">Grilla semanal</h2>
+                      <p className="text-xs sm:text-sm text-stone-500">
+                        Tocá una actividad para reservar o activá <strong>Reserva secuencial</strong> para elegir varios horarios seguidos
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
                       <button
                         type="button"
                         onClick={() => {
-                          const prev = new Date(studentCalendarMonth);
-                          prev.setMonth(prev.getMonth() - 1);
-                          setStudentCalendarMonth(prev);
+                          const prev = new Date(weekCursor);
+                          prev.setDate(prev.getDate() - 7);
+                          setWeekCursor(prev);
                         }}
-                        className="p-1.5 rounded-xl bg-white border border-stone-200 hover:bg-stone-50"
+                        className="p-1.5 rounded-xl border border-stone-200 hover:bg-stone-50"
                       >
                         <ChevronLeft className="w-4 h-4" />
                       </button>
-                      <span className="font-semibold text-sm sm:text-base">
-                        {MONTH_NAMES[studentCalendarMonth.getMonth()]} {studentCalendarMonth.getFullYear()}
+                      <span className="text-xs sm:text-sm font-semibold">
+                        {formatDateDDMMYYYY(weekDaysMonFri[0].iso)} al {formatDateDDMMYYYY(weekDaysMonFri[4].iso)}
                       </span>
                       <button
                         type="button"
                         onClick={() => {
-                          const next = new Date(studentCalendarMonth);
-                          next.setMonth(next.getMonth() + 1);
-                          setStudentCalendarMonth(next);
+                          const next = new Date(weekCursor);
+                          next.setDate(next.getDate() + 7);
+                          setWeekCursor(next);
                         }}
-                        className="p-1.5 rounded-xl bg-white border border-stone-200 hover:bg-stone-50"
+                        className="p-1.5 rounded-xl border border-stone-200 hover:bg-stone-50"
                       >
                         <ChevronRight className="w-4 h-4" />
                       </button>
                     </div>
-
-                    <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold text-stone-400">
-                      <span>Lun</span><span>Mar</span><span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span><span>Dom</span>
-                    </div>
-
-                    <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
-                      {monthDaysStudent.map((dayObj, idx) => {
-                        if (!dayObj) return <div key={`st-empty-${idx}`} className="p-2" />;
-                        const iso = toISODate(dayObj);
-                        const isSelected = iso === selectedDate;
-                        const isVac = Boolean(getVacationForDate(iso));
-                        const isBlocked = isDateBlockedForStudent(activeStudent, iso);
-                        const dayClassesCount = classes.filter((c) => c.date === iso).length;
-
-                        return (
-                          <button
-                            type="button"
-                            key={iso}
-                            onClick={() => {
-                              if (isBlocked) {
-                                return showToast('Tu plan está vencido. No puedes reservar ni cancelar turnos. Comunicate con el espacio para reactivar tu plan.', 'error');
-                              }
-                              setSelectedDate(iso);
-                            }}
-                            className={`p-1.5 sm:p-2 rounded-xl border text-center transition-all flex flex-col items-center justify-center min-h-[54px] ${
-                              isSelected
-                                ? 'bg-[#5C7362] text-white border-[#5C7362]'
-                                : isBlocked
-                                ? 'bg-stone-100/70 text-stone-400 border-stone-200/50'
-                                : isVac
-                                ? 'bg-amber-50 border-amber-200 text-amber-900'
-                                : 'bg-white border-stone-200/80 hover:border-stone-300'
-                            }`}
-                          >
-                            <span className="text-xs sm:text-sm font-semibold">{dayObj.getDate()}</span>
-                            {isVac ? (
-                              <span className="mt-0.5 text-[9px] px-1 rounded-full font-semibold bg-amber-100 text-amber-800">Vac.</span>
-                            ) : (
-                              dayClassesCount > 0 && (
-                                <span
-                                  className={`mt-0.5 text-[10px] px-1.5 rounded-full font-medium ${
-                                    isSelected ? 'bg-white/25 text-white' : 'bg-[#EDF3EE] text-[#4C6352]'
-                                  }`}
-                                >
-                                  {dayClassesCount}
-                                </span>
-                              )
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2">
-                    {PILLARS.map((pil) => (
+                  {/* Filtro por pilar + modo reserva secuencial */}
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {PILLARS.map((pil) => (
+                        <button
+                          type="button"
+                          key={pil.id}
+                          onClick={() => setPillarFilter(pil.id)}
+                          className={`px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all border ${
+                            pillarFilter === pil.id
+                              ? 'bg-[#5C7362] text-white border-transparent shadow-xs'
+                              : 'bg-[#F7F5F0] text-stone-600 border-stone-200/80 hover:border-stone-300'
+                          }`}
+                        >
+                          {pil.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        key={pil.id}
-                        onClick={() => setPillarFilter(pil.id)}
-                        className={`px-4 py-2 rounded-xl text-xs font-medium transition-all border ${
-                          pillarFilter === pil.id
-                            ? 'bg-[#5C7362] text-white border-transparent shadow-xs'
-                            : 'bg-[#F7F5F0] text-stone-600 border-stone-200/80 hover:border-stone-300'
+                        onClick={() => {
+                          setBookingSequence((prev) => !prev);
+                          setSelectedStudentClassIds([]);
+                        }}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+                          bookingSequence
+                            ? 'bg-[#EDF3EE] text-[#4C6352] border-[#5C7362]/40'
+                            : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50'
                         }`}
                       >
-                        {pil.label}
+                        <ListPlus className="w-3.5 h-3.5" />
+                        {bookingSequence ? 'Secuencia activa' : 'Reserva secuencial'}
                       </button>
-                    ))}
+
+                      {bookingSequence && selectedStudentClassIds.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleBookSequential}
+                          disabled={bookingSequence ? !studentAllowed : false}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-[#5C7362] hover:bg-[#4B5F50] text-white shadow-xs"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          Reservar {selectedStudentClassIds.length} en secuencia
+                        </button>
+                      )}
+                    </div>
                   </div>
 
-                  {activeVacationForSelectedDate ? (
-                    <div className="bg-amber-50/60 rounded-2xl p-8 text-center border border-amber-200/90 space-y-2">
-                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
-                        <Palmtree className="w-4 h-4" /> Cerrado por vacaciones
-                      </span>
-                      <p className="text-sm text-stone-600">
-                        El estudio se encuentra <strong>cerrado por vacaciones</strong> del{' '}
-                        <strong>{formatDateDDMMYYYY(activeVacationForSelectedDate.startDate)}</strong> al{' '}
-                        <strong>{formatDateDDMMYYYY(activeVacationForSelectedDate.endDate)}</strong>.
-                      </p>
-                    </div>
-                  ) : studentFilteredClasses.length === 0 ? (
-                    <div className="bg-[#F7F5F0]/60 rounded-2xl p-8 text-center border border-stone-200/70">
-                      <p className="text-stone-500 text-sm">
-                        No hay actividades disponibles para el <strong>{formatDateDDMMYYYY(selectedDate)}</strong> en esta categoría.
-                      </p>
+                  {matrixTimes.length === 0 ? (
+                    <div className="py-8 text-center text-sm text-stone-500 bg-[#F7F5F0]/60 rounded-2xl border border-stone-200/70">
+                      No hay horarios disponibles en esta semana para el filtro seleccionado.
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {studentFilteredClasses.map((cls) => {
-                        const classBookings = bookings.filter((b) => b.classId === cls.id);
-                        const isBooked = activeStudent ? classBookings.some((b) => b.studentId === activeStudent.id) : false;
-                        const isFull = classBookings.length >= cls.capacity;
-                        const onWaitlist = activeStudent ? (waitlistMap[cls.id] || []).includes(activeStudent.id) : false;
-                        const dateBlocked = isDateBlockedForStudent(activeStudent, cls.date);
-                        const comingSoon = isClassComingSoon(cls);
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-separate border-spacing-2 text-center">
+                        <thead>
+                          <tr>
+                            <th className="bg-[#D5DFD8] text-[#2D332F] text-xs font-bold py-2.5 px-3 rounded-full w-24">HORA</th>
+                            {weekDaysMonFri.map((wd) => (
+                              <th key={wd.dayId} className="bg-[#D5DFD8] text-[#2D332F] text-xs font-bold py-2.5 px-2 rounded-full">
+                                <div>{wd.label}</div>
+                                <div className="text-[10px] font-medium text-[#4C6352]">{wd.dateObj.getDate()}/{wd.dateObj.getMonth() + 1}</div>
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {matrixTimes.map((timeSlot) => (
+                            <tr key={timeSlot}>
+                              <td className="bg-[#D5DFD8] text-[#2D332F] text-xs font-bold py-3 px-2 rounded-full align-middle">
+                                {timeSlot}
+                              </td>
+                              {weekDaysMonFri.map((wd) => {
+                                const cellClasses = studentWeekClasses.filter((c) => c.date === wd.iso && c.time === timeSlot);
+                                const isVac = Boolean(getVacationForDate(wd.iso));
 
-                        const srvObj = services.find((s) => s.id === cls.category);
-                        const categoryLabel = (srvObj ? srvObj.label : cls.category || '').trim().toLowerCase();
-                        const hideDuplicateBadge = Boolean(categoryLabel && categoryLabel === (cls.title || '').trim().toLowerCase());
+                                if (isVac) {
+                                  return (
+                                    <td key={wd.iso} className="bg-amber-100/70 text-amber-900 text-[11px] font-semibold rounded-full py-2.5 px-2">
+                                      Vacaciones
+                                    </td>
+                                  );
+                                }
 
-                        return (
-                          <div
-                            key={cls.id}
-                            className={`rounded-3xl p-5 border transition-all flex flex-col justify-between ${
-                              cls.is_cancelled
-                                ? 'border-stone-200 bg-stone-50/70 opacity-80'
-                                : comingSoon
-                                ? 'border-amber-200 bg-amber-50/30'
-                                : isBooked
-                                ? 'border-[#5C7362] ring-1 ring-[#5C7362]/25 bg-white shadow-sm'
-                                : 'border-stone-200/80 bg-white shadow-2xs hover:border-stone-300'
-                            }`}
-                          >
-                            <div>
-                              <div className="flex justify-between items-start gap-2 mb-2.5">
-                                <div>{!hideDuplicateBadge && getCategoryBadge(cls.category)}</div>
-                                {cls.is_cancelled ? (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-rose-100 text-rose-700">
-                                    <Ban className="w-3.5 h-3.5" /> Clase cancelada
-                                  </span>
-                                ) : comingSoon ? (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
-                                    Próximamente
-                                  </span>
-                                ) : (
-                                  isBooked && (
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#5C7362] text-white shadow-xs">
-                                      <CheckCircle2 className="w-3.5 h-3.5" /> Reservado
-                                    </span>
-                                  )
-                                )}
-                              </div>
+                                if (cellClasses.length === 0) {
+                                  return (
+                                    <td key={wd.iso} className="p-0">
+                                      <div className="w-full h-11 rounded-full bg-[#DCE4DF]/40 flex items-center justify-center text-stone-300 text-xs">
+                                        —
+                                      </div>
+                                    </td>
+                                  );
+                                }
 
-                              <h3 className="font-semibold text-lg">{cls.title}</h3>
+                                return (
+                                  <td key={wd.iso} className="p-0">
+                                    <div className="flex flex-col gap-1">
+                                      {cellClasses.map((cls) => {
+                                        const classBookings = bookings.filter((b) => b.classId === cls.id);
+                                        const isBooked = activeStudent ? classBookings.some((b) => b.studentId === activeStudent.id) : false;
+                                        const isFull = classBookings.length >= cls.capacity;
+                                        const onWaitlist = activeStudent ? (waitlistMap[cls.id] || []).includes(activeStudent.id) : false;
+                                        const comingSoon = isClassComingSoon(cls);
+                                        const dateBlocked = isDateBlockedForStudent(activeStudent, cls.date);
+                                        const inSequence = selectedStudentClassIds.includes(cls.id);
+                                        const canBookThis = !cls.is_cancelled && !comingSoon && !isFull && !isBooked && studentAllowed && !dateBlocked;
 
-                              <div className="flex flex-wrap items-center gap-3 text-sm text-stone-600 mt-3">
-                                <span className="flex items-center gap-1.5">
-                                  <Clock className="w-4 h-4 text-[#5C7362]" />
-                                  {cls.time} hs ({cls.duration} min)
-                                </span>
-                                <span className="flex items-center gap-1.5">
-                                  <Users className="w-4 h-4 text-[#5C7362]" />
-                                  {cls.instructor}
-                                </span>
-                              </div>
-                            </div>
+                                        return (
+                                          <button
+                                            type="button"
+                                            key={cls.id}
+                                            onClick={() => {
+                                              if (cls.is_cancelled) return showToast('Esta clase se encuentra cancelada.', 'error');
+                                              if (comingSoon) return showToast('Próximamente: inscripción aún no habilitada.', 'error');
+                                              if (isFull && !isBooked) return handleToggleWaitlist(cls.id);
 
-                            <div className="mt-5 pt-4 border-t border-stone-100 flex items-center justify-between gap-2">
-                              <div>
-                                {cls.is_cancelled ? (
-                                  <span className="text-xs text-stone-500 font-medium">No disponible por hoy</span>
-                                ) : comingSoon ? (
-                                  <span className="text-xs text-amber-800 font-medium">Inscripción aún no habilitada</span>
-                                ) : (
-                                  <span
-                                    className={`text-xs font-medium px-2.5 py-1 rounded-xl ${
-                                      isFull ? 'bg-rose-100/80 text-rose-700' : 'bg-[#EDF3EE] text-[#4C6352]'
-                                    }`}
-                                  >
-                                    {isFull ? 'Clase completa' : 'Cupos disponibles'}
-                                  </span>
-                                )}
-                              </div>
+                                              if (bookingSequence && !isBooked) {
+                                                if (!canBookThis) return showToast('No disponible para reservar en este horario.', 'error');
+                                                setSelectedStudentClassIds((prev) =>
+                                                  prev.includes(cls.id) ? prev.filter((x) => x !== cls.id) : [...prev, cls.id]
+                                                );
+                                                return;
+                                              }
 
-                              {!cls.is_cancelled && (
-                                <div className="flex items-center gap-2">
-                                  {comingSoon ? (
-                                    <button
-                                      type="button"
-                                      disabled
-                                      className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-amber-100/80 text-amber-800 cursor-not-allowed"
-                                    >
-                                      Próximamente
-                                    </button>
-                                  ) : isFull && !isBooked ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleToggleWaitlist(cls.id)}
-                                      disabled={!studentAllowed || dateBlocked}
-                                      className={`inline-flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
-                                        !studentAllowed || dateBlocked
-                                          ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
-                                          : onWaitlist
-                                          ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                                          : 'bg-[#5C7362] hover:bg-[#4B5F50] text-white'
-                                      }`}
-                                    >
-                                      <ListPlus className="w-3.5 h-3.5" />
-                                      {onWaitlist ? 'En lista de espera' : 'Lista de espera'}
-                                    </button>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleToggleBooking(cls.id)}
-                                      disabled={!studentAllowed || (!isBooked && dateBlocked)}
-                                      className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
-                                        !studentAllowed || (!isBooked && dateBlocked)
-                                          ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
-                                          : isBooked
-                                          ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200/80'
-                                          : 'bg-[#5C7362] hover:bg-[#4B5F50] text-white shadow-xs'
-                                      }`}
-                                    >
-                                      {isBooked ? 'Cancelar Reserva' : 'Reservar'}
-                                    </button>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
+                                              handleToggleBooking(cls.id);
+                                            }}
+                                            className={`w-full py-2.5 px-2 rounded-full text-xs font-semibold transition-all truncate flex items-center justify-center gap-1 ${
+                                              cls.is_cancelled
+                                                ? 'bg-rose-100/80 text-rose-700 line-through'
+                                                : isBooked
+                                                ? 'bg-[#5C7362] text-white shadow-xs'
+                                                : inSequence
+                                                ? 'bg-[#2D332F] text-white ring-2 ring-[#5C7362]'
+                                                : comingSoon
+                                                ? 'bg-amber-100 text-amber-900'
+                                                : isFull
+                                                ? 'bg-amber-50 text-amber-900 border border-amber-200'
+                                                : 'bg-[#DCE4DF] hover:bg-[#CAD6CE] text-[#2D332F]'
+                                            }`}
+                                            title={
+                                              isBooked
+                                                ? `${cls.title} (Reservado — tocá para cancelar)`
+                                                : isFull
+                                                ? `${cls.title} (Completa — tocá para lista de espera)`
+                                                : `${cls.title} (${cls.time} hs) — Tocá para reservar`
+                                            }
+                                          >
+                                            {isBooked && <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />}
+                                            <span className="truncate">
+                                              {cls.title}
+                                              {!isBooked && isFull && !cls.is_cancelled && !comingSoon ? ' • Espera' : ''}
+                                            </span>
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   )}
                 </div>
-              )}
-            </div>
-
-            {/* Planes y Precios */}
-            <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-3">
-              <button
-                type="button"
-                onClick={() => setOpenStudentPlansPanel((prev) => !prev)}
-                className="w-full text-left flex items-center justify-between gap-3"
-              >
-                <div>
-                  <h2 className="text-base font-semibold">Planes y Precios</h2>
-                  <p className="text-xs text-stone-500">{publishedPlansForStudents.length} opciones disponibles • Tocá para ver o comprimir</p>
+              </>
+            ) : (
+              /* ================= SECCIÓN "INFORMACIÓN" (CLASES, SERVICIOS Y PRECIOS) ================= */
+              <div className="space-y-6">
+                <div className="bg-white/90 rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-2">
+                  <h2 className="text-xl font-semibold">Información del Estudio</h2>
+                  <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
+                    Un lugar creado para mejorar tu calidad de vida desde el{' '}
+                    <strong className="font-medium text-stone-800">bienestar integral</strong>: Yoga Terapia y
+                    Restaurativo, Spinning, Pilates y Circuito, Coaching y PNL para acompañar tus procesos de cambio,
+                    Constelaciones, y Estética y Cosmiatría.
+                  </p>
                 </div>
-                <span className="p-2 rounded-xl bg-[#EDF3EE] text-[#5C7362]">
-                  {openStudentPlansPanel ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                </span>
-              </button>
 
-              {openStudentPlansPanel && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 pt-2 border-t border-stone-100">
-                  {publishedPlansForStudents.map((p) => (
-                    <div
-                      key={p.id}
-                      className={`p-3 rounded-2xl border flex items-center justify-between gap-2 ${
-                        p.comingSoon ? 'bg-amber-50/40 border-amber-200/80 opacity-90' : 'bg-[#F7F5F0] border-stone-200/80'
-                      }`}
-                    >
-                      <div>
-                        <p className="text-xs font-semibold text-[#2D332F]">{p.name}</p>
-                        <p className="text-[11px] text-stone-500">
-                          {p.isUnlimited ? 'Pase Libre' : `${p.credits} ${p.credits === 1 ? 'sesión' : 'clases'}`}
-                        </p>
+                {/* Clases y Servicios */}
+                <div className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-base font-semibold">Clases y Servicios</h3>
+                    <span className="text-xs text-stone-500">{services.length} disponibles</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    {services.map((srv) => (
+                      <div key={srv.id} className="p-3.5 rounded-2xl bg-[#F7F5F0] border border-stone-200/80 space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          {getCategoryBadge(srv.id)}
+                          <span className="text-[11px] font-medium text-stone-500">
+                            {srv.isClass ? 'Clase grupal' : 'Sesión / Tratamiento'}
+                          </span>
+                        </div>
+                        <p className="text-sm font-semibold text-[#2D332F]">{srv.label}</p>
+                        <p className="text-xs text-stone-500">Cupo hasta {srv.defaultCap} {srv.defaultCap === 1 ? 'persona' : 'personas'}</p>
                       </div>
-                      {p.comingSoon ? (
-                        <span className="text-[11px] font-semibold text-amber-800 bg-amber-100 px-2.5 py-1 rounded-xl shrink-0">Próximamente</span>
-                      ) : (
-                        <span className="text-xs font-bold text-[#5C7362] bg-[#EDF3EE] px-2.5 py-1 rounded-xl shrink-0">{formatPriceARS(p.price)}</span>
-                      )}
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              )}
-            </div>
+
+                {/* Planes y Precios */}
+                <div className="bg-white rounded-3xl p-5 border border-stone-200/70 shadow-2xs space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-base font-semibold">Planes y Precios</h3>
+                    <span className="text-xs text-stone-500">{publishedPlansForStudents.length} opciones</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    {publishedPlansForStudents.map((p) => (
+                      <div
+                        key={p.id}
+                        className={`p-3.5 rounded-2xl border flex items-center justify-between gap-2 ${
+                          p.comingSoon ? 'bg-amber-50/40 border-amber-200/80 opacity-90' : 'bg-[#F7F5F0] border-stone-200/80'
+                        }`}
+                      >
+                        <div>
+                          <p className="text-xs font-semibold text-[#2D332F]">{p.name}</p>
+                          <p className="text-[11px] text-stone-500">
+                            {p.isUnlimited ? 'Pase Libre' : `${p.credits} ${p.credits === 1 ? 'sesión' : 'clases'}`}
+                          </p>
+                        </div>
+                        {p.comingSoon ? (
+                          <span className="text-[11px] font-semibold text-amber-800 bg-amber-100 px-2.5 py-1 rounded-xl shrink-0">Próximamente</span>
+                        ) : (
+                          <span className="text-xs font-bold text-[#5C7362] bg-[#EDF3EE] px-2.5 py-1 rounded-xl shrink-0">{formatPriceARS(p.price)}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           /* ================= MODO ESTUDIO ================= */
@@ -2065,7 +2147,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Navegación semanal y matriz HORA x LUNES-VIERNES */}
                 <div className="bg-white rounded-3xl p-4 sm:p-5 border border-stone-200/70 shadow-2xs space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
